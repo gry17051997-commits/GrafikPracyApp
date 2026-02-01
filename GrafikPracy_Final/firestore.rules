@@ -83,7 +83,7 @@ service cloud.firestore {
     // Legacy monolithic schedule is retained read-only for administrators during migration.
     // New clients must use schedules/{weekId}.
     match /schedules/main {
-      allow read: if isAdmin();
+      allow read: if signedIn();
       allow write: if false;
     }
 
@@ -133,7 +133,8 @@ service cloud.firestore {
     }
 
     match /locationConfig/main {
-      allow read: if activeUser();
+      allow read: if isAdmin()
+        || (signedIn());
       allow write: if isAdmin();
     }
 

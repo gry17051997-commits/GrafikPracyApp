@@ -29,7 +29,7 @@ const webMapSrc=loc=>{
  return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;
 };
 
-export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
+export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser}) {
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
  useSecondTicker(1000);
@@ -37,7 +37,13 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    let unsub=null,configUnsub=null,cancelled=false;
    const subscribe=(cfg={})=>{
      if(unsub) unsub();
-     const requested=idFor(cfg.vehicleId||cfg.registration||vehicleRegistration);
+     const requested=idFor(cfg.vehicleId||cfg.registration);
+     if(!requested) {
+       unsub=null;
+       setLocation(null);
+       setLocationError('Brak centralnego przypisania pojazdu');
+       return;
+     }
      const handleSnapshot=(snap,exactMode=false)=>{
        const rows=exactMode
          ? (snap.exists() ? [{id:snap.id,...snap.data()}] : [])
@@ -48,7 +54,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        const fresh=valid.filter(x=>Date.now()-serverMillis(x.updatedAt)<=180000).sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt));
        const selected=requested ? ((exact&&Date.now()-serverMillis(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt))[0]);
        setLocation(selected||null);
-       setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
+       setLocationError(selected&&Date.now()-serverMillis(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
      };
      const vehicleSource=requested ? doc(db,'vehicleTracking',requested) : collection(db,'vehicleTracking');
      unsub=onSnapshot(vehicleSource,snap=>handleSnapshot(snap,Boolean(requested)),()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
@@ -59,11 +65,11 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
      subscribe(snap.exists()?snap.data()||{}:{});
    },()=>{
      if(cancelled)return;
-     setLocationError('Brak dostępu do konfiguracji lokalizacji');
      subscribe({});
+     setLocationError('Brak dostępu do konfiguracji lokalizacji');
    });
    return()=>{cancelled=true;if(configUnsub)configUnsub();if(unsub)unsub();};
- },[cloudUser?.uid,vehicleRegistration]);
+ },[cloudUser?.uid]);
 
  const info=useMemo(()=>{
    const now=new Date(),base=monday(now),all=[];
@@ -138,4 +144,3 @@ const S=StyleSheet.create({
  smallCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d',flexDirection:'row',alignItems:'center'},smallName:{color:'#fff',fontSize:16,fontWeight:'900'},smallMeta:{color:'#9fa8b8',fontSize:12,marginTop:4},smallShift:{color:'#8fb0ff',fontSize:11,fontWeight:'900'},
  empty:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:16,padding:18,borderWidth:1,borderColor:'#2b313d'},emptyText:{color:'#aeb6c4',fontSize:14},locationCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:18,padding:12,borderWidth:1,borderColor:'#303a4a',marginBottom:12},locationStatus:{color:'#fff',fontSize:16,fontWeight:'900'},locationCoords:{color:'#c7cfdd',fontSize:14,fontWeight:'800',marginTop:5},locationMeta:{color:'#8f99aa',fontSize:12,marginTop:4},miniMap:{height:180,borderRadius:14,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#2b313d',marginTop:10,alignItems:'center',justifyContent:'center'},locationEmpty:{color:'#8f99aa',fontSize:13,textAlign:'center',padding:18}
 });
-

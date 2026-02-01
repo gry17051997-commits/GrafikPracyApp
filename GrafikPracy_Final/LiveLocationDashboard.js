@@ -131,10 +131,10 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       };
 
       configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
-        subscribeVehicle(snap.exists()?snap.data()||{}:{});
+        subscribeVehicle(snap.exists()?snap.data()||{}:{vehicleId:'',registration:''});
       },e=>{
+        subscribeVehicle({vehicleId:'',registration:''});
         setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown'));
-        subscribeVehicle({});
       });
     })();
     return()=>{cancelled=true; if(configUnsub) configUnsub(); if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
@@ -200,4 +200,3 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
 }
 
 const styles={headerTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},error:{color:'#f0b35a',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#141922',borderRadius:20,padding:18,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#141922',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#303a4a',shadowColor:'#000',shadowOpacity:0.12,shadowRadius:8,shadowOffset:{width:0,height:3},elevation:2},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',marginTop:10,borderWidth:1,borderColor:'#5d8ff5'},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#303a4a',alignItems:'center',justifyContent:'center',padding:10}};
-

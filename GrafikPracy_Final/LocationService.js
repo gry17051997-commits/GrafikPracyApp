@@ -11,44 +11,50 @@ export const LOCATION_CURRENT_KEY = 'grafik-pracy-location-current-v1';
 
 export const normalizeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
 
+function snapshotStoredAssignment(source={}) {
+  const config = source && typeof source === 'object' ? source : {};
+  const vehicleId = normalizeVehicleId(config.vehicleId || config.registration || '');
+  const registration = String(config.registration || config.vehicleId || '').trim().toUpperCase();
+  return {enabled: config.enabled === true, vehicleId, registration};
+}
+
 async function getConfig() {
   try {
     const raw = await AsyncStorage.getItem(LOCATION_CONFIG_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch(e) { return {}; }
 }
+
 async function getCentralVehicleAssignment() {
   if (!FIREBASE_ENABLED || !db) return {vehicleId:'',registration:'',exists:false};
   try {
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (!snap.exists()) return {vehicleId:'',registration:'',exists:false};
-    const data=snap.data() || {};
-    const vehicleId=normalizeVehicleId(data.vehicleId || data.registration || '');
-    const registration=String(data.registration || data.vehicleId || '').trim().toUpperCase();
-    return {vehicleId,registration,exists:!!(vehicleId || registration)};
+    const cfg = snapshotStoredAssignment(snap.data() || {});
+    return {vehicleId:cfg.vehicleId,registration:cfg.registration,exists:!!(cfg.vehicleId || cfg.registration)};
   } catch(error) {
     return {vehicleId:'',registration:'',exists:false,error};
   }
 }
 
 async function stopIfCentralAssignmentChanged(localConfig=null) {
-  const cfg=localConfig || await getConfig();
-  const central=await getCentralVehicleAssignment();
+  const cfg = snapshotStoredAssignment(localConfig || await getConfig());
+  const central = await getCentralVehicleAssignment();
   if (!central.exists) {
-    if (cfg.enabled===true) await stopVehicleLocationTracking();
+    if (cfg.enabled) await stopVehicleLocationTracking();
     return {ok:false,reason:'central-assignment-missing'};
   }
-  const localVehicle=normalizeVehicleId(cfg.vehicleId || cfg.registration || '');
-  const localRegistration=String(cfg.registration || cfg.vehicleId || '').trim().toUpperCase();
-  if (central.vehicleId && localVehicle && central.vehicleId !== localVehicle) {
+  if (central.vehicleId && cfg.vehicleId && central.vehicleId !== cfg.vehicleId) {
     await stopVehicleLocationTracking();
-    return {ok:false,reason:'central-assignment-mismatch',expected:central.vehicleId,actual:localVehicle};
+    return {ok:false,reason:'central-assignment-mismatch',expected:central.vehicleId,actual:cfg.vehicleId};
   }
-  if (central.registration && localRegistration && central.registration !== localRegistration) {
+  if (central.registration && cfg.registration && central.registration !== cfg.registration) {
     await stopVehicleLocationTracking();
-    return {ok:false,reason:'central-registration-mismatch',expected:central.registration,actual:localRegistration};
+    return {ok:false,reason:'central-registration-mismatch',expected:central.registration,actual:cfg.registration};
   }
-  return {ok:true,vehicleId:central.vehicleId || localVehicle,registration:central.registration || localRegistration};
+  const vehicleId = central.vehicleId || cfg.vehicleId;
+  const registration = central.registration || cfg.registration;
+  return {ok:true,vehicleId,registration};
 }
 
 function distanceMeters(a,b) {
@@ -130,7 +136,7 @@ async function saveLocationInternal(location) {
       lastError=e;
       if(attempt<2) await new Promise(resolve=>setTimeout(resolve,800*(attempt+1)));
     }
-  }
+  };
   if(!saved) throw lastError || new Error('Nie udało się zapisać pozycji GPS.');
 
   // Bieżąca pozycja jest źródłem prawdy dla podglądu live. Awaria zapisu
@@ -245,14 +251,12 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
 }
 
 export async function stopVehicleLocationTracking() {
-  try {
-    if (Platform.OS!=='web' && await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
-      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-    }
-  } catch(e) {}
+  if (Platform.OS!=='web' && await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
+    await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+  }
   const old=await getConfig();
-  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:false}));
-  try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:false,vehicleId:'',registration:''}));
+  await AsyncStorage.removeItem(LOCATION_CURRENT_KEY);
 }
 
 export async function ensureVehicleLocationTracking() {

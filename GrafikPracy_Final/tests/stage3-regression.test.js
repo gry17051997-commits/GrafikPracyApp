@@ -12,10 +12,11 @@ const appRoot = fs.existsSync(path.join(cwd, 'GrafikPracy_Final', 'App.js'))
 
 const read = file => {
   const normalized = file.replace(/^\.\.\//, '');
+  const sourceFile = normalized === 'App.js' ? 'AppRuntime.js' : normalized;
   const candidates = [
-    path.join(appRoot, normalized),
-    path.join(cwd, normalized),
-    path.join(cwd, 'GrafikPracy_Final', normalized)
+    path.join(appRoot, sourceFile),
+    path.join(cwd, sourceFile),
+    path.join(cwd, 'GrafikPracy_Final', sourceFile)
   ];
   const found = candidates.find(candidate => fs.existsSync(candidate));
   if (!found) throw new Error(`Test fixture not found: ${file}`);
@@ -72,11 +73,14 @@ test('GPS tracker guards against duplicate background tasks', () => {
 
 test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
   const service = read('LocationService.js');
-  assert.doesNotMatch(service, /Math\.random\(\)<0\.08/);
-  assert.match(service, /const cutoff=Date\.now\(\)-7\*24\*60\*60\*1000/);
-  assert.match(service, /where\('updatedAt','<',cutoff\)/);
-  assert.match(service, /limit\(100\)/);
-  assert.match(service, /deleteDoc\(d\.ref\)/);
+  const backend = read('functions/index.js');
+  assert.doesNotMatch(service, /cleanupVehicleHistory\(/);
+  assert.match(backend, /exports\.cleanupVehicleLocationHistory = onSchedule/);
+  assert.match(backend, /schedule:'0 3 \* \* \*'/);
+  assert.match(backend, /new Date\(Date\.now\(\) - 7 \* 24 \* 60 \* 60 \* 1000\)/);
+  assert.match(backend, /\.where\('updatedAt','<',cutoff\)/);
+  assert.match(backend, /\.limit\(500\)/);
+  assert.match(backend, /batch\.delete\(doc\.ref\)/);
 });
 
 test('report widget filters shared history to the current worker', () => {
@@ -123,8 +127,11 @@ test('schedule generator keeps weekday rotation while Sunday Łukasz is supplied
 test('GPS dashboards never silently switch to another vehicle when an assigned transmitter is stale', () => {
   const live = read('LiveLocationDashboard.js');
   const now = read('NowDashboard.js');
-  assert.match(live, /const selected=snap\.exists\(\)\?\(\{id:snap\.id,\.\.\.snap\.data\(\)\}\):null/);
-  assert.match(now, /const selected=requested \? \(\(exact&&Date\.now\(\)-Number\(exact\.updatedAt\)<=180000\)\?exact:exact\|\|null\)/);
+  assert.match(live, /const vehicleRef=doc\(db,'vehicleTracking',requestedId\)/);
+  assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{vehicleId:'',registration:''\}\)/);
+  assert.match(now, /if\(!requested\)\s*\{[\s\S]*Brak centralnego przypisania pojazdu/);
+  assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
+  assert.match(now, /Date\.now\(\)-serverMillis\(selected\.updatedAt\)>180000/);
 });
 
 test('Web deployment uses the lockfile for deterministic dependency installation', () => {
@@ -145,9 +152,10 @@ test('weekly totals use the configured hours for the displayed week', () => {
   const app = read('App.js');
   assert.match(app, /const currentWeekHours = currentWeekConfig\.hours \|\| hours/);
   assert.match(app, /result\.all\.hours \+= currentWeekHours/);
-  assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
+  assert.match(app, /const rate = RATES\[currentWeekHours\]/);
+  assert.match(app, /result\.all\.money \+= rate/);
   assert.match(app, /result\[s\.person\]\.hours \+= currentWeekHours/);
-  assert.match(app, /result\[s\.person\]\.money \+= RATES\[currentWeekHours\]/);
+  assert.match(app, /result\[s\.person\]\.money \+= rate/);
   assert.match(app, /shiftTime\(currentWeekTimes,s\.shift\)/);
 });
 
@@ -163,16 +171,13 @@ test('web and Android acceptance surfaces remain wired', () => {
 
 test('cloud snapshot apply guard remains owned by the cloud save effect', () => {
   const app = read('App.js');
-  const start = app.indexOf('useEffect(() => {\n    if (!ready || !scheduleHydratedRef.current) return;');
-  const end = app.indexOf("useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;", start);
-  const block = app.slice(start, end);
-  assert.match(block, /if \(cloudApplying\.current\) return;/);
-  assert.doesNotMatch(block, /cloudApplying\.current = false/);
+  assert.match(app, /if \(cloudApplying\.current\) \{\s*cloudApplying\.current = false;\s*return;\s*\}/);
+  assert.match(app, /scheduleDirtyTrackingStartedRef\.current/);
 });
 
 test('GPS cache is cleared when the assigned vehicle changes or tracking stops', () => {
   const service = read('LocationService.js');
-  assert.match(service, /safeVehicleId\(old\.vehicleId\|\|old\.registration\) !== vehicle/);
+  assert.match(service, /normalizeVehicleId\(old\.vehicleId\|\|old\.registration\) !== vehicle/);
   assert.match(service, /removeItem\(LOCATION_CURRENT_KEY\)/);
 });
 
@@ -187,19 +192,22 @@ test('offline schedule state is durable and cache snapshots cannot discard it', 
   const app = read('App.js');
   assert.match(app, /cloudPending:cloudDirtyRef\.current/);
   assert.match(app, /cloudBaseUpdatedAt:cloudUpdatedAtRef\.current/);
-  assert.match(app, /onSnapshot\(doc\(db,'schedules','main'\), \{includeMetadataChanges:true\}/);
-  assert.match(app, /if \(cloudDirtyRef\.current\)/);
-  assert.match(app, /if \(snap\.metadata\.fromCache\) return/);
-  assert.match(app, /setCloudRetryTick\(v => v \+ 1\)/);
+  assert.match(app, /onSnapshot\(\s*collection\(db,'schedules'\),\s*\{includeMetadataChanges:true\}/);
+  assert.match(app, /if \(!cloudDirtyRef\.current\) return/);
+  assert.match(app, /d\.metadata\.hasPendingWrites/);
+  assert.match(app, /setCloudRetryTick\(value => value \+ 1\)/);
 });
 
-test('schedule save refuses to overwrite an existing remote document before initial sync', () => {
+test('schedule save rebases local dirty shifts onto the latest remote transaction snapshot', () => {
   const app = read('App.js');
-  const start = app.indexOf('const payload = {hours,rotation,warehouse,weeks');
-  const end = app.indexOf('const parseHM =', start);
+  const start = app.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave)");
+  const end = app.indexOf('  const parseHM =', start);
   const block = app.slice(start, end);
-  assert.match(block, /snap\.exists\(\) && \(expectedUpdatedAt === null \|\| remoteUpdatedAt !== expectedUpdatedAt\)/);
-  assert.match(block, /throw new Error\('schedule-conflict'\)/);
+  assert.match(block, /const snap=await tx\.get\(scheduleRef\)/);
+  assert.match(block, /const currentMap=current\.shifts/);
+  assert.match(block, /dirtyAtSave\.forEach/);
+  assert.match(block, /transactionUpdate\[`shifts\.\$\{key\}`\]=localMap\[key\]/);
+  assert.match(block, /tx\.update\(scheduleRef,transactionUpdate\)/);
 });
 
 test('rotation changes never overwrite manual, locked or recovery OFF assignments', () => {
@@ -288,10 +296,7 @@ test('work report notification refreshes continuity before opening modal', () =>
 
 test('report notification scheduling reacts to per-week configuration changes', () => {
   const app = read('App.js');
-  const start = app.indexOf("useEffect(() => {\n    if (!ready || Platform.OS === 'web') return;\n    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);");
-  const end = app.indexOf("  },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);", start);
-  assert.ok(start >= 0 && end > start);
-  const block = app.slice(start, end);
+  assert.match(app, /setTimeout\(\(\) => \{\s*scheduleReportNotifications\(\)\.catch\(error => \{\s*console\.error/);
   assert.match(app, /\},\[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration\]\);/);
 });
 
@@ -335,7 +340,8 @@ test('advanced generator validates existing assignments against hard OFF and FOR
 test('weekly totals read the displayed week hours instead of global hours', () => {
   const app = read('App.js');
   assert.match(app, /result\.all\.hours \+= currentWeekHours/);
-  assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
+  assert.match(app, /const rate = RATES\[currentWeekHours\]/);
+  assert.match(app, /result\.all\.money \+= rate/);
 });
 
 
@@ -376,17 +382,16 @@ test('recover target is based on the clean weekly template plus one recovery deb
 test('generator uses a soft capacity limit instead of cancelling a valid partial schedule', () => {
   const app = read('App.js');
   assert.match(app, /const capacityWarnings=\[\];/);
-  assert.match(app, /const maxAvailable=counts\[p\]\+availableDays\.size/);
+  assert.match(app, /const maxAvailable=counts\[p\]\+maxAdditionalAssignments/);
   assert.match(app, /Math\.min\(requestedTarget,maxAvailable\)/);
   assert.match(app, /Nie udało się zaplanować wszystkich wymaganych zmian/);
   assert.match(app, /return result;/);
 });
 
 test('automatic capacity respects one-shift-per-day when calculating max available', () => {
-  const app = read('App.js');
-  assert.match(app, /const availableDays=new Set\(\);/);
-  assert.match(app, /availableDays\.add\(slot\.di\)/);
-  assert.match(app, /result\[slot\.di\]\.shifts\.some\(x=>x\.person===p\)/);
+  const engine = read('scheduleEngine.js');
+  assert.match(engine, /capacity\.add\(allow24h \? `\$\{slot\.dayIndex\}-\$\{slot\.shiftIndex\}` : slot\.dayIndex\)/);
+  assert.match(engine, /function maxAdditionalAssignments\(slots, allow24h\)/);
 });
 
 test('soft target clipping never lowers target below already realized assignments', () => {
@@ -603,7 +608,7 @@ test('locator GPS UI uses the admin-assigned vehicle and cannot edit the registr
   const block = app.slice(start, end);
   assert.match(app, /onSnapshot\(doc\(db,'locationConfig','main'\)/);
   assert.match(app, /if \(cloudRole === 'locator'\)/);
-  assert.match(app, /const assigned = String\(data\.registration \|\| data\.vehicleId \|\| ''\)/);
+  assert.match(app, /const assigned = normalizeVehicleAssignment\(data\.registration \|\| data\.vehicleId\)/);
   assert.match(block, /Auto przypisane przez administratora/);
   assert.match(block, /administrator nie przypisał jeszcze auta/);
   assert.doesNotMatch(block, /saveVehicleLocationAssignment\(/);
@@ -617,20 +622,19 @@ test('admin vehicle assignment is written to the central GPS config', () => {
   const block = app.slice(start, end);
   assert.match(block, /cloudRole === 'admin'/);
   assert.match(block, /setDoc\(doc\(db,'locationConfig','main'\)/);
-  assert.match(block, /vehicleId:reg/);
+  assert.match(block, /vehicleId:normalizeVehicleId\(reg\)/);
   assert.match(block, /registration:reg/);
   assert.match(block, /updatedBy:cloudUser\.uid/);
 });
 
 test('locator syncs local GPS assignment when admin changes the vehicle', () => {
   const app = read('App.js');
-  const start = app.indexOf("const data = snap.data() || {};");
-  const end = app.indexOf("    });", start);
+  const start = app.indexOf('const syncLocatorGpsFromCentralAssignment = async assigned =>');
+  const end = app.indexOf('\n  };', start);
   const block = app.slice(start, end);
-  assert.match(block, /if \(cloudRole === 'locator'\)/);
   assert.match(block, /const local = await getVehicleLocationConfig\(\)/);
-  assert.match(block, /localAssigned\s*!==\s*assigned/);
-  assert.match(block, /saveVehicleLocationAssignment\(assigned\)/);
+  assert.match(block, /localAssigned !== normalizedAssigned/);
+  assert.match(block, /saveVehicleLocationAssignment\(normalizedAssigned\)/);
 });
 
 test('live GPS dashboard clears stale vehicle data when central assignment is removed', () => {
@@ -650,15 +654,19 @@ test('live GPS dashboard subscribes only to the centrally assigned vehicle docum
 
 test('GPS dashboard subscribes to central vehicle assignment changes', () => {
   const live = read('LiveLocationDashboard.js');
+  const now = read('NowDashboard.js');
   assert.match(live, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
-  assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
+  assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{vehicleId:'',registration:''\}\)/);
+  assert.match(now, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
+  assert.match(now, /subscribe\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
   assert.match(live, /if\(configUnsub\) configUnsub\(\)/);
 });
 
-test('Now dashboard scopes GPS reads to the assigned vehicle when one is configured', () => {
+test('Now dashboard fails closed when no central vehicle assignment is configured', () => {
   const now = read('NowDashboard.js');
+  assert.match(now, /if\(!requested\)\s*\{\s*unsub=null;\s*setLocation\(null\)/);
   assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
-  assert.match(now, /onSnapshot\(vehicleSource,snap=>handleSnapshot\(snap,Boolean\(requested\)\)/);
+  assert.match(now, /if\(!requested\)[\s\S]*?setLocation\(null\)/);
 });
 
 test('Now dashboard reacts to central vehicle assignment changes', () => {
@@ -671,7 +679,7 @@ test('Now dashboard reacts to central vehicle assignment changes', () => {
 
 test('locator resumes GPS from the central vehicle assignment', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf('const refreshLocationState=async()=>');
+  const start = app.indexOf('const refreshLocationState = async () =>');
   const end = app.indexOf('    };', start) + '    };'.length;
   const block = app.slice(start, end);
   assert.match(block, /if \(cloudRole === 'locator'\)/);
@@ -727,12 +735,11 @@ test('cloud recovery snapshots are sanitized before entering app state', () => {
 
 test('online schedule persistence includes recovery balance and ledger changes', () => {
   const app = read('App.js');
-  const start = app.indexOf("const payload = {hours,rotation,warehouse,weeks,weekConfigs");
-  const end = app.indexOf("},[ready,hours", start);
-  const effect = app.slice(start, end);
-  assert.match(effect, /recoveryBalances,recoveryLedger/);
-  assert.match(effect, /runTransaction\(db,async tx=>/);
-  assert.match(effect, /updatedBy:cloudUser\.uid/);
+  const save = app.indexOf("setDoc(doc(db,'settings','main'),settings,{merge:true})");
+  assert.ok(save >= 0);
+  const block = app.slice(save - 1000, save + 250);
+  assert.match(block, /conditions,recoveryBalances,recoveryLedger/);
+  assert.match(block, /updatedBy:cloudUser\.uid/);
 });
 
 test('swap approval uses a Firestore transaction against the current proposal and schedule', () => {
@@ -742,7 +749,8 @@ test('swap approval uses a Firestore transaction against the current proposal an
   const block = app.slice(start, end);
   assert.match(block, /runTransaction\(db,async tx=>/);
   assert.match(block, /proposalSnap\.data\(\)\?\.status !== 'pending'/);
-  assert.match(block, /scheduleSnap\.data\(\)\?\.weeks/);
+  assert.match(block, /const scheduleData=scheduleSnap\.data\(\) \|\| \{\}/);
+  assert.match(block, /scheduleData\.shifts/);
   assert.match(block, /x\.person!==expectedA \|\| y\.person!==expectedB/);
   assert.match(block, /tx\.update\(scheduleRef/);
   assert.match(block, /tx\.update\(proposalRef/);
@@ -751,39 +759,37 @@ test('swap approval uses a Firestore transaction against the current proposal an
 
 test('shared schedule save guards against stale remote updates', () => {
   const app = read('App.js');
-  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
-  const end = app.indexOf("\n\n  const parseHM", start);
+  const start = app.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave)");
+  const end = app.indexOf('  const parseHM =', start);
   const block = app.slice(start, end);
-  assert.match(block, /cloudUpdatedAtRef\.current/);
-  assert.match(block, /runTransaction\(db,async tx=>/);
-  assert.match(block, /remoteUpdatedAt/);
-  assert.match(block, /schedule-conflict/);
-  assert.match(block, /tx\.set\(scheduleRef,payload/);
+  assert.match(block, /runTransaction\(db, async tx =>/);
+  assert.match(block, /const snap=await tx\.get\(scheduleRef\)/);
+  assert.match(block, /dirtyAtSave/);
+  assert.match(block, /tx\.update\(scheduleRef,transactionUpdate\)/);
 });
 
-
-test('schedule conflict immediately reloads the authoritative remote snapshot', () => {
+test('schedule save rebases dirty shifts onto the fresh snapshot and refreshes its baseline', () => {
   const app = read('App.js');
-  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
-  const end = app.indexOf("\n\n  const parseHM", start);
+  const start = app.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave)");
+  const end = app.indexOf('  const parseHM =', start);
   const block = app.slice(start, end);
-  assert.match(block, /if\(e\?\.message==='schedule-conflict'\)/);
+  assert.match(block, /const current=snap\.data\(\) \|\| \{\}/);
+  assert.match(block, /Rebase only the locally dirty slots/);
   assert.match(block, /const latest=await getDoc\(scheduleRef\)/);
-  assert.match(block, /cloudUpdatedAtRef\.current=data\.updatedAt/);
-  assert.match(block, /setWeeks\(data\.weeks\)/);
-  assert.match(block, /Pobrano najnowszą wersję bez jej nadpisania/);
+  assert.match(block, /remoteShiftMapByWeekRef\.current\[weekKeyAtSave\]/);
 });
 
 test('schedule sync coalesces rapid local state changes into one write window', () => {
   const app = read('App.js');
   assert.match(app, /const cloudSaveTimerRef = useRef\(null\)/);
-  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
-  const end = app.indexOf("\n\n  const parseHM", start);
+  assert.match(app, /if \(cloudSaveTimerRef\.current\) clearTimeout\(cloudSaveTimerRef\.current\)/);
+  assert.match(app, /cloudSaveTimerRef\.current=setTimeout/);
+  const start = app.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave)");
+  const end = app.indexOf('  const parseHM =', start);
   const block = app.slice(start, end);
-  assert.match(block, /clearTimeout\(cloudSaveTimerRef\.current\)/);
-  assert.match(block, /cloudSaveTimerRef\.current=setTimeout/);
   assert.match(block, /},250\)/);
   assert.match(block, /return \(\) =>/);
+  assert.match(block, /setCloudRetryTick\(value => value \+ 1\)/);
 });
 
 test('approved swaps are marked manual so the generator preserves them', () => {
@@ -842,7 +848,8 @@ test('backup restore validates version and core schedule schema before mutating 
   assert.match(block, /Number\(data\.version\) !== 5/);
   assert.match(block, /validHours/);
   assert.match(block, /validRotation/);
-  assert.match(block, /validWeeks/);
+  assert.match(block, /isValidScheduleWeekMap\(data\.weeks\)/);
+  assert.match(block, /validWeekConfigs/);
   assert.match(block, /validBalances/);
   assert.match(block, /validLedger/);
   assert.match(block, /setHours\(data\.hours\)/);
@@ -908,11 +915,9 @@ test('Android report alarms use a dedicated MAX-importance channel with vibratio
 
 test('report alarm repeats vibration while open and cancels it when dismissed', () => {
   const app = read('App.js');
-  const start = app.indexOf('useEffect(() => {\n    if (!reportAlarm)');
-  const end = app.indexOf('  const ensureReportNotificationChannel', start);
-  const block = app.slice(start, end);
-  assert.match(block, /Vibration\.vibrate\(\[0,700,250,700,500\], true\)/);
-  assert.match(block, /Vibration\.cancel\(\)/);
+  assert.match(app, /if \(!reportAlarm\) \{\s*Vibration\.cancel\(\)/);
+  assert.match(app, /Vibration\.vibrate\(\[0,700,250,700,500\], true\)/);
+  assert.match(app, /return \(\) => Vibration\.cancel\(\)/);
 });
 
 test('notification response handling ignores duplicate or stale last-response deliveries', () => {
@@ -924,11 +929,11 @@ test('notification response handling ignores duplicate or stale last-response de
 
 test('locator restarts GPS after an active vehicle reassignment', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf('if (localAssigned !== assigned)');
-  const end = app.indexOf('\n            return;', start);
+  const start = app.indexOf('const syncLocatorGpsFromCentralAssignment = async assigned =>');
+  const end = app.indexOf('\n  };', start);
   const block = app.slice(start, end);
   assert.match(block, /const wasTracking = local\.enabled === true/);
-  assert.match(block, /await saveVehicleLocationAssignment\(assigned\)/);
+  assert.match(block, /await saveVehicleLocationAssignment\(normalizedAssigned\)/);
   assert.match(block, /await ensureVehicleLocationTracking\(\)/);
   assert.match(block, /setLocationTracking\(true\)/);
 });

@@ -31,7 +31,7 @@ import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, deleteField, orderBy, limit, runTransaction} from 'firebase/firestore';
-import {canAssignPersonToDay} from './scheduleEngine';
+import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
@@ -186,6 +186,7 @@ export default function App() {
   const cloudApplying = useRef(false);
   const cloudUpdatedAtRef = useRef(null);
   const cloudSaveTimerRef = useRef(null);
+  const cloudSaveRetryAttemptRef = useRef(0);
   const cloudDirtyRef = useRef(false);
   const scheduleHydratedRef = useRef(false);
   const scheduleDirtyTrackingStartedRef = useRef(false);
@@ -196,6 +197,14 @@ export default function App() {
   const localDirtyShiftKeysRef = useRef({});
   const localDirtyWeekConfigRef = useRef({});
   const weeksRef = useRef({});
+  const localSaveQueueRef = useRef(Promise.resolve());
+  const cloudSettingsApplyingRef = useRef(false);
+  const cloudSettingsDirtyRef = useRef(false);
+  const cloudSettingsDirtyTrackingStartedRef = useRef(false);
+  const settingsHydratedRef = useRef(false);
+  const cloudSettingsRevisionRef = useRef(0);
+  const cloudSettingsSaveTimerRef = useRef(null);
+  const cloudSettingsRetryAttemptRef = useRef(0);
   weeksRef.current = weeks;
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
@@ -205,6 +214,10 @@ export default function App() {
   const [authPassword,setAuthPassword] = useState('');
   const [authBusy,setAuthBusy] = useState(false);
   const [cloudError,setCloudError] = useState('');
+  const [localStorageError,setLocalStorageError] = useState('');
+  const [cloudSettingsReady,setCloudSettingsReady] = useState(false);
+  const [cloudSettingsSnapshotTick,setCloudSettingsSnapshotTick] = useState(0);
+  const [cloudSettingsRetryTick,setCloudSettingsRetryTick] = useState(0);
   const [rememberLogin,setRememberLogin] = useState(true);
   const [reportsEnabled,setReportsEnabled] = useState(true);
   const [vehicleRegistration,setVehicleRegistration] = useState('');
@@ -407,19 +420,79 @@ export default function App() {
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
-    AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
+    localSaveQueueRef.current = localSaveQueueRef.current
+      .then(() => AsyncStorage.setItem(KEY,JSON.stringify(data)))
+      .then(() => setLocalStorageError(''))
+      .catch(error => {
+        console.error('Nie udało się zapisać lokalnego grafiku:', error);
+        setLocalStorageError('Nie udało się zapisać grafiku na tym urządzeniu.');
+      });
   },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+
+  const normalizeVehicleAssignment = value => String(value || '').trim().toUpperCase();
+
+  const refreshLocationState = async () => {
+    try {
+      const c = await getVehicleLocationConfig();
+      if (cloudRole === 'locator') {
+        const result = c.enabled === true
+          ? await ensureVehicleLocationTracking()
+          : await startVehicleLocationTracking({
+              vehicleId: c.vehicleId || vehicleRegistration,
+              registration: c.registration || vehicleRegistration
+            });
+        setLocationTracking(result.ok === true);
+        return;
+      }
+      const active = c.enabled === true && !!c.vehicleId;
+      setLocationTracking(active);
+      if (active && auth?.currentUser?.uid) {
+        const result = await ensureVehicleLocationTracking();
+        if (result.ok && result.restarted) setLocationTracking(true);
+      }
+    } catch (e) {}
+  };
+
+  const syncLocatorGpsFromCentralAssignment = async assigned => {
+    const normalizedAssigned = normalizeVehicleAssignment(assigned);
+    const local = await getVehicleLocationConfig();
+    const localAssigned = normalizeVehicleAssignment(local.registration || local.vehicleId);
+
+    if (!normalizedAssigned) {
+      if (local.enabled === true) {
+        await stopVehicleLocationTracking();
+        setLocationTracking(false);
+      }
+      return;
+    }
+
+    if (localAssigned !== normalizedAssigned) {
+      const wasTracking = local.enabled === true;
+      if (wasTracking) {
+        await stopVehicleLocationTracking();
+        setLocationTracking(false);
+      }
+      await saveVehicleLocationAssignment(normalizedAssigned);
+      if (wasTracking) {
+        const restarted = await ensureVehicleLocationTracking();
+        if (restarted.ok) setLocationTracking(true);
+      }
+      return;
+    }
+
+    if (local.enabled === true) {
+      const result = await ensureVehicleLocationTracking();
+      if (result.ok) setLocationTracking(true);
+    }
+  };
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
-    let mounted=true;
-    const refreshLocationState=async()=>{
+    let mounted = true;
+    const refresh = async () => {
       try {
-        const c=await getVehicleLocationConfig();
+        const c = await getVehicleLocationConfig();
         if (!mounted) return;
-        // Lokalizator może wznowić nadajnik dopiero po odczytaniu centralnego
-        // przypisania pojazdu. Chroni to przed startem GPS na starym aucie
-        // zapisanym lokalnie, zanim Firestore zdąży dostarczyć nowe przypisanie.
         if (cloudRole === 'locator') {
           const result = c.enabled === true
             ? await ensureVehicleLocationTracking()
@@ -427,77 +500,48 @@ export default function App() {
                 vehicleId: c.vehicleId || vehicleRegistration,
                 registration: c.registration || vehicleRegistration
               });
-          if (mounted) setLocationTracking(result.ok === true);
+          setLocationTracking(result.ok === true);
           return;
         }
-        setLocationTracking(c.enabled === true && !!c.vehicleId);
-        if (c.enabled === true && c.vehicleId && auth?.currentUser?.uid) {
-          const result=await ensureVehicleLocationTracking();
+        const active = c.enabled === true && !!c.vehicleId;
+        setLocationTracking(active);
+        if (active && auth?.currentUser?.uid) {
+          const result = await ensureVehicleLocationTracking();
           if (mounted && result.restarted) setLocationTracking(true);
         }
-      } catch(e) {}
+      } catch (e) {}
     };
-    refreshLocationState();
-    const sub=AppState.addEventListener('change',state=>{
-      if(state==='active') refreshLocationState();
+    refresh();
+    const sub = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
     });
-    return ()=>{mounted=false; sub?.remove?.();};
+    return () => { mounted = false; sub?.remove?.(); };
   },[ready,cloudRole,vehicleRegistration]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const unsub = onSnapshot(doc(db,'locationConfig','main'), snap => {
+    const unsub = onSnapshot(doc(db,'locationConfig','main'), async snap => {
       locationConfigLoaded.current = true;
       if (!snap.exists()) {
         if (cloudRole === 'locator') {
           setVehicleRegistration('');
-          (async () => {
-            try {
-              const local = await getVehicleLocationConfig();
-              if (local.enabled === true) {
-                await stopVehicleLocationTracking();
-                setLocationTracking(false);
-              }
-            } catch (e) {}
-          })();
+          try {
+            const local = await getVehicleLocationConfig();
+            if (local.enabled === true || !!(local.vehicleId || local.registration)) {
+              await stopVehicleLocationTracking();
+              await AsyncStorage.removeItem('grafik-pracy-location-current-v1');
+              setLocationTracking(false);
+            }
+          } catch (e) {}
         }
         return;
       }
       const data = snap.data() || {};
       setWarehouseGeo(data.warehouseGeo || {});
       if (cloudRole === 'locator') {
-        const assigned = String(data.registration || data.vehicleId || '').trim().toUpperCase();
+        const assigned = normalizeVehicleAssignment(data.registration || data.vehicleId);
         setVehicleRegistration(assigned);
-        (async () => {
-          try {
-            const local = await getVehicleLocationConfig();
-            const localAssigned = String(local.registration || local.vehicleId || '').trim().toUpperCase();
-            if (!assigned) {
-              if (local.enabled === true) {
-                await stopVehicleLocationTracking();
-                setLocationTracking(false);
-              }
-              return;
-            }
-            if (localAssigned !== assigned) {
-              const wasTracking = local.enabled === true;
-              if (wasTracking) {
-                await stopVehicleLocationTracking();
-                setLocationTracking(false);
-              }
-              await saveVehicleLocationAssignment(assigned);
-              if (wasTracking) {
-                const restarted = await ensureVehicleLocationTracking();
-                if (restarted.ok) setLocationTracking(true);
-              }
-              return;
-            }
-            if (local.enabled === true) {
-              const result = await ensureVehicleLocationTracking();
-              if (result.ok) setLocationTracking(true);
-            }
-          } catch (e) {}
-        })();
+        syncLocatorGpsFromCentralAssignment(assigned).catch(() => {});
       }
     });
     return () => unsub();
@@ -529,8 +573,16 @@ export default function App() {
       }
 
       if (!user) {
-        try { await stopVehicleLocationTracking(); } catch(e) {}
-        setLocationTracking(false);
+        try {
+          await stopVehicleLocationTracking();
+          setVehicleRegistration('');
+          await AsyncStorage.removeItem(LOCATION_CONFIG_KEY);
+          await AsyncStorage.removeItem('grafik-pracy-location-current-v1');
+          setLocationTracking(false);
+        } catch(error) {
+          console.error('Nie udało się zatrzymać nadajnika GPS po utracie logowania:', error);
+          setCloudError('Nie udało się zatrzymać nadajnika GPS. Sprawdź stan lokalizacji urządzenia.');
+        }
         setCloudRole('employee');
         setCloudReady(true);
         return;
@@ -758,9 +810,15 @@ export default function App() {
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
     const unsub = onSnapshot(doc(db,'settings','main'), snap => {
-      if (!snap.exists() || cloudDirtyRef.current) return;
+      if (snap.metadata.hasPendingWrites || cloudSettingsDirtyRef.current) return;
+      if (!snap.exists()) {
+        settingsHydratedRef.current = true;
+        setCloudSettingsReady(true);
+        setCloudSettingsSnapshotTick(value => value + 1);
+        return;
+      }
       const data = snap.data() || {};
-      cloudApplying.current = true;
+      cloudSettingsApplyingRef.current = true;
       if (data.hours) setHours(data.hours);
       if (data.rotation) setRotation(data.rotation);
       if (data.warehouse) setWarehouse(data.warehouse);
@@ -771,9 +829,70 @@ export default function App() {
       if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
       if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+      settingsHydratedRef.current = true;
+      setCloudSettingsReady(true);
+      setCloudSettingsSnapshotTick(value => value + 1);
     }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
     return unsub;
   },[cloudUser,guestMode]);
+
+  useEffect(() => {
+    if (!ready || !cloudSettingsReady || !settingsHydratedRef.current) return;
+    if (cloudSettingsApplyingRef.current) {
+      cloudSettingsApplyingRef.current = false;
+      cloudSettingsDirtyTrackingStartedRef.current = true;
+      return;
+    }
+    if (!cloudSettingsDirtyTrackingStartedRef.current) {
+      cloudSettingsDirtyTrackingStartedRef.current = true;
+      return;
+    }
+    cloudSettingsDirtyRef.current = true;
+    cloudSettingsRevisionRef.current += 1;
+  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
+      || !cloudSettingsReady || !cloudSettingsDirtyRef.current) return;
+
+    if (cloudSettingsSaveTimerRef.current) clearTimeout(cloudSettingsSaveTimerRef.current);
+    cloudSettingsSaveTimerRef.current = setTimeout(async () => {
+      const revision = cloudSettingsRevisionRef.current;
+      const settings = {
+        hours,rotation,warehouse,autoGenerateWeeks,allow24h,
+        times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
+        personColors,
+        conditions,recoveryBalances,recoveryLedger,
+        updatedAt:serverTimestamp(),
+        updatedBy:cloudUser.uid
+      };
+      try {
+        await setDoc(doc(db,'settings','main'),settings,{merge:true});
+        cloudSettingsRetryAttemptRef.current = 0;
+        if (revision === cloudSettingsRevisionRef.current) {
+          cloudSettingsDirtyRef.current = false;
+        } else {
+          setCloudSettingsRetryTick(value => value + 1);
+        }
+      } catch (error) {
+        console.error('Nie udało się zapisać wspólnych ustawień grafiku:', error);
+        setCloudError('Nie udało się zapisać wspólnych ustawień. Kod: ' + (error?.code || 'unknown'));
+        const delay = Math.min(30000,1000 * (2 ** Math.min(cloudSettingsRetryAttemptRef.current,5)));
+        cloudSettingsRetryAttemptRef.current += 1;
+        cloudSettingsSaveTimerRef.current = setTimeout(
+          () => setCloudSettingsRetryTick(value => value + 1),
+          delay
+        );
+      }
+    },250);
+
+    return () => {
+      if (cloudSettingsSaveTimerRef.current) {
+        clearTimeout(cloudSettingsSaveTimerRef.current);
+        cloudSettingsSaveTimerRef.current = null;
+      }
+    };
+  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
@@ -910,8 +1029,12 @@ export default function App() {
         cloudDirtyRef.current=
           Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
           || Object.keys(localDirtyWeekConfigRef.current).length > 0;
+        cloudSaveRetryAttemptRef.current = 0;
       } catch(e) {
         setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+        const delay = Math.min(30000,1000 * (2 ** Math.min(cloudSaveRetryAttemptRef.current,5)));
+        cloudSaveRetryAttemptRef.current += 1;
+        cloudSaveTimerRef.current = setTimeout(() => setCloudRetryTick(value => value + 1),delay);
       }
     },250);
 
@@ -921,7 +1044,7 @@ export default function App() {
         cloudSaveTimerRef.current=null;
       }
     };
-  },[ready,wkKey,weeks,weekConfigs,hours,rotation,warehouse,times,cloudUser,cloudRole]);
+  },[ready,wkKey,weeks,weekConfigs,hours,rotation,warehouse,times,cloudUser,cloudRole,cloudRetryTick]);
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
@@ -1140,10 +1263,15 @@ export default function App() {
   };
 
   const cancelReportNotifications = async () => {
-    // AsyncStorage is only a recovery/audit record. The OS scheduler is authoritative.
-    // Clear all scheduled notifications before rebuilding the report schedule so a
-    // killed process cannot leave orphaned alarms from an older shift plan.
-    try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch(e) {}
+    if (Platform.OS !== 'web') {
+      const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+      const reportNotifications = scheduled.filter(
+        item => item.content?.data?.type === 'work-report'
+      );
+      await Promise.all(reportNotifications.map(
+        item => Notifications.cancelScheduledNotificationAsync(item.identifier)
+      ));
+    }
     await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
   };
 
@@ -1253,7 +1381,11 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
-    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);
+    const timer = setTimeout(() => {
+      scheduleReportNotifications().catch(error => {
+        console.error('Nie udało się zaplanować alarmów raportu:', error);
+      });
+    }, 800);
     return () => clearTimeout(timer);
   },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);
 
@@ -1291,9 +1423,9 @@ export default function App() {
 
   const cloudLogout = async () => {
     try {
+      await stopVehicleLocationTracking();
       await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'0');
       setRememberLogin(false);
-      try { await stopVehicleLocationTracking(); } catch(e) {}
       await signOut(auth);
     } catch(e) {
       setCloudError('Nie udało się bezpiecznie wylogować. Spróbuj ponownie.');
@@ -1442,23 +1574,27 @@ export default function App() {
     result.forEach(d=>d.shifts.forEach(s=>{if(s.person) counts[s.person]++;}));
 
     // Determine the physical capacity for each person before filling.
-    // One employee can receive at most one automatically generated shift per day.
+    // One employee can receive at most one automatically generated shift per day
+    // unless the explicit 24h option allows both shifts.
     // Existing manual/locked/past assignments count toward the target, while only
     // legal, still-open days contribute additional automatic capacity.
     const capacityWarnings=[];
     const effectiveTargets={...targets};
     PERSON_KEYS.forEach(p=>{
-      const availableDays=new Set();
-      for (const slot of slots) {
-        const slotState=result[slot.di].shifts[slot.si];
-        if (slotState.person) continue;
-        if (!canAssignPersonToDay(result[slot.di].shifts,p,allow24h)) continue;
-        if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,slot.di,slot.si))) continue;
-        if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,slot.di,slot.si))) continue;
-        if (slot.offOriginalPerson && p===slot.offOriginalPerson) continue;
-        availableDays.add(slot.di);
-      }
-      const maxAvailable=counts[p]+availableDays.size;
+      const availableSlots=slots.filter(slot=>{
+        const {di,si}=slot;
+        const slotState=result[di].shifts[si];
+        if (slotState.person) return false;
+        if (!canAssignPersonToDay(result[di].shifts,p,allow24h)) return false;
+        if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,di,si))) return false;
+        if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,di,si))) return false;
+        if (slot.offOriginalPerson && p===slot.offOriginalPerson) return false;
+        return true;
+      });
+      const maxAvailable=counts[p]+maxAdditionalAssignments(
+        availableSlots.map(slot=>({dayIndex:slot.di,shiftIndex:slot.si})),
+        allow24h
+      );
       const requestedTarget=targets[p];
       if(requestedTarget!==null && requestedTarget>maxAvailable){
         effectiveTargets[p]=Math.max(counts[p],Math.min(requestedTarget,maxAvailable));
@@ -1470,7 +1606,9 @@ export default function App() {
       }
     });
 
-    // Fill remaining slots using target counts, respecting hard prohibitions.
+    // Fill remaining slots using the effective targets, respecting soft capacity
+    // limits and hard prohibitions. The clipped value is the real plan target; the
+    // raw target is only an upper bound for the weekly demand model.
     for (const slot of slots) {
       const s=result[slot.di].shifts[slot.si];
       if (s.person) continue;
@@ -1479,7 +1617,8 @@ export default function App() {
         if(conditions.some(c=>c.type==='forbid' && conditionApplies(c,person,slot.di,slot.si))) return false;
         // Never send the employee back onto the exact OFF vacancy they created.
         if(slot.offOriginalPerson && person === slot.offOriginalPerson) return false;
-        if(targets[person]!==null && counts[person]>=targets[person]) return false;
+        const effectiveTarget = effectiveTargets[person] ?? targets[person];
+        if(effectiveTarget !== null && counts[person] >= effectiveTarget) return false;
         // Don't put the same person twice in a day unless explicitly forced.
         if(!canAssignPersonToDay(result[slot.di].shifts,person,allow24h)) return false;
         return true;
@@ -1874,8 +2013,15 @@ export default function App() {
     Alert.alert('Wyczyścić dane?','Usunie zapisane grafiki i ustawienia tej aplikacji.',[
       {text:'Anuluj',style:'cancel'},
       {text:'Wyczyść',style:'destructive',onPress:async()=>{
-        if (locationTracking || cloudRole === 'locator') {
-          try { await stopVehicleLocationTracking(); } catch (e) {}
+        try {
+          if (locationTracking || cloudRole === 'locator') {
+            await stopVehicleLocationTracking();
+          }
+          await cancelReportNotifications();
+        } catch (error) {
+          console.error('Nie udało się zatrzymać usług przed resetem danych:', error);
+          Alert.alert('Nie wyczyszczono danych','Nie udało się bezpiecznie zatrzymać GPS lub powiadomień. Spróbuj ponownie.');
+          return;
         }
         await Promise.all([
           AsyncStorage.removeItem(KEY),
@@ -1921,7 +2067,7 @@ export default function App() {
     app:'Grafik Pracy',
     version:5,
     exportedAt:new Date().toISOString(),
-    hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,
+    hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,
     times,personColors,conditions,proposals,myPerson,
     vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
     recoveryBalances,recoveryLedger,chatMessages
@@ -1945,7 +2091,16 @@ export default function App() {
       const data = JSON.parse(backupText);
       const validHours = value => value === 10 || value === 12;
       const validRotation = value => value === 'P' || value === 'M';
-      const validWeeks = value => value && typeof value === 'object' && !Array.isArray(value);
+      const validWeekConfigs = value => isValidWeekIdMap(value) && Object.entries(value).every(([key,config]) => (
+        config && typeof config === 'object' && !Array.isArray(config)
+        && (config.hours === undefined || validHours(config.hours))
+        && (config.rotation === undefined || validRotation(config.rotation))
+        && (config.warehouse === undefined || typeof config.warehouse === 'string')
+        && (config.times === undefined || (
+          config.times && typeof config.times === 'object' && !Array.isArray(config.times)
+          && ['s1','e1','s2','e2'].every(field => typeof config.times[field] === 'string' && /^\d{2}:\d{2}$/.test(config.times[field]))
+        ))
+      ));
       const validBalances = value => value && typeof value === 'object'
         && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
       const validLedger = value => Array.isArray(value) && value.length <= 500
@@ -1956,7 +2111,7 @@ export default function App() {
           && typeof entry.reason === 'string'
           && String(entry.id || '').length > 0);
       if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
-      if (!validHours(data.hours) || !validRotation(data.rotation) || !validWeeks(data.weeks) || !validWeeks(data.weekConfigs || {}) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
         throw new Error('bad-schema');
       }
       setHours(data.hours);
@@ -1965,6 +2120,7 @@ export default function App() {
       setWeeks(data.weeks || {});
       setWeekConfigs(data.weekConfigs || {});
       setAutoGenerateWeeks(!!data.autoGenerateWeeks);
+      setAllow24h(data.allow24h === true);
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
@@ -2961,6 +3117,7 @@ export default function App() {
               <Text style={S.optionText}>Zapamiętaj mnie na tym urządzeniu</Text>
             </TouchableOpacity>
             {!!cloudError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{cloudError}</Text>}
+            {!!localStorageError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{localStorageError}</Text>}
             <TouchableOpacity style={S.closeBtn} disabled={authBusy} onPress={cloudLogin}><Text style={S.btnText}>{authBusy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
             <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{setGuestMode(true);setTab('teraz')}}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>
           </View>
@@ -2985,6 +3142,7 @@ export default function App() {
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
+          {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
