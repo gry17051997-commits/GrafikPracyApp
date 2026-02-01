@@ -11,9 +11,14 @@ export const LOCATION_CURRENT_KEY = 'grafik-pracy-location-current-v1';
 
 export const normalizeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
 
+function normalizeAssignedVehicleId(value) {
+  const raw = String(value || '').trim();
+  return raw ? normalizeVehicleId(raw) : '';
+}
+
 function snapshotStoredAssignment(source={}) {
   const config = source && typeof source === 'object' ? source : {};
-  const vehicleId = normalizeVehicleId(config.vehicleId || config.registration || '');
+  const vehicleId = normalizeAssignedVehicleId(config.vehicleId || config.registration);
   const registration = String(config.registration || config.vehicleId || '').trim().toUpperCase();
   return {enabled: config.enabled === true, vehicleId, registration};
 }
@@ -209,15 +214,15 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (snap.exists()) {
       const data=snap.data()||{};
-      centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
+      centralVehicleId=normalizeAssignedVehicleId(data.vehicleId||data.registration);
       centralRegistration=String(data.registration||data.vehicleId||'').trim().toUpperCase();
     }
   } catch(e) {
     return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
   }
 
-  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
-  const vehicle=centralVehicleId||requestedVehicle;
+  const requestedVehicle=normalizeAssignedVehicleId(vehicleId||registration);
+  const vehicle=centralVehicleId;
   if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
   if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {
     return {ok:false,reason:'vehicle-assignment-mismatch',expected:centralVehicleId,requested:requestedVehicle};

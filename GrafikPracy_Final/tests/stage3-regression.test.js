@@ -934,8 +934,8 @@ test('locator restarts GPS after an active vehicle reassignment', () => {
   const block = app.slice(start, end);
   assert.match(block, /const wasTracking = local\.enabled === true/);
   assert.match(block, /await saveVehicleLocationAssignment\(normalizedAssigned\)/);
-  assert.match(block, /await ensureVehicleLocationTracking\(\)/);
-  assert.match(block, /setLocationTracking\(true\)/);
+  assert.match(block, /const restarted = await startVehicleLocationTracking\(\{\s*vehicleId: normalizedAssigned,\s*registration: normalizedAssigned\s*\}\)/);
+  assert.match(block, /setLocationTracking\(restarted\.ok === true\)/);
 });
 
 test('live GPS cache is not blocked by history write failure', () => {

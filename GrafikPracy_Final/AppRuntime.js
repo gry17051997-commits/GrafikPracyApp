@@ -474,8 +474,14 @@ export default function App() {
       }
       await saveVehicleLocationAssignment(normalizedAssigned);
       if (wasTracking) {
-        const restarted = await ensureVehicleLocationTracking();
-        if (restarted.ok) setLocationTracking(true);
+        const restarted = await startVehicleLocationTracking({
+          vehicleId: normalizedAssigned,
+          registration: normalizedAssigned
+        });
+        setLocationTracking(restarted.ok === true);
+        if (!restarted.ok) {
+          setCloudError('Nie udało się wznowić nadajnika GPS po zmianie przypisanego pojazdu.');
+        }
       }
       return;
     }
@@ -541,7 +547,10 @@ export default function App() {
       if (cloudRole === 'locator') {
         const assigned = normalizeVehicleAssignment(data.registration || data.vehicleId);
         setVehicleRegistration(assigned);
-        syncLocatorGpsFromCentralAssignment(assigned).catch(() => {});
+        syncLocatorGpsFromCentralAssignment(assigned).catch(error => {
+          console.error('Nie udało się zsynchronizować przypisania GPS:', error);
+          setCloudError('Nie udało się zsynchronizować przypisania GPS. Kod: ' + (error?.code || 'unknown'));
+        });
       }
     });
     return () => unsub();
