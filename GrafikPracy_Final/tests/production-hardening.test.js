@@ -238,3 +238,11 @@ test('GPS assignment parsing keeps an empty central assignment empty and require
   assert.match(service, /const vehicle=centralVehicleId;/);
   assert.match(service, /if \(!vehicle\) return \{ok:false,reason:'vehicle-assignment'\}/);
 });
+
+test('App.js stays a thin wrapper and cannot substitute static runtime fixtures', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../App.js', import.meta.url), 'utf8');
+  assert.match(app, /import AppRuntime from '\.\/AppRuntime'/);
+  assert.match(app, /return <AppRuntime \/>/);
+  assert.doesNotMatch(app, /export const/);
+});
