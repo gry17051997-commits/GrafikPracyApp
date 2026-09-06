@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Grafik Pracy",
+    "slug": "grafik-pracy",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "pl.grafikpracy.app",
+      "versionCode": 1
+    },
+    "extra": {
+      "eas": {
+        "projectId": "6a9dcf19-7508-4f7b-b28b-dde261a5628d"
+      }
+    },
+    "owner": "kafel17"
+  }
+}
