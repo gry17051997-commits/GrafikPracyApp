@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   SafeAreaView,
   View,
@@ -11,9 +11,13 @@ import {
   Modal,
   ImageBackground,
   Share,
-  Platform
+  Platform,
+  Dimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Sharing from 'expo-sharing';
+import * as Print from 'expo-print';
+import {captureRef} from 'react-native-view-shot';
 
 const KEY = 'grafik-pracy-v2';
 const PEOPLE = {
@@ -114,6 +118,9 @@ export default function App() {
   const [backupModal,setBackupModal] = useState(false);
   const [backupText,setBackupText] = useState('');
   const [dark,setDark] = useState(true);
+  const [viewMode,setViewMode] = useState('cards');
+  const [exportModal,setExportModal] = useState(false);
+  const exportRef = useRef(null);
 
   const wkKey = iso(weekStart);
   const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);
@@ -327,6 +334,81 @@ export default function App() {
     }
   };
 
+  const shareFile = async (uri, mimeType, title) => {
+    try {
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        Alert.alert('Udostępnianie niedostępne','Na tym urządzeniu nie można otworzyć menu udostępniania.');
+        return;
+      }
+      await Sharing.shareAsync(uri, {mimeType, dialogTitle:title});
+    } catch(e) {
+      Alert.alert('Błąd','Nie udało się udostępnić pliku.');
+    }
+  };
+
+  const exportJpg = async () => {
+    try {
+      if (!exportRef.current) return;
+      const uri = await captureRef(exportRef, {
+        format:'jpg',
+        quality:0.95,
+        result:'tmpfile',
+        width:Math.min(Dimensions.get('window').width * 3, 1440)
+      });
+      await shareFile(uri, 'image/jpeg', 'Udostępnij grafik JPG');
+    } catch(e) {
+      console.log(e);
+      Alert.alert('Błąd','Nie udało się przygotować grafiku JPG.');
+    }
+  };
+
+  const escapeHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
+
+  const exportPdf = async () => {
+    try {
+      const rows = currentWeek.map((d,i) => {
+        const date = addDays(weekStart,i);
+        const a = d.shifts[0];
+        const b = d.shifts[1];
+        const person = s => s?.person ? PEOPLE[s.person]?.name : 'WOLNA';
+        const wh = s => s?.warehouse || d.warehouse || warehouse;
+        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td><td><b>${escapeHtml(person(a))}</b><br>${escapeHtml(wh(a))}<br>${escapeHtml(shiftTime(times,1))}</td><td><b>${escapeHtml(person(b))}</b><br>${escapeHtml(wh(b))}<br>${escapeHtml(shiftTime(times,2))}</td></tr>`;
+      }).join('');
+      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff;font-size:12px}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${hours} h · ${escapeHtml(warehouse)}</p><table><thead><tr><th>Dzień</th><th>Zmiana I · ${escapeHtml(shiftTime(times,1))}</th><th>Zmiana II · ${escapeHtml(shiftTime(times,2))}</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+      const {uri} = await Print.printToFileAsync({html,width:842,height:595});
+      await shareFile(uri, 'application/pdf', 'Udostępnij grafik PDF');
+    } catch(e) {
+      console.log(e);
+      Alert.alert('Błąd','Nie udało się przygotować grafiku PDF.');
+    }
+  };
+
+  const compactTable = (forExport=false) => (
+    <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
+      <View style={S.tableTitleRow}>
+        <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {hours} h</Text></View>
+        <Text style={S.tableWarehouse}>{warehouse}</Text>
+      </View>
+      <View style={S.tableHeader}>
+        <Text style={[S.tableCell,S.tableDayCell,S.tableHead]}>Dzień</Text>
+        <Text style={[S.tableCell,S.tableShiftCell,S.tableHead]}>I</Text>
+        <Text style={[S.tableCell,S.tableShiftCell,S.tableHead]}>II</Text>
+      </View>
+      {currentWeek.map((d,i) => {
+        const date = addDays(weekStart,i);
+        return <View key={d.dayIndex} style={S.tableRow}>
+          <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
+          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift]}>
+            <Text style={S.tablePerson}>{sh.person ? PEOPLE[sh.person].name : 'WOLNA'}</Text>
+            <Text style={S.tableMeta}>{sh.warehouse || d.warehouse || warehouse}</Text>
+            <Text style={S.tableMeta}>{shiftTime(times,si+1)}</Text>
+          </TouchableOpacity>; })}
+        </View>;
+      })}
+    </View>
+  );
+
   const savePin = () => {
     if (pinEnabled && pinEntry.length !== 4) {
       Alert.alert('PIN','PIN musi mieć dokładnie 4 cyfry.');
@@ -371,6 +453,12 @@ export default function App() {
       </View>
 
       <View style={S.row}>
+        <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,viewMode==='cards'&&S.active]} onPress={()=>setViewMode('cards')}><Text style={S.btnText}>☰ KARTY</Text></TouchableOpacity>
+        <TouchableOpacity style={S.generate} onPress={()=>setExportModal(true)}><Text style={S.btnText}>📤 UDOSTĘPNIJ GRAFIK</Text></TouchableOpacity>
+      </View>
+
+      <View style={S.row}>
         <TouchableOpacity style={S.weekBtn} onPress={()=>moveWeek(-1)}><Text style={S.btnText}>‹ Poprzedni</Text></TouchableOpacity>
         <TouchableOpacity style={S.weekBtn} onPress={todayWeek}><Text style={S.btnText}>Dziś</Text></TouchableOpacity>
         <TouchableOpacity style={S.weekBtn} onPress={()=>moveWeek(1)}><Text style={S.btnText}>Następny ›</Text></TouchableOpacity>
@@ -380,7 +468,7 @@ export default function App() {
         <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
       </TouchableOpacity>
 
-      {currentWeek.map((d,di) => {
+      {viewMode==='table' ? compactTable(false) : currentWeek.map((d,di) => {
         const dateObj = addDays(weekStart,di);
         return (
           <View style={S.day} key={d.dayIndex}>
@@ -590,6 +678,25 @@ export default function App() {
     </Modal>
   );
 
+  const exportModalDialog = (
+    <Modal visible={exportModal} transparent animationType="slide" onRequestClose={()=>setExportModal(false)}>
+      <View style={S.overlay}>
+        <View style={[S.modal,{maxHeight:'94%'}]}>
+          <Text style={S.modalTitle}>Udostępnij gotowy grafik</Text>
+          <Text style={S.helpLine}>Wybierz format. Tabela zawiera cały tydzień, oba zakresy godzin i magazyny.</Text>
+          <ScrollView style={{maxHeight:470}} contentContainerStyle={{paddingBottom:4}}>
+            {compactTable(true)}
+          </ScrollView>
+          <View style={S.row}>
+            <TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity>
+            <TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity>
+          </View>
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const pinDialog = (
     <Modal visible={pinModal} transparent animationType="fade" onRequestClose={()=>setPinModal(false)}>
       <View style={S.overlay}>
@@ -669,6 +776,7 @@ export default function App() {
           {tab==='grafik' ? schedule : tab==='summary' ? summary : settings}
           {editModal}
           {helpModal}
+          {exportModalDialog}
           {pinDialog}
           {backupDialog}
 
@@ -760,5 +868,21 @@ const S = StyleSheet.create({
   closeBtn:{backgroundColor:'#467ff1',padding:15,borderRadius:12,alignItems:'center',marginTop:10},
   helpLine:{color:'#c7ccd6',fontSize:15,lineHeight:22,marginBottom:7},
   pinInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:15,fontSize:25,textAlign:'center',letterSpacing:10,marginVertical:12},
+  tableCard:{backgroundColor:'rgba(25,29,38,0.97)',borderRadius:16,borderWidth:1,borderColor:'#303745',overflow:'hidden',marginBottom:12},
+  exportCard:{backgroundColor:'#151922',borderRadius:10,borderColor:'#394252',margin:0},
+  tableTitleRow:{flexDirection:'row',alignItems:'center',padding:12,borderBottomWidth:1,borderBottomColor:'#303745'},
+  tableTitle:{color:'#fff',fontSize:18,fontWeight:'900'},
+  tableSubtitle:{color:'#9da5b4',fontSize:11,marginTop:3},
+  tableWarehouse:{color:'#b9c9ff',fontWeight:'900',fontSize:12},
+  tableHeader:{flexDirection:'row',backgroundColor:'#303744'},
+  tableRow:{flexDirection:'row',borderTopWidth:1,borderTopColor:'#303745'},
+  tableCell:{padding:8,justifyContent:'center'},
+  tableDayCell:{width:'24%'},
+  tableShiftCell:{width:'38%'},
+  tableHead:{color:'#fff',fontWeight:'900',fontSize:12,textAlign:'center'},
+  tableDay:{color:'#fff',fontWeight:'800',fontSize:11},
+  tableShift:{minHeight:68,borderLeftWidth:1,borderLeftColor:'#303745'},
+  tablePerson:{color:'#fff',fontSize:12,fontWeight:'900',textAlign:'center'},
+  tableMeta:{color:'#9da5b4',fontSize:9,textAlign:'center',marginTop:2},
   backupInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:12,fontSize:12,minHeight:260,maxHeight:420},
 });
