@@ -257,11 +257,20 @@ export default function App() {
   const cloudRegister = async () => {
     setAuthBusy(true); setCloudError('');
     try {
-      const cred = await createUserWithEmailAndPassword(auth,authEmail.trim(),authPassword);
+      const email = authEmail.trim();
+      if (!email) { setCloudError('Wpisz adres e-mail.'); return; }
+      if (authPassword.length < 6) { setCloudError('Hasło musi mieć co najmniej 6 znaków.'); return; }
+      const cred = await createUserWithEmailAndPassword(auth,email,authPassword);
       await setDoc(doc(db,'users',cred.user.uid),{email:cred.user.email,role:'employee',createdAt:serverTimestamp()});
       setAuthPassword('');
     } catch(e) {
-      setCloudError(e?.code === 'auth/email-already-in-use' ? 'Ten e-mail jest już zarejestrowany.' : 'Nie udało się utworzyć konta. Hasło powinno mieć co najmniej 6 znaków.');
+      const code = e?.code || '';
+      if (code === 'auth/email-already-in-use') setCloudError('Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.');
+      else if (code === 'auth/invalid-email') setCloudError('Nieprawidłowy adres e-mail.');
+      else if (code === 'auth/weak-password') setCloudError('Hasło jest za słabe. Użyj co najmniej 6 znaków.');
+      else if (code === 'auth/operation-not-allowed') setCloudError('Logowanie e-mailem jest wyłączone w Firebase. Trzeba włączyć dostawcę E-mail/hasło w Authentication.');
+      else if (code === 'auth/network-request-failed') setCloudError('Brak połączenia z internetem.');
+      else setCloudError('Nie udało się utworzyć konta. Kod: ' + (code || 'nieznany błąd'));
     } finally { setAuthBusy(false); }
   };
 
