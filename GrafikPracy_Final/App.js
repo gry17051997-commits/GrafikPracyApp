@@ -19,8 +19,8 @@ import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import {captureRef} from 'react-native-view-shot';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
-import {getReactNativePersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, getDoc, setDoc, onSnapshot, serverTimestamp} from 'firebase/firestore';
+import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
+import {doc, setDoc, onSnapshot, serverTimestamp} from 'firebase/firestore';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
@@ -197,26 +197,46 @@ export default function App() {
   },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !auth) return;
-    const unsub = onAuthStateChanged(auth, async user => {
+    if (!FIREBASE_ENABLED || !auth || !db) return;
+
+    let roleUnsub = null;
+
+    const authUnsub = onAuthStateChanged(auth, user => {
       setCloudUser(user || null);
       setCloudError('');
+      setCloudReady(false);
+
+      if (roleUnsub) {
+        roleUnsub();
+        roleUnsub = null;
+      }
+
       if (!user) {
         setCloudRole('employee');
-        setCloudReady(false);
+        setCloudReady(true);
         return;
       }
-      try {
-        const snap = await getDoc(doc(db,'users',user.uid));
-        setCloudRole(snap.exists() && snap.data().role === 'admin' ? 'admin' : 'employee');
-      } catch (e) {
-        setCloudRole('employee');
-        setCloudError('Nie udało się odczytać uprawnień użytkownika.');
-      } finally {
-        setCloudReady(true);
-      }
+
+      roleUnsub = onSnapshot(
+        doc(db, 'users', user.uid),
+        snap => {
+          const role = snap.exists() ? snap.data()?.role : null;
+          setCloudRole(role === 'admin' ? 'admin' : 'employee');
+          setCloudReady(true);
+        },
+        error => {
+          console.error('Błąd odczytu roli:', error);
+          setCloudRole('employee');
+          setCloudError('Nie udało się odczytać uprawnień użytkownika.');
+          setCloudReady(true);
+        }
+      );
     });
-    return unsub;
+
+    return () => {
+      authUnsub();
+      if (roleUnsub) roleUnsub();
+    };
   },[]);
 
   useEffect(() => {
