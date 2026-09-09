@@ -19,12 +19,18 @@ import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import {captureRef} from 'react-native-view-shot';
 
-const KEY = 'grafik-pracy-v2';
+const KEY = 'grafik-pracy-v4';
 const PEOPLE = {
   P: {name: 'Paweł', color: '#4f8cff'},
   M: {name: 'Mateusz', color: '#8f6cff'},
   L: {name: 'Łukasz', color: '#35c98a'}
 };
+const COLOR_PALETTE = [
+  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
+  '#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899',
+  '#f43f5e','#fb7185','#a16207','#65a30d','#15803d','#0f766e','#0369a1','#1d4ed8',
+  '#4338ca','#7e22ce','#be185d','#78716c','#64748b','#334155'
+];
 const PERSON_KEYS = Object.keys(PEOPLE);
 const WAREHOUSES = ['PNT B','PNT C','UNICO','SP3','DC2','DC1','ECE','PNT A','GLP B','GLP C'];
 const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
@@ -100,6 +106,18 @@ function shiftTime(times, slot) {
     : `${times.s2}–${times.e2}`;
 }
 
+function hexToRgb(hex) {
+  const h = hex.replace('#','');
+  const n = parseInt(h,16);
+  return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
+}
+
+function contrastText(hex) {
+  const {r,g,b} = hexToRgb(hex);
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.62 ? '#11151c' : '#ffffff';
+}
+
 export default function App() {
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
@@ -118,12 +136,16 @@ export default function App() {
   const [backupModal,setBackupModal] = useState(false);
   const [backupText,setBackupText] = useState('');
   const [dark,setDark] = useState(true);
+  const [personColors,setPersonColors] = useState({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+  const [colorPerson,setColorPerson] = useState(null);
+  const [summaryPerson,setSummaryPerson] = useState('all');
   const [viewMode,setViewMode] = useState('cards');
   const [exportModal,setExportModal] = useState(false);
   const exportRef = useRef(null);
 
   const wkKey = iso(weekStart);
   const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);
+  const personColor = k => personColors[k] || PEOPLE[k].color;
 
   useEffect(() => {
     (async() => {
@@ -138,6 +160,7 @@ export default function App() {
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
+          setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
         }
@@ -155,7 +178,7 @@ export default function App() {
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
-    }};
+    },personColors};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
   },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times]);
 
@@ -286,6 +309,7 @@ export default function App() {
         setRotation('P');
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
+        setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
       }}
     ]);
   };
@@ -293,9 +317,9 @@ export default function App() {
   const createBackup = () => {
     const payload = {
       app:'Grafik Pracy',
-      version:2,
+      version:4,
       exportedAt:new Date().toISOString(),
-      hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times
+      hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors
     };
     setBackupText(JSON.stringify(payload,null,2));
     setBackupModal(true);
@@ -305,9 +329,9 @@ export default function App() {
     try {
       const payload = {
         app:'Grafik Pracy',
-        version:2,
+        version:4,
         exportedAt:new Date().toISOString(),
-        hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times
+        hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors
       };
       await Share.share({message:JSON.stringify(payload)});
     } catch(e) {
@@ -326,6 +350,7 @@ export default function App() {
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
+      setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
       setTimes(data.times?.[data.hours || 10] || DEFAULT_TIMES[data.hours || 10]);
       setBackupModal(false);
       Alert.alert('Gotowe','Kopia została przywrócona.');
@@ -373,9 +398,14 @@ export default function App() {
         const b = d.shifts[1];
         const person = s => s?.person ? PEOPLE[s.person]?.name : 'WOLNA';
         const wh = s => s?.warehouse || d.warehouse || warehouse;
-        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td><td><b>${escapeHtml(person(a))}</b><br>${escapeHtml(wh(a))}<br>${escapeHtml(shiftTime(times,1))}</td><td><b>${escapeHtml(person(b))}</b><br>${escapeHtml(wh(b))}<br>${escapeHtml(shiftTime(times,2))}</td></tr>`;
+        const cell = s => {
+          const bg = s?.person ? personColor(s.person) : '#e5e7eb';
+          const fg = contrastText(bg);
+          return `<td style=\"background:${bg};color:${fg}\"><b>${escapeHtml(person(s))}</b><br><span style=\"color:${fg};opacity:.78\">${escapeHtml(wh(s))}</span><br><span style=\"color:${fg};opacity:.78\">${escapeHtml(shiftTime(times,s?.shift || 1))}</span></td>`;
+        };
+        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cell(a)}${cell(b)}</tr>`;
       }).join('');
-      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff;font-size:12px}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${hours} h · ${escapeHtml(warehouse)}</p><table><thead><tr><th>Dzień</th><th>Zmiana I · ${escapeHtml(shiftTime(times,1))}</th><th>Zmiana II · ${escapeHtml(shiftTime(times,2))}</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff;font-size:12px}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${hours} h · ${escapeHtml(warehouse)}</p><div style="margin:0 0 12px;font-size:11px">${PERSON_KEYS.map(k=>`<span style="display:inline-block;background:${personColor(k)};color:${contrastText(personColor(k))};padding:4px 8px;margin-right:6px;border-radius:4px"><b>${escapeHtml(PEOPLE[k].name)}</b></span>`).join('')}</div><table><thead><tr><th>Dzień</th><th>Zmiana I · ${escapeHtml(shiftTime(times,1))}</th><th>Zmiana II · ${escapeHtml(shiftTime(times,2))}</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
       const {uri} = await Print.printToFileAsync({html,width:842,height:595});
       await shareFile(uri, 'application/pdf', 'Udostępnij grafik PDF');
     } catch(e) {
@@ -399,10 +429,10 @@ export default function App() {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
           <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
-          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift]}>
-            <Text style={S.tablePerson}>{sh.person ? PEOPLE[sh.person].name : 'WOLNA'}</Text>
-            <Text style={S.tableMeta}>{sh.warehouse || d.warehouse || warehouse}</Text>
-            <Text style={S.tableMeta}>{shiftTime(times,si+1)}</Text>
+          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person&&{backgroundColor:personColor(sh.person)}]}>
+            <Text style={[S.tablePerson,sh.person&&{color:contrastText(personColor(sh.person))}]}>{sh.person ? PEOPLE[sh.person].name : 'WOLNA'}</Text>
+            <Text style={[S.tableMeta,sh.person&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{sh.warehouse || d.warehouse || warehouse}</Text>
+            <Text style={[S.tableMeta,sh.person&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{shiftTime(times,si+1)}</Text>
           </TouchableOpacity>; })}
         </View>;
       })}
@@ -493,11 +523,11 @@ export default function App() {
                   </View>
 
                   <TouchableOpacity
-                    style={[S.person,p&&{borderLeftColor:p.color,borderLeftWidth:4}]}
+                    style={[S.person,p&&{backgroundColor:personColor(s.person),borderLeftColor:personColor(s.person),borderLeftWidth:4}]}
                     onPress={()=>setEdit({dayIndex:di,shiftIndex:si})}
                   >
-                    <Text style={S.personText}>{p ? p.name : 'WOLNA ZMIANA'}</Text>
-                    <Text style={S.personSub}>{s.warehouse || warehouse}</Text>
+                    <Text style={[S.personText,p&&{color:contrastText(personColor(s.person))}]}>{p ? p.name : 'WOLNA ZMIANA'}</Text>
+                    <Text style={[S.personSub,p&&{color:contrastText(personColor(s.person)),opacity:0.82}]}>{s.warehouse || warehouse}</Text>
                   </TouchableOpacity>
 
                   <View style={S.actions}>
@@ -520,27 +550,70 @@ export default function App() {
     </ScrollView>
   );
 
+  const selectedSummaryKeys = summaryPerson === 'all' ? PERSON_KEYS : [summaryPerson];
+  const selectedWorkDays = summaryPerson === 'all' ? [] : currentWeek.map((d,i) => {
+    const shifts = d.shifts.filter(s => s.person === summaryPerson);
+    return shifts.length ? {day:DAYS[i],date:shortDate(addDays(weekStart,i)),shifts} : null;
+  }).filter(Boolean);
+
   const summary = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
-      <View style={S.total}>
-        <Text style={S.totalSmall}>PODSUMOWANIE TYGODNIA</Text>
-        <Text style={S.totalBig}>{totals.all.shifts} zmian</Text>
-        <Text style={S.totalInfo}>{totals.all.hours} godzin</Text>
-        <Text style={S.totalMoney}>{totals.all.money} zł</Text>
-      </View>
+      <Text style={S.section}>Podsumowanie dla</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+        <TouchableOpacity style={[S.chip,summaryPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
+          <Text style={S.btnText}>Wszyscy</Text>
+        </TouchableOpacity>
+        {PERSON_KEYS.map(k => (
+          <TouchableOpacity key={k} style={[S.chip,summaryPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSummaryPerson(k)}>
+            <Text style={[S.btnText,{color:summaryPerson===k?contrastText(personColor(k)):'#fff'}]}>{PEOPLE[k].name}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-      {PERSON_KEYS.map(k => (
-        <View style={S.employee} key={k}>
-          <View style={S.between}>
-            <Text style={S.employeeName}>{PEOPLE[k].name}</Text>
-            <Text style={[S.dot,{color:PEOPLE[k].color}]}>●</Text>
+      {summaryPerson === 'all' ? (
+        <>
+          <View style={S.total}>
+            <Text style={S.totalSmall}>PODSUMOWANIE TYGODNIA</Text>
+            <Text style={S.totalBig}>{totals.all.shifts} zmian</Text>
+            <Text style={S.totalInfo}>{totals.all.hours} godzin</Text>
+            <Text style={S.totalMoney}>{totals.all.money} zł</Text>
           </View>
-          <Text style={S.stat}>Zmiany: <Text style={S.white}>{totals[k].shifts}</Text></Text>
-          <Text style={S.stat}>Godziny: <Text style={S.white}>{totals[k].hours} h</Text></Text>
-          <Text style={S.stat}>Zarobek: <Text style={S.money}>{totals[k].money} zł</Text></Text>
-        </View>
-      ))}
+          {selectedSummaryKeys.map(k => (
+            <View style={[S.employee,{borderLeftColor:personColor(k),borderLeftWidth:5}]} key={k}>
+              <View style={S.between}>
+                <Text style={S.employeeName}>{PEOPLE[k].name}</Text>
+                <Text style={[S.dot,{color:personColor(k)}]}>●</Text>
+              </View>
+              <Text style={S.stat}>Zmiany: <Text style={S.white}>{totals[k].shifts}</Text></Text>
+              <Text style={S.stat}>Godziny: <Text style={S.white}>{totals[k].hours} h</Text></Text>
+              <Text style={S.stat}>Zarobek: <Text style={S.money}>{totals[k].money} zł</Text></Text>
+            </View>
+          ))}
+        </>
+      ) : (
+        <>
+          <View style={[S.total,{backgroundColor:personColor(summaryPerson)}]}>
+            <Text style={[S.totalSmall,{color:contrastText(personColor(summaryPerson))}]}>PODSUMOWANIE: {PEOPLE[summaryPerson].name.toUpperCase()}</Text>
+            <Text style={[S.totalBig,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].shifts} zmian</Text>
+            <Text style={[S.totalInfo,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].hours} godzin</Text>
+            <Text style={[S.totalMoney,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].money} zł</Text>
+          </View>
+          <Text style={S.section}>Dni pracujące</Text>
+          {selectedWorkDays.length ? selectedWorkDays.map(item => (
+            <View style={[S.employee,{borderLeftColor:personColor(summaryPerson),borderLeftWidth:5}]} key={item.date}>
+              <View style={S.between}>
+                <Text style={S.employeeName}>{item.day}</Text>
+                <Text style={[S.dot,{color:personColor(summaryPerson)}]}>●</Text>
+              </View>
+              <Text style={S.stat}>{item.date} · {item.shifts.length} {item.shifts.length === 1 ? 'zmiana' : 'zmiany'}</Text>
+              {item.shifts.map(s => <Text key={s.id} style={S.stat}>Zmiana {s.shift}: <Text style={S.white}>{shiftTime(times,s.shift)}</Text> · {s.warehouse || warehouse}</Text>)}
+            </View>
+          )) : (
+            <View style={S.employee}><Text style={S.stat}>Brak dni pracujących w tym tygodniu.</Text></View>
+          )}
+        </>
+      )}
 
       <Text style={S.section}>Stawka tygodnia</Text>
       <View style={S.option}>
@@ -590,6 +663,18 @@ export default function App() {
         <Text style={S.btnText}>⚡ ZASTOSUJ I PRZELICZ GRAFIK</Text>
       </TouchableOpacity>
 
+      <Text style={S.section}>Kolory pracowników</Text>
+      <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
+      {PERSON_KEYS.map(k => (
+        <TouchableOpacity key={k} style={[S.option,{borderLeftColor:personColor(k),borderLeftWidth:6}]} onPress={()=>setColorPerson(k)}>
+          <View style={{flexDirection:'row',alignItems:'center',gap:10}}>
+            <View style={[S.colorPreview,{backgroundColor:personColor(k)}]} />
+            <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+          </View>
+          <Text style={S.muted}>{personColor(k)}</Text>
+        </TouchableOpacity>
+      ))}
+
       <Text style={S.section}>Bezpieczeństwo i dane</Text>
       <TouchableOpacity style={S.option} onPress={()=>{setPinEntry('');setPinModal(true)}}>
         <Text style={S.optionText}>🔐 PIN aplikacji</Text>
@@ -615,6 +700,25 @@ export default function App() {
         <Text style={S.btnText}>WYCZYŚĆ DANE APLIKACJI</Text>
       </TouchableOpacity>
     </ScrollView>
+  );
+
+  const colorModal = (
+    <Modal visible={!!colorPerson} transparent animationType="slide" onRequestClose={()=>setColorPerson(null)}>
+      <View style={S.overlay}>
+        <View style={[S.modal,{maxHeight:'86%'}]}>
+          <Text style={S.modalTitle}>Kolor: {colorPerson ? PEOPLE[colorPerson].name : ''}</Text>
+          <Text style={S.helpLine}>Wybierz jeden z kolorów. Zmiana zostanie zapisana automatycznie.</Text>
+          <ScrollView contentContainerStyle={S.palette}>
+            {COLOR_PALETTE.map(c => (
+              <TouchableOpacity key={c} onPress={()=>{setPersonColors(prev=>({...prev,[colorPerson]:c}));setColorPerson(null)}} style={[S.colorSwatch,{backgroundColor:c},colorPerson && personColor(colorPerson)===c&&S.colorSelected]}>
+                {colorPerson && personColor(colorPerson)===c ? <Text style={[S.colorCheck,{color:contrastText(c)}]}>✓</Text> : null}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setColorPerson(null)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 
   const editModal = (
@@ -775,6 +879,7 @@ export default function App() {
         <SafeAreaView style={S.container}>
           {tab==='grafik' ? schedule : tab==='summary' ? summary : settings}
           {editModal}
+          {colorModal}
           {helpModal}
           {exportModalDialog}
           {pinDialog}
@@ -871,6 +976,9 @@ const S = StyleSheet.create({
   tableCard:{backgroundColor:'rgba(25,29,38,0.97)',borderRadius:16,borderWidth:1,borderColor:'#303745',overflow:'hidden',marginBottom:12},
   exportCard:{backgroundColor:'#151922',borderRadius:10,borderColor:'#394252',margin:0},
   tableTitleRow:{flexDirection:'row',alignItems:'center',padding:12,borderBottomWidth:1,borderBottomColor:'#303745'},
+   legendRow:{flexDirection:'row',flexWrap:'wrap',gap:6,padding:8,borderBottomWidth:1,borderBottomColor:'#303745'},
+   legendItem:{paddingHorizontal:9,paddingVertical:5,borderRadius:8},
+   legendText:{fontSize:10,fontWeight:'900'},
   tableTitle:{color:'#fff',fontSize:18,fontWeight:'900'},
   tableSubtitle:{color:'#9da5b4',fontSize:11,marginTop:3},
   tableWarehouse:{color:'#b9c9ff',fontWeight:'900',fontSize:12},
@@ -884,5 +992,10 @@ const S = StyleSheet.create({
   tableShift:{minHeight:68,borderLeftWidth:1,borderLeftColor:'#303745'},
   tablePerson:{color:'#fff',fontSize:12,fontWeight:'900',textAlign:'center'},
   tableMeta:{color:'#9da5b4',fontSize:9,textAlign:'center',marginTop:2},
+  colorPreview:{width:22,height:22,borderRadius:11,borderWidth:1,borderColor:'rgba(255,255,255,0.35)'},
+  palette:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingVertical:8},
+  colorSwatch:{width:44,height:44,borderRadius:22,margin:7,alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'transparent'},
+  colorSelected:{borderColor:'#fff',transform:[{scale:1.12}]},
+  colorCheck:{fontSize:24,fontWeight:'900'},
   backupInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:12,fontSize:12,minHeight:260,maxHeight:420},
 });
