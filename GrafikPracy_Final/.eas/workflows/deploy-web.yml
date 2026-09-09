@@ -8,7 +8,7 @@ jobs:
   deploy_web:
     name: Deploy web
     type: deploy
+    env:
+      EAS_NO_FROZEN_LOCKFILE: "1"
     params:
       prod: true
-
-
