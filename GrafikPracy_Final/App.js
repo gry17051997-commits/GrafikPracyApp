@@ -227,7 +227,7 @@ export default function App() {
         error => {
           console.error('Błąd odczytu roli:', error);
           setCloudRole('employee');
-          setCloudError('Nie udało się odczytać uprawnień użytkownika.');
+          setCloudError('Nie udało się odczytać uprawnień użytkownika. Kod: ' + (error?.code || 'nieznany'));
           setCloudReady(true);
         }
       );
@@ -253,7 +253,7 @@ export default function App() {
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       setCloudUpdated(true);
       setTimeout(() => setCloudUpdated(false), 2500);
-    }, err => setCloudError('Brak dostępu do wspólnego grafiku. Sprawdź reguły Firestore.'));
+    }, err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany')));
     return unsub;
   },[cloudUser]);
 
@@ -264,7 +264,7 @@ export default function App() {
       return;
     }
     const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
-    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online.'));
+    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
   },[ready,hours,rotation,warehouse,weeks,times,personColors,cloudUser,cloudRole]);
 
   const cloudLogin = async () => {
@@ -1022,7 +1022,12 @@ export default function App() {
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
-          {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}><Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text></View>}
+          {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
+            <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
+            <Text style={S.cloudStatusText}>UID: {cloudUser.uid}</Text>
+            <Text style={S.cloudStatusText}>Rola odczytana: {cloudRole}</Text>
+            {cloudError ? <Text style={S.cloudStatusText}>BŁĄD: {cloudError}</Text> : null}
+          </View>}
           {tab==='grafik' ? schedule : tab==='summary' ? summary : settings}
           {editModal}
           {colorModal}
