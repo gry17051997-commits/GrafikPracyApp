@@ -6,6 +6,9 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./icon-512.png",
+    "web": {
+      "output": "static"
+    },
     "android": {
       "package": "pl.grafikpracy.app",
       "versionCode": 3,
