@@ -20,7 +20,7 @@ import * as Print from 'expo-print';
 import {captureRef} from 'react-native-view-shot';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, setDoc, onSnapshot, serverTimestamp} from 'firebase/firestore';
+import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc} from 'firebase/firestore';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
@@ -155,6 +155,24 @@ export default function App() {
   const [authBusy,setAuthBusy] = useState(false);
   const [cloudError,setCloudError] = useState('');
   const [cloudUpdated,setCloudUpdated] = useState(false);
+  const [sharePerson,setSharePerson] = useState('all');
+  const [shareFormat,setShareFormat] = useState('table');
+  const [conditionModal,setConditionModal] = useState(false);
+  const [conditions,setConditions] = useState([]);
+  const [conditionPerson,setConditionPerson] = useState('P');
+  const [conditionType,setConditionType] = useState('must');
+  const [conditionDay,setConditionDay] = useState(0);
+  const [conditionShift,setConditionShift] = useState(1);
+  const [conditionValue,setConditionValue] = useState('');
+  const [offModal,setOffModal] = useState(null);
+  const [offMode,setOffMode] = useState('plain');
+  const [offReplacement,setOffReplacement] = useState('');
+  const [swapModal,setSwapModal] = useState(null);
+  const [swapTarget,setSwapTarget] = useState('');
+  const [swapTargetDay,setSwapTargetDay] = useState(0);
+  const [swapTargetShift,setSwapTargetShift] = useState(1);
+  const [proposals,setProposals] = useState([]);
+  const [myPerson,setMyPerson] = useState('P');
   const readOnly = FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin';
 
   const wkKey = iso(weekStart);
@@ -175,6 +193,9 @@ export default function App() {
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
           setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+          setConditions(data.conditions || []);
+          setProposals(data.proposals || []);
+          setMyPerson(data.myPerson || 'P');
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
         }
@@ -192,7 +213,7 @@ export default function App() {
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
-    },personColors};
+    },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
   },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors]);
 
@@ -250,10 +271,32 @@ export default function App() {
       if (data.warehouse) setWarehouse(data.warehouse);
       if (data.weeks) setWeeks(data.weeks);
       if (data.personColors) setPersonColors(data.personColors);
+      if (data.conditions) setConditions(data.conditions);
+      if (data.conditions) setConditions(data.conditions);
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       setCloudUpdated(true);
       setTimeout(() => setCloudUpdated(false), 2500);
     }, err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany')));
+    return unsub;
+  },[cloudUser]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const q = cloudRole === 'admin'
+      ? collection(db,'proposals')
+      : query(collection(db,'proposals'),where('fromUid','==',cloudUser.uid));
+    const unsub = onSnapshot(q, snap => {
+      setProposals(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))));
+    }, err => setCloudError('Brak dostępu do propozycji zamian. Kod: ' + (err?.code || 'unknown')));
+    return unsub;
+  },[cloudUser,cloudRole]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const unsub=onSnapshot(doc(db,'users',cloudUser.uid), snap => {
+      const key=snap.exists()?snap.data()?.personKey:null;
+      if(key && PERSON_KEYS.includes(key)) setMyPerson(key);
+    });
     return unsub;
   },[cloudUser]);
 
@@ -263,9 +306,9 @@ export default function App() {
       cloudApplying.current = false;
       return;
     }
-    const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+    const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
     setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
-  },[ready,hours,rotation,warehouse,weeks,times,personColors,cloudUser,cloudRole]);
+  },[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);
 
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
@@ -315,28 +358,99 @@ export default function App() {
     setTimes(DEFAULT_TIMES[h]);
   };
 
+  const dayHasPassed = dayIndex => {
+    const date = addDays(weekStart, dayIndex);
+    const now = new Date();
+    const today = new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const d = new Date(date.getFullYear(),date.getMonth(),date.getDate());
+    return d < today;
+  };
+
+  const conditionApplies = (c, person, dayIndex, shiftIndex) => {
+    if (c.person && c.person !== person) return false;
+    if (c.dayIndex !== undefined && c.dayIndex !== null && Number(c.dayIndex) !== dayIndex) return false;
+    if (c.shift && Number(c.shift) !== shiftIndex+1) return false;
+    return true;
+  };
+
+  const generateAdvancedWeek = () => {
+    const base = cloneWeek(currentWeek);
+    const result = cloneWeek(currentWeek);
+    // Preserve completed days and explicit manual/locked assignments.
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if (dayHasPassed(di) || s.locked || s.manual) return;
+      s.person = null;
+    }));
+
+    const slots=[];
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if (dayHasPassed(di) || s.locked || s.manual) return;
+      const forcedOff = conditions.some(c=>c.type==='off' && conditionApplies(c,'',di,si));
+      if (!forcedOff) slots.push({di,si});
+    }));
+
+    const counts={P:0,M:0,L:0};
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
+    const targets={P:null,M:null,L:null};
+    conditions.filter(c=>c.type==='count').forEach(c=>{targets[c.person]=Number(c.value)||0;});
+    const recoverNeeds={P:0,M:0,L:0};
+    result.forEach(d=>d.shifts.forEach(s=>{if(s.offMode==='recover' && s.recoverPerson) recoverNeeds[s.recoverPerson]++;}));
+    PERSON_KEYS.forEach(p=>{if(recoverNeeds[p]) targets[p]=Math.max(targets[p]===null?counts[p]:targets[p],counts[p]+recoverNeeds[p]);});
+
+    // Apply hard MUST assignments first where possible.
+    conditions.filter(c=>c.type==='must').forEach(c=>{
+      if(!c.person || c.dayIndex===undefined || !c.shift) return;
+      const si=Number(c.shift)-1, di=Number(c.dayIndex), s=result[di]?.shifts?.[si];
+      if(!s || dayHasPassed(di) || s.locked || s.manual) return;
+      s.person=c.person; s.manual=false; counts[c.person]++;
+    });
+
+    // Fill remaining slots using target counts, respecting hard prohibitions.
+    for (const slot of slots) {
+      const s=result[slot.di].shifts[slot.si];
+      if (s.person) continue;
+      const candidates=PERSON_KEYS.filter(person=>{
+        if(conditions.some(c=>c.type==='off' && conditionApplies(c,person,slot.di,slot.si))) return false;
+        if(conditions.some(c=>c.type==='forbid' && conditionApplies(c,person,slot.di,slot.si))) return false;
+        if(targets[person]!==null && counts[person]>=targets[person]) return false;
+        // Don't put the same person twice in a day unless explicitly forced.
+        if(result[slot.di].shifts.some(x=>x.person===person)) return false;
+        return true;
+      });
+      candidates.sort((a,b)=>{
+        const ta=targets[a]===null?999:targets[a], tb=targets[b]===null?999:targets[b];
+        const pa=conditions.some(c=>c.type==='prefer' && conditionApplies(c,a,slot.di,slot.si))?1:0;
+        const pb=conditions.some(c=>c.type==='prefer' && conditionApplies(c,b,slot.di,slot.si))?1:0;
+        return (pb-pa) || ((counts[a]/Math.max(1,ta))-(counts[b]/Math.max(1,tb)));
+      });
+      if(candidates.length){s.person=candidates[0];counts[candidates[0]]++;}
+    }
+    const unmet=[];
+    Object.entries(targets).forEach(([p,target])=>{if(target!==null && counts[p]!==target) unmet.push(`${PEOPLE[p].name}: ${counts[p]}/${target} zmian`);});
+    const forbiddenBroken=[];
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if(s.person && conditions.some(c=>c.type==='forbid' && conditionApplies(c,s.person,di,si))) forbiddenBroken.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1}`);
+    }));
+    if(unmet.length || forbiddenBroken.length){
+      Alert.alert('Nie udało się spełnić wszystkich warunków', [...unmet,...forbiddenBroken].join('\n') || 'Spróbuj zmienić warunki.');
+      return null;
+    }
+    // Apply requested replacement for days off.
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if(s.person===null) s.manual=true;
+    }));
+    return result;
+  };
+
   const regenerate = () => {
     if (readOnly) return;
-    Alert.alert(
-      'Wygenerować grafik?',
-      'Generator utworzy nowy układ. Ręcznie zmienione lub zablokowane zmiany zostaną zachowane.',
-      [
-        {text:'Anuluj',style:'cancel'},
-        {text:'Generuj',onPress:() => {
-          setWeek(old => {
-            const fresh = generateWeek(rotation,warehouse);
-            old.forEach((day,i) => {
-              day.shifts.forEach((oldShift,j) => {
-                if (oldShift.locked || oldShift.manual) {
-                  fresh[i].shifts[j] = {...oldShift};
-                }
-              });
-            });
-            return fresh;
-          });
-        }}
-      ]
-    );
+    Alert.alert('Wygenerować grafik?', 'Generator uwzględni blokady, dni wolne oraz ustawione warunki.', [
+      {text:'Anuluj',style:'cancel'},
+      {text:'Generuj',onPress:()=>{
+        const generated=generateAdvancedWeek();
+        if(generated) setWeek(generated);
+      }}
+    ]);
   };
 
   const updateShift = (dayIndex,shiftIndex,patch) => {
@@ -363,6 +477,92 @@ export default function App() {
       s.locked = !s.locked;
       return w;
     });
+  };
+
+    if (readOnly || dayHasPassed(dayIndex)) return;
+    setWeek(w => {
+      w[dayIndex].shifts[shiftIndex] = {
+        ...w[dayIndex].shifts[shiftIndex],
+        ...patch,
+        manual:true
+      };
+      return w;
+    });
+  };
+
+  const openOff = (dayIndex,shiftIndex) => {
+    if(readOnly || dayHasPassed(dayIndex)) return;
+    const sh=currentWeek[dayIndex]?.shifts?.[shiftIndex];
+    setOffMode('plain'); setOffReplacement(''); setOffModal({dayIndex,shiftIndex,person:sh?.person||null});
+  };
+
+  const saveOff = () => {
+    if(!offModal) return;
+    const {dayIndex,shiftIndex}=offModal;
+    setWeek(w=>{
+      const sh=w[dayIndex].shifts[shiftIndex];
+      const originalPerson=sh.person;
+      sh.person=offReplacement || null;
+      sh.off=true; sh.offMode=offMode; sh.replacement=offReplacement||null; sh.recoverPerson=offMode==='recover'?originalPerson:null; sh.manual=true;
+      return w;
+    });
+    if(offReplacement){
+      Alert.alert('Zastępstwo zapisane', `${PEOPLE[offReplacement].name} zastępuje na tej zmianie.`);
+    }
+    setOffModal(null);
+  };
+
+  const submitSwap = async () => {
+    if(!swapModal || !swapTarget || !cloudUser) return;
+    const targetShift=currentWeek[swapTargetDay]?.shifts?.[swapTargetShift-1];
+    if(!targetShift || targetShift.person!==swapTarget){
+      Alert.alert('Nieprawidłowa zamiana','Wybierz zmianę, na której wybrany pracownik faktycznie pracuje.');
+      return;
+    }
+    if(dayHasPassed(swapModal.dayIndex) || dayHasPassed(swapTargetDay)){
+      Alert.alert('Nie można','Nie można proponować zamiany z dniem, który już minął.');
+      return;
+    }
+    const proposal={
+      fromUid:cloudUser.uid,
+      fromEmail:cloudUser.email || '',
+      fromPerson:swapModal.person || myPerson,
+      fromDay:swapModal.dayIndex,
+      fromShift:swapModal.shiftIndex+1,
+      toPerson:swapTarget,
+      toDay:swapTargetDay,
+      toShift:swapTargetShift,
+      status:'pending',
+      createdAt:new Date().toISOString()
+    };
+    try {
+      if(FIREBASE_ENABLED && db) await addDoc(collection(db,'proposals'),proposal);
+      else setProposals(p=>[{id:`${Date.now()}`,...proposal},...p]);
+      setSwapModal(null); setSwapTarget('');
+      Alert.alert('Wysłano','Propozycja zamiany czeka na zatwierdzenie administratora.');
+    } catch(e){ setCloudError('Nie udało się wysłać propozycji. Kod: ' + (e?.code || 'unknown')); }
+  };
+
+  const approveProposal = async proposal => {
+    if(readOnly || proposal.status !== 'pending') return;
+    const a=currentWeek[proposal.fromDay]?.shifts?.[proposal.fromShift-1];
+    const b=currentWeek[proposal.toDay]?.shifts?.[proposal.toShift-1];
+    if(!a || !b || dayHasPassed(proposal.fromDay) || dayHasPassed(proposal.toDay)){Alert.alert('Nie można','Jedna ze zmian jest już zakończona.');return;}
+    setWeek(w=>{
+      const x=w[proposal.fromDay].shifts[proposal.fromShift-1], y=w[proposal.toDay].shifts[proposal.toShift-1];
+      const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true; return w;
+    });
+    try {
+      if(FIREBASE_ENABLED && db) await updateDoc(doc(db,'proposals',proposal.id),{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
+      else setProposals(p=>p.map(x=>x.id===proposal.id?{...x,status:'approved'}:x));
+    } catch(e){setCloudError('Nie udało się zatwierdzić zamiany. Kod: ' + (e?.code || 'unknown'));}
+  };
+
+  const rejectProposal = async id => {
+    try {
+      if(FIREBASE_ENABLED && db) await updateDoc(doc(db,'proposals',id),{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
+      else setProposals(p=>p.map(x=>x.id===id?{...x,status:'rejected'}:x));
+    } catch(e){setCloudError('Nie udało się odrzucić propozycji. Kod: ' + (e?.code || 'unknown'));}
   };
 
   const moveWeek = n => setWeekStart(addDays(weekStart,n*7));
@@ -430,6 +630,7 @@ export default function App() {
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
         setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+        setConditions([]);
       }}
     ]);
   };
@@ -471,6 +672,9 @@ export default function App() {
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
       setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+          setConditions(data.conditions || []);
+          setProposals(data.proposals || []);
+          setMyPerson(data.myPerson || 'P');
       setTimes(data.times?.[data.hours || 10] || DEFAULT_TIMES[data.hours || 10]);
       setBackupModal(false);
       Alert.alert('Gotowe','Kopia została przywrócona.');
@@ -495,46 +699,57 @@ export default function App() {
   const exportJpg = async () => {
     try {
       if (!exportRef.current) return;
-      const uri = await captureRef(exportRef, {
-        format:'jpg',
-        quality:0.95,
-        result:'tmpfile',
-        width:Math.min(Dimensions.get('window').width * 3, 1440)
-      });
+      const uri = await captureRef(exportRef, {format:'jpg',quality:0.95,result:'tmpfile',width:Math.min(Dimensions.get('window').width * 3, 1440)});
       await shareFile(uri, 'image/jpeg', 'Udostępnij grafik JPG');
-    } catch(e) {
-      console.log(e);
-      Alert.alert('Błąd','Nie udało się przygotować grafiku JPG.');
-    }
+    } catch(e) { console.log(e); Alert.alert('Błąd','Nie udało się przygotować grafiku JPG.'); }
   };
 
   const escapeHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
 
   const exportPdf = async () => {
     try {
-      const rows = currentWeek.map((d,i) => {
-        const date = addDays(weekStart,i);
-        const a = d.shifts[0];
-        const b = d.shifts[1];
-        const person = s => s?.person ? PEOPLE[s.person]?.name : 'WOLNA';
-        const wh = s => s?.warehouse || d.warehouse || warehouse;
-        const cell = s => {
-          const bg = s?.person ? personColor(s.person) : '#e5e7eb';
-          const fg = contrastText(bg);
-          return `<td style=\"background:${bg};color:${fg}\"><b>${escapeHtml(person(s))}</b><br><span style=\"color:${fg};opacity:.78\">${escapeHtml(wh(s))}</span><br><span style=\"color:${fg};opacity:.78\">${escapeHtml(shiftTime(times,s?.shift || 1))}</span></td>`;
-        };
-        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cell(a)}${cell(b)}</tr>`;
+      const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
+      const personLabel=sharePerson==='all'?'CAŁY GRAFIK':selectedKeys.map(k=>PEOPLE[k].name).join(', ');
+      const rows=currentWeek.map((d,i)=>{
+        const date=addDays(weekStart,i);
+        const cells=d.shifts.map((s,si)=>{
+          const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
+          const name=visible?PEOPLE[s.person].name:'WOLNA';
+          const wh=visible?(s.warehouse||d.warehouse||warehouse):'';
+          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;
+        }).join('');
+        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
       }).join('');
-      const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff;font-size:12px}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${hours} h · ${escapeHtml(warehouse)}</p><div style="margin:0 0 12px;font-size:11px">${PERSON_KEYS.map(k=>`<span style="display:inline-block;background:${personColor(k)};color:${contrastText(personColor(k))};padding:4px 8px;margin-right:6px;border-radius:4px"><b>${escapeHtml(PEOPLE[k].name)}</b></span>`).join('')}</div><table><thead><tr><th>Dzień</th><th>Zmiana I · ${escapeHtml(shiftTime(times,1))}</th><th>Zmiana II · ${escapeHtml(shiftTime(times,2))}</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
-      const {uri} = await Print.printToFileAsync({html,width:842,height:595});
-      await shareFile(uri, 'application/pdf', 'Udostępnij grafik PDF');
-    } catch(e) {
-      console.log(e);
-      Alert.alert('Błąd','Nie udało się przygotować grafiku PDF.');
-    }
+      let body;
+      if(shareFormat==='list'){
+        body=currentWeek.map((d,i)=>{
+          const date=addDays(weekStart,i);
+          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(times,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
+          return `<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>${DAYS[i]} ${shortDate(date)}</b><br>${items.length?items.map(escapeHtml).join('<br>'):'WOLNE'}</div>`;
+        }).join('');
+        body=`<div style="font-size:12px">${body}</div>`;
+      } else {
+        body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(times.s1)}–${escapeHtml(times.e1)}</th><th>II · ${escapeHtml(times.s2)}–${escapeHtml(times.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+      const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${hours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
+      const {uri}=await Print.printToFileAsync({html,width:842,height:595});
+      await shareFile(uri,'application/pdf','Udostępnij grafik PDF');
+    } catch(e){console.log(e);Alert.alert('Błąd','Nie udało się przygotować grafiku PDF.');}
   };
 
-  const compactTable = (forExport=false) => (
+  const listExport = (forExport=false) => (
+    <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
+      <Text style={S.tableTitle}>GRAFIK — {sharePerson==='all'?'WSZYSCY':PEOPLE[sharePerson]?.name}</Text>
+      <Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {hours} h</Text>
+      {currentWeek.map((d,i)=>{
+        const date=addDays(weekStart,i);
+        const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
+        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(times,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
+      })}
+    </View>
+  );
+
+  const compactTable = (forExport=false, personFilter='all') => (
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
       <View style={S.tableTitleRow}>
         <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {hours} h</Text></View>
@@ -549,10 +764,10 @@ export default function App() {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
           <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
-          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>!readOnly && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person&&{backgroundColor:personColor(sh.person)}]}>
-            <Text style={[S.tablePerson,sh.person&&{color:contrastText(personColor(sh.person))}]}>{sh.person ? PEOPLE[sh.person].name : 'WOLNA'}</Text>
-            <Text style={[S.tableMeta,sh.person&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{sh.warehouse || d.warehouse || warehouse}</Text>
-            <Text style={[S.tableMeta,sh.person&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{shiftTime(times,si+1)}</Text>
+          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
+            <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
+            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
+            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(times,si+1) : ''}</Text>
           </TouchableOpacity>; })}
         </View>;
       })}
@@ -624,14 +839,14 @@ export default function App() {
           <View style={S.day} key={d.dayIndex}>
             <View style={S.between}>
               <View>
-                <Text style={S.dayTitle}>{DAYS[di]}</Text>
+                <Text style={S.dayTitle}>{DAYS[di]} {dayHasPassed(di)?'🔒':'🔓'}</Text>
                 <Text style={S.muted}>{shortDate(dateObj)} · {d.warehouse || warehouse}</Text>
               </View>
               <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
             </View>
 
             {d.shifts.map((s,si) => {
-              const p = s.person ? PEOPLE[s.person] : null;
+              const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;
               return (
                 <View key={s.id} style={[S.shift,s.locked&&S.locked]}>
                   <View style={S.between}>
@@ -644,23 +859,25 @@ export default function App() {
 
                   <TouchableOpacity
                     style={[S.person,p&&{backgroundColor:personColor(s.person),borderLeftColor:personColor(s.person),borderLeftWidth:4}]}
-                    onPress={()=>!readOnly && setEdit({dayIndex:di,shiftIndex:si})}
+                    onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}
                   >
                     <Text style={[S.personText,p&&{color:contrastText(personColor(s.person))}]}>{p ? p.name : 'WOLNA ZMIANA'}</Text>
                     <Text style={[S.personSub,p&&{color:contrastText(personColor(s.person)),opacity:0.82}]}>{s.warehouse || warehouse}</Text>
                   </TouchableOpacity>
 
                   <View style={S.actions}>
-                    <TouchableOpacity onPress={()=>!readOnly && toggleLock(di,si)}>
+                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && toggleLock(di,si)}>
                       <Text style={S.actionText}>{s.locked?'Odblokuj':'Zablokuj'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={()=>!readOnly && setEdit({dayIndex:di,shiftIndex:si})}>
+                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}>
                       <Text style={S.actionText}>Edytuj</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={()=>!readOnly && removeShift(di,si)}>
+                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && removeShift(di,si)}>
                       <Text style={S.delete}>Usuń</Text>
                     </TouchableOpacity>
                   </View>
+                  {!dayHasPassed(di) && s.person && (cloudRole==='admin' || s.person===myPerson) && <TouchableOpacity style={S.swapMini} onPress={()=>setSwapModal({dayIndex:di,shiftIndex:si,person:s.person})}><Text style={S.actionText}>🔄 Zaproponuj zamianę</Text></TouchableOpacity>}
+                  {!dayHasPassed(di) && !readOnly && <TouchableOpacity style={S.swapMini} onPress={()=>openOff(di,si)}><Text style={S.actionText}>🏖️ Ustaw wolne</Text></TouchableOpacity>}
                 </View>
               );
             })}
@@ -783,6 +1000,33 @@ export default function App() {
         <Text style={S.btnText}>⚡ ZASTOSUJ I PRZELICZ GRAFIK</Text>
       </TouchableOpacity>
 
+      <Text style={S.section}>Mój profil</Text>
+      <Text style={S.helpLine}>Wybierz osobę przypisaną do tego konta. Dzięki temu pracownik może składać propozycje zamian ze swojej zmiany.</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+        {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k); if(FIREBASE_ENABLED&&db&&cloudUser){try{await updateDoc(doc(db,'users',cloudUser.uid),{personKey:k})}catch(e){setCloudError('Nie udało się zapisać profilu.')}}}}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+      </ScrollView>
+
+      <Text style={S.section}>⚡ Warunki generatora</Text>
+      <Text style={S.helpLine}>Ustaw reguły MUSI, NIE MOŻE, PREFERUJE oraz liczbę zmian dla pracownika.</Text>
+      <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={()=>setConditionModal(true)}><Text style={S.btnText}>⚙️ ZARZĄDZAJ WARUNKAMI ({conditions.length})</Text></TouchableOpacity>
+
+      {FIREBASE_ENABLED && cloudRole==='admin' && <>
+        <Text style={S.section}>🔔 Propozycje zamian {proposals.filter(p=>p.status==='pending').length ? `(${proposals.filter(p=>p.status==='pending').length})` : ''}</Text>
+        {proposals.filter(p=>p.status==='pending').slice(0,10).map(p=><View key={p.id} style={S.proposalCard}>
+          <Text style={S.optionText}>{PEOPLE[p.fromPerson]?.name || p.fromEmail} ↔ {PEOPLE[p.toPerson]?.name || 'pracownik'}</Text>
+          <Text style={S.helpLine}>{DAYS[p.fromDay]} · zm. {p.fromShift} → {DAYS[p.toDay]} · zm. {p.toShift}</Text>
+          <View style={S.row}><TouchableOpacity style={S.generate} onPress={()=>approveProposal(p)}><Text style={S.btnText}>✅ ZATWIERDŹ</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={()=>rejectProposal(p.id)}><Text style={S.btnText}>❌ ODRZUĆ</Text></TouchableOpacity></View>
+        </View>)}
+      </>}
+
+      {FIREBASE_ENABLED && cloudRole!=='admin' && <>
+        <Text style={S.section}>🔄 Moje propozycje zamian</Text>
+        {proposals.slice(0,8).map(p=><View key={p.id} style={S.proposalCard}>
+          <Text style={S.optionText}>{p.status==='pending'?'🟡 Oczekuje':p.status==='approved'?'🟢 Zatwierdzona':'🔴 Odrzucona'}</Text>
+          <Text style={S.helpLine}>{DAYS[p.fromDay]} · zm. {p.fromShift} ↔ {DAYS[p.toDay]} · zm. {p.toShift} · {PEOPLE[p.toPerson]?.name || ''}</Text>
+        </View>)}
+      </>}
+
       <Text style={S.section}>Kolory pracowników</Text>
       <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
       {PERSON_KEYS.map(k => (
@@ -826,6 +1070,62 @@ export default function App() {
         <Text style={S.btnText}>WYCZYŚĆ DANE APLIKACJI</Text>
       </TouchableOpacity>
     </ScrollView>
+  );
+
+  const conditionModalDialog = (
+    <Modal visible={conditionModal} transparent animationType="slide" onRequestClose={()=>setConditionModal(false)}>
+      <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
+        <Text style={S.modalTitle}>Warunki generatora</Text>
+        <ScrollView style={{maxHeight:430}}>
+          {conditions.map((c,i)=><View key={i} style={S.proposalCard}>
+            <Text style={S.optionText}>{c.type==='count'?'🔢 LICZBA':c.type==='must'?'🔴 MUSI':c.type==='forbid'?'⛔ NIE MOŻE':'🟡 PREFERUJE'} · {PEOPLE[c.person]?.name}</Text>
+            <Text style={S.helpLine}>{c.type==='count'?`${c.value} zmian`: `${DAYS[c.dayIndex]} · zmiana ${c.shift}`}</Text>
+            <TouchableOpacity onPress={()=>setConditions(x=>x.filter((_,j)=>j!==i))}><Text style={S.delete}>Usuń warunek</Text></TouchableOpacity>
+          </View>)}
+          <Text style={S.section}>Dodaj warunek</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,conditionPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setConditionPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+          <View style={S.row}>{['count','must','forbid','prefer'].map(t=><TouchableOpacity key={t} style={[S.chip,conditionType===t&&S.active]} onPress={()=>setConditionType(t)}><Text style={S.btnText}>{t==='count'?'Liczba':t==='must'?'Musi':t==='forbid'?'Nie może':'Preferuje'}</Text></TouchableOpacity>)}</View>
+          {conditionType==='count' ? <TextInput value={conditionValue} onChangeText={setConditionValue} keyboardType="number-pad" placeholder="Liczba zmian, np. 6" placeholderTextColor="#777" style={S.input}/> : <>
+            <Text style={S.section}>Dzień</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{DAYS.map((d,i)=><TouchableOpacity key={d} style={[S.chip,conditionDay===i&&S.active]} onPress={()=>setConditionDay(i)}><Text style={S.btnText}>{d.slice(0,3)}</Text></TouchableOpacity>)}</ScrollView>
+            <Text style={S.section}>Zmiana</Text><View style={S.row}>{[1,2].map(x=><TouchableOpacity key={x} style={[S.btn,conditionShift===x&&S.active]} onPress={()=>setConditionShift(x)}><Text style={S.btnText}>{x}</Text></TouchableOpacity>)}</View>
+          </>}
+          <TouchableOpacity style={S.generateFull} onPress={()=>{if(conditionType==='count'&&!conditionValue)return; setConditions(x=>[...x,{type:conditionType,person:conditionPerson,dayIndex:conditionDay,shift:conditionShift,value:conditionValue}]);setConditionValue('')}}><Text style={S.btnText}>➕ DODAJ WARUNEK</Text></TouchableOpacity>
+        </ScrollView>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setConditionModal(false)}><Text style={S.btnText}>GOTOWE</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const offModalDialog = (
+    <Modal visible={!!offModal} transparent animationType="slide" onRequestClose={()=>setOffModal(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>🏖️ Ustaw wolne</Text>
+        <Text style={S.helpLine}>{offModal ? `${DAYS[offModal.dayIndex]} · zmiana ${offModal.shiftIndex+1} · ${offModal.person ? PEOPLE[offModal.person].name : 'wolna'}` : ''}</Text>
+        <Text style={S.section}>Co zrobić z tą zmianą?</Text>
+        <TouchableOpacity style={[S.option,offMode==='plain'&&S.optionActive]} onPress={()=>setOffMode('plain')}><Text style={S.optionText}>Wolne — bez odrabiania</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.option,offMode==='recover'&&S.optionActive]} onPress={()=>setOffMode('recover')}><Text style={S.optionText}>Wolne — generator ma uzupełnić inną zmianą</Text></TouchableOpacity>
+        <Text style={S.section}>Zastępstwo</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>{PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,offReplacement===k&&{backgroundColor:personColor(k)}]} onPress={()=>setOffReplacement(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+        <TouchableOpacity style={S.generateFull} onPress={saveOff}><Text style={S.btnText}>ZAPISZ WOLNE</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setOffModal(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const swapModalDialog = (
+    <Modal visible={!!swapModal} transparent animationType="slide" onRequestClose={()=>setSwapModal(null)}>
+      <View style={S.overlay}><View style={[S.modal,{maxHeight:'90%'}]}>
+        <Text style={S.modalTitle}>🔄 Zaproponuj zamianę</Text>
+        <Text style={S.helpLine}>{swapModal ? `${DAYS[swapModal.dayIndex]} · zmiana ${swapModal.shiftIndex+1}` : ''}</Text>
+        <Text style={S.section}>Z kim?</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>{PERSON_KEYS.filter(k=>k!==myPerson).map(k=><TouchableOpacity key={k} style={[S.chip,swapTarget===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSwapTarget(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+        <Text style={S.section}>Na którą zmianę tej osoby?</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{DAYS.map((d,i)=><TouchableOpacity key={d} style={[S.chip,swapTargetDay===i&&S.active]} onPress={()=>setSwapTargetDay(i)}><Text style={S.btnText}>{d.slice(0,3)}</Text></TouchableOpacity>)}</ScrollView>
+        <View style={S.row}>{[1,2].map(x=><TouchableOpacity key={x} style={[S.btn,swapTargetShift===x&&S.active]} onPress={()=>setSwapTargetShift(x)}><Text style={S.btnText}>Zmiana {x}</Text></TouchableOpacity>)}</View>
+        <TouchableOpacity style={S.generateFull} onPress={submitSwap}><Text style={S.btnText}>📨 WYŚLIJ PROPOZYCJĘ</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setSwapModal(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
   );
 
   const colorModal = (
@@ -897,6 +1197,9 @@ export default function App() {
           <Text style={S.helpLine}>• System tygodnia: 10 h albo 12 h.</Text>
           <Text style={S.helpLine}>• Stawka: 300 zł przy 10 h i 360 zł przy 12 h.</Text>
           <Text style={S.helpLine}>• Edycja zmiany pozwala zmienić osobę i magazyn.</Text>
+          <Text style={S.helpLine}>• Minione dni są automatycznie blokowane przed edycją.</Text>
+          <Text style={S.helpLine}>• Pracownik może zaproponować zamianę, ale zmianę zatwierdza administrator.</Text>
+          <Text style={S.helpLine}>• Generator może uwzględniać warunki MUSI / NIE MOŻE / PREFERUJE.</Text>
           <Text style={S.helpLine}>• Zablokowane i ręcznie zmienione zmiany są zachowywane przy ponownym generowaniu.</Text>
           <Text style={S.helpLine}>• Dane są zapisywane lokalnie na telefonie.</Text>
           <Text style={S.helpLine}>• Backup JSON służy do przenoszenia grafiku między telefonami.</Text>
@@ -910,20 +1213,22 @@ export default function App() {
 
   const exportModalDialog = (
     <Modal visible={exportModal} transparent animationType="slide" onRequestClose={()=>setExportModal(false)}>
-      <View style={S.overlay}>
-        <View style={[S.modal,{maxHeight:'94%'}]}>
-          <Text style={S.modalTitle}>Udostępnij gotowy grafik</Text>
-          <Text style={S.helpLine}>Wybierz format. Tabela zawiera cały tydzień, oba zakresy godzin i magazyny.</Text>
-          <ScrollView style={{maxHeight:470}} contentContainerStyle={{paddingBottom:4}}>
-            {compactTable(true)}
-          </ScrollView>
-          <View style={S.row}>
-            <TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity>
-            <TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity>
-          </View>
-          <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
-        </View>
-      </View>
+      <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
+        <Text style={S.modalTitle}>Udostępnij gotowy grafik</Text>
+        <Text style={S.helpLine}>Cały grafik jest domyślną opcją. Możesz też udostępnić tylko jedną osobę.</Text>
+        <Text style={S.section}>Zakres</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>
+          <TouchableOpacity style={[S.chip,sharePerson==='all'&&S.active]} onPress={()=>setSharePerson('all')}><Text style={S.btnText}>👥 Cały grafik</Text></TouchableOpacity>
+          {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,sharePerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSharePerson(k)}><Text style={S.btnText}>👤 {PEOPLE[k].name}</Text></TouchableOpacity>)}
+        </ScrollView>
+        <Text style={S.section}>Forma</Text>
+        <View style={S.row}><TouchableOpacity style={[S.btn,shareFormat==='table'&&S.active]} onPress={()=>setShareFormat('table')}><Text style={S.btnText}>📊 Tabela</Text></TouchableOpacity><TouchableOpacity style={[S.btn,shareFormat==='list'&&S.active]} onPress={()=>setShareFormat('list')}><Text style={S.btnText}>📋 Lista</Text></TouchableOpacity></View>
+        <ScrollView style={{maxHeight:400}} contentContainerStyle={{paddingBottom:4}}>
+          {shareFormat==='table'?compactTable(true,sharePerson):listExport(true)}
+        </ScrollView>
+        <View style={S.row}><TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity></View>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+      </View></View>
     </Modal>
   );
 
@@ -1024,15 +1329,16 @@ export default function App() {
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
           {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
-            <Text style={S.cloudStatusText}>UID: {cloudUser.uid}</Text>
-            <Text style={S.cloudStatusText}>Rola odczytana: {cloudRole}</Text>
-            {cloudError ? <Text style={S.cloudStatusText}>BŁĄD: {cloudError}</Text> : null}
+            {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
           {tab==='grafik' ? schedule : tab==='summary' ? summary : settings}
           {editModal}
           {colorModal}
           {helpModal}
           {exportModalDialog}
+          {conditionModalDialog}
+          {offModalDialog}
+          {swapModalDialog}
           {pinDialog}
           {backupDialog}
 
@@ -1151,6 +1457,11 @@ const S = StyleSheet.create({
   cloudBanner:{backgroundColor:'#1d6b45',padding:9,marginHorizontal:14,borderRadius:10,marginBottom:7},
   cloudBannerText:{color:'#fff',fontWeight:'900',textAlign:'center'},
   cloudStatus:{backgroundColor:'rgba(25,29,38,0.94)',padding:7,marginHorizontal:14,borderRadius:9,marginBottom:7,borderWidth:1,borderColor:'#2b3240'},
+  swapMini:{marginTop:6,paddingVertical:4},
+  listExportRow:{paddingVertical:8,borderBottomWidth:1,borderBottomColor:'#2b3240'},
+  listExportDay:{color:'#fff',fontWeight:'900',fontSize:13},
+  listExportItem:{color:'#cbd5e1',fontSize:12,marginTop:3},
+  proposalCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
   cloudStatusText:{color:'#9fd5ff',fontSize:11,textAlign:'center',fontWeight:'800'},
   backupInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:12,fontSize:12,minHeight:260,maxHeight:420},
 });
