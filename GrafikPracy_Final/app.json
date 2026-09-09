@@ -7,7 +7,7 @@
     "userInterfaceStyle": "dark",
     "icon": "./icon-512.png",
     "web": {
-      "output": "static"
+      "output": "single"
     },
     "android": {
       "package": "pl.grafikpracy.app",
