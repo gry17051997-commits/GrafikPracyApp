@@ -18,8 +18,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import {captureRef} from 'react-native-view-shot';
+import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
+import {getReactNativePersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
+import {doc, getDoc, setDoc, onSnapshot, serverTimestamp} from 'firebase/firestore';
 
-const KEY = 'grafik-pracy-v2';
+const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
 const PEOPLE = {
   P: {name: 'Paweł', color: '#4f8cff'},
@@ -143,6 +146,16 @@ export default function App() {
   const [viewMode,setViewMode] = useState('cards');
   const [exportModal,setExportModal] = useState(false);
   const exportRef = useRef(null);
+  const cloudApplying = useRef(false);
+  const [cloudUser,setCloudUser] = useState(null);
+  const [cloudRole,setCloudRole] = useState('employee');
+  const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
+  const [authEmail,setAuthEmail] = useState('');
+  const [authPassword,setAuthPassword] = useState('');
+  const [authBusy,setAuthBusy] = useState(false);
+  const [cloudError,setCloudError] = useState('');
+  const [cloudUpdated,setCloudUpdated] = useState(false);
+  const readOnly = FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin';
 
   const wkKey = iso(weekStart);
   const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);
@@ -184,6 +197,77 @@ export default function App() {
   },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors]);
 
   useEffect(() => {
+    if (!FIREBASE_ENABLED || !auth) return;
+    const unsub = onAuthStateChanged(auth, async user => {
+      setCloudUser(user || null);
+      setCloudError('');
+      if (!user) {
+        setCloudRole('employee');
+        setCloudReady(false);
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db,'users',user.uid));
+        setCloudRole(snap.exists() && snap.data().role === 'admin' ? 'admin' : 'employee');
+      } catch (e) {
+        setCloudRole('employee');
+        setCloudError('Nie udało się odczytać uprawnień użytkownika.');
+      } finally {
+        setCloudReady(true);
+      }
+    });
+    return unsub;
+  },[]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const unsub = onSnapshot(doc(db,'schedules','main'), snap => {
+      if (!snap.exists()) return;
+      const data = snap.data() || {};
+      cloudApplying.current = true;
+      if (data.hours) setHours(data.hours);
+      if (data.rotation) setRotation(data.rotation);
+      if (data.warehouse) setWarehouse(data.warehouse);
+      if (data.weeks) setWeeks(data.weeks);
+      if (data.personColors) setPersonColors(data.personColors);
+      if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+      setCloudUpdated(true);
+      setTimeout(() => setCloudUpdated(false), 2500);
+    }, err => setCloudError('Brak dostępu do wspólnego grafiku. Sprawdź reguły Firestore.'));
+    return unsub;
+  },[cloudUser]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
+    if (cloudApplying.current) {
+      cloudApplying.current = false;
+      return;
+    }
+    const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online.'));
+  },[ready,hours,rotation,warehouse,weeks,times,personColors,cloudUser,cloudRole]);
+
+  const cloudLogin = async () => {
+    setAuthBusy(true); setCloudError('');
+    try { await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword); setAuthPassword(''); }
+    catch(e) { setCloudError(e?.code === 'auth/invalid-credential' ? 'Nieprawidłowy e-mail lub hasło.' : 'Nie udało się zalogować.'); }
+    finally { setAuthBusy(false); }
+  };
+
+  const cloudRegister = async () => {
+    setAuthBusy(true); setCloudError('');
+    try {
+      const cred = await createUserWithEmailAndPassword(auth,authEmail.trim(),authPassword);
+      await setDoc(doc(db,'users',cred.user.uid),{email:cred.user.email,role:'employee',createdAt:serverTimestamp()});
+      setAuthPassword('');
+    } catch(e) {
+      setCloudError(e?.code === 'auth/email-already-in-use' ? 'Ten e-mail jest już zarejestrowany.' : 'Nie udało się utworzyć konta. Hasło powinno mieć co najmniej 6 znaków.');
+    } finally { setAuthBusy(false); }
+  };
+
+  const cloudLogout = async () => { try { await signOut(auth); } catch(e) {} };
+
+  useEffect(() => {
     if (!weeks[wkKey]) {
       setWeeks(prev => ({...prev,[wkKey]:generateWeek(rotation,warehouse)}));
     }
@@ -197,11 +281,13 @@ export default function App() {
   };
 
   const changeHours = h => {
+    if (readOnly) return;
     setHours(h);
     setTimes(DEFAULT_TIMES[h]);
   };
 
   const regenerate = () => {
+    if (readOnly) return;
     Alert.alert(
       'Wygenerować grafik?',
       'Generator utworzy nowy układ. Ręcznie zmienione lub zablokowane zmiany zostaną zachowane.',
@@ -225,6 +311,7 @@ export default function App() {
   };
 
   const updateShift = (dayIndex,shiftIndex,patch) => {
+    if (readOnly) return;
     setWeek(w => {
       w[dayIndex].shifts[shiftIndex] = {
         ...w[dayIndex].shifts[shiftIndex],
@@ -236,10 +323,12 @@ export default function App() {
   };
 
   const removeShift = (dayIndex,shiftIndex) => {
+    if (readOnly) return;
     updateShift(dayIndex,shiftIndex,{person:null});
   };
 
   const toggleLock = (dayIndex,shiftIndex) => {
+    if (readOnly) return;
     setWeek(w => {
       const s = w[dayIndex].shifts[shiftIndex];
       s.locked = !s.locked;
@@ -299,6 +388,7 @@ export default function App() {
   };
 
   const resetAll = () => {
+    if (readOnly) return;
     Alert.alert('Wyczyścić dane?','Usunie zapisane grafiki i ustawienia tej aplikacji.',[
       {text:'Anuluj',style:'cancel'},
       {text:'Wyczyść',style:'destructive',onPress:async()=>{
@@ -430,7 +520,7 @@ export default function App() {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
           <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
-          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person&&{backgroundColor:personColor(sh.person)}]}>
+          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>!readOnly && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person&&{backgroundColor:personColor(sh.person)}]}>
             <Text style={[S.tablePerson,sh.person&&{color:contrastText(personColor(sh.person))}]}>{sh.person ? PEOPLE[sh.person].name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,sh.person&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{sh.warehouse || d.warehouse || warehouse}</Text>
             <Text style={[S.tableMeta,sh.person&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{shiftTime(times,si+1)}</Text>
@@ -525,20 +615,20 @@ export default function App() {
 
                   <TouchableOpacity
                     style={[S.person,p&&{backgroundColor:personColor(s.person),borderLeftColor:personColor(s.person),borderLeftWidth:4}]}
-                    onPress={()=>setEdit({dayIndex:di,shiftIndex:si})}
+                    onPress={()=>!readOnly && setEdit({dayIndex:di,shiftIndex:si})}
                   >
                     <Text style={[S.personText,p&&{color:contrastText(personColor(s.person))}]}>{p ? p.name : 'WOLNA ZMIANA'}</Text>
                     <Text style={[S.personSub,p&&{color:contrastText(personColor(s.person)),opacity:0.82}]}>{s.warehouse || warehouse}</Text>
                   </TouchableOpacity>
 
                   <View style={S.actions}>
-                    <TouchableOpacity onPress={()=>toggleLock(di,si)}>
+                    <TouchableOpacity onPress={()=>!readOnly && toggleLock(di,si)}>
                       <Text style={S.actionText}>{s.locked?'Odblokuj':'Zablokuj'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={()=>setEdit({dayIndex:di,shiftIndex:si})}>
+                    <TouchableOpacity onPress={()=>!readOnly && setEdit({dayIndex:di,shiftIndex:si})}>
                       <Text style={S.actionText}>Edytuj</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={()=>removeShift(di,si)}>
+                    <TouchableOpacity onPress={()=>!readOnly && removeShift(di,si)}>
                       <Text style={S.delete}>Usuń</Text>
                     </TouchableOpacity>
                   </View>
@@ -638,7 +728,7 @@ export default function App() {
 
       <Text style={S.section}>Domyślny magazyn</Text>
       {WAREHOUSES.map(w=>
-        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>setWarehouse(w)}>
+        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>!readOnly && setWarehouse(w)}>
           <Text style={S.optionText}>{w}</Text>
           {warehouse===w&&<Text style={S.check}>✓</Text>}
         </TouchableOpacity>
@@ -667,7 +757,7 @@ export default function App() {
       <Text style={S.section}>Kolory pracowników</Text>
       <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
       {PERSON_KEYS.map(k => (
-        <TouchableOpacity key={k} style={[S.option,{borderLeftColor:personColor(k),borderLeftWidth:6}]} onPress={()=>setColorPerson(k)}>
+        <TouchableOpacity key={k} style={[S.option,{borderLeftColor:personColor(k),borderLeftWidth:6}]} onPress={()=>!readOnly && setColorPerson(k)}>
           <View style={{flexDirection:'row',alignItems:'center',gap:10}}>
             <View style={[S.colorPreview,{backgroundColor:personColor(k)}]} />
             <Text style={S.optionText}>{PEOPLE[k].name}</Text>
@@ -675,6 +765,12 @@ export default function App() {
           <Text style={S.muted}>{personColor(k)}</Text>
         </TouchableOpacity>
       ))}
+
+      {FIREBASE_ENABLED && cloudUser && <>
+        <Text style={S.section}>Wspólny grafik online</Text>
+        <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
+        <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
+      </>}
 
       <Text style={S.section}>Bezpieczeństwo i dane</Text>
       <TouchableOpacity style={S.option} onPress={()=>{setPinEntry('');setPinModal(true)}}>
@@ -692,7 +788,7 @@ export default function App() {
         <Text style={S.muted}>telefon / plik / komunikator</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={S.option} onPress={()=>setDark(v=>!v)}>
+      <TouchableOpacity style={S.option} onPress={()=>!readOnly && setDark(v=>!v)}>
         <Text style={S.optionText}>🌙 Tryb ciemny</Text>
         <Text style={S.muted}>{dark?'włączony':'wyłączony'}</Text>
       </TouchableOpacity>
@@ -711,7 +807,7 @@ export default function App() {
           <Text style={S.helpLine}>Wybierz jeden z kolorów. Zmiana zostanie zapisana automatycznie.</Text>
           <ScrollView contentContainerStyle={S.palette}>
             {COLOR_PALETTE.map(c => (
-              <TouchableOpacity key={c} onPress={()=>{setPersonColors(prev=>({...prev,[colorPerson]:c}));setColorPerson(null)}} style={[S.colorSwatch,{backgroundColor:c},colorPerson && personColor(colorPerson)===c&&S.colorSelected]}>
+              <TouchableOpacity key={c} onPress={()=>{if(readOnly)return;setPersonColors(prev=>({...prev,[colorPerson]:c}));setColorPerson(null)}} style={[S.colorSwatch,{backgroundColor:c},colorPerson && personColor(colorPerson)===c&&S.colorSelected]}>
                 {colorPerson && personColor(colorPerson)===c ? <Text style={[S.colorCheck,{color:contrastText(c)}]}>✓</Text> : null}
               </TouchableOpacity>
             ))}
@@ -863,6 +959,24 @@ export default function App() {
     </Modal>
   );
 
+  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady)) {
+    return (
+      <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
+        <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
+          <View style={S.modal}>
+            <Text style={S.modalTitle}>GRAFIK PRACY ☁️</Text>
+            <Text style={S.helpLine}>Zaloguj się, aby korzystać ze wspólnego grafiku.</Text>
+            <TextInput value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" keyboardType="email-address" placeholder="E-mail" placeholderTextColor="#777" style={S.input}/>
+            <TextInput value={authPassword} onChangeText={setAuthPassword} secureTextEntry placeholder="Hasło" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
+            {!!cloudError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{cloudError}</Text>}
+            <TouchableOpacity style={S.closeBtn} disabled={authBusy} onPress={cloudLogin}><Text style={S.btnText}>{authBusy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity>
+          </View>
+        </View></SafeAreaView></View>
+      </ImageBackground>
+    );
+  }
+
   if (!ready) {
     return (
       <SafeAreaView style={S.container}>
@@ -878,6 +992,8 @@ export default function App() {
     <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
+          {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
+          {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}><Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text></View>}
           {tab==='grafik' ? schedule : tab==='summary' ? summary : settings}
           {editModal}
           {colorModal}
@@ -998,5 +1114,9 @@ const S = StyleSheet.create({
   colorSwatch:{width:44,height:44,borderRadius:22,margin:7,alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'transparent'},
   colorSelected:{borderColor:'#fff',transform:[{scale:1.12}]},
   colorCheck:{fontSize:24,fontWeight:'900'},
+  cloudBanner:{backgroundColor:'#1d6b45',padding:9,marginHorizontal:14,borderRadius:10,marginBottom:7},
+  cloudBannerText:{color:'#fff',fontWeight:'900',textAlign:'center'},
+  cloudStatus:{backgroundColor:'rgba(25,29,38,0.94)',padding:7,marginHorizontal:14,borderRadius:9,marginBottom:7,borderWidth:1,borderColor:'#2b3240'},
+  cloudStatusText:{color:'#9fd5ff',fontSize:11,textAlign:'center',fontWeight:'800'},
   backupInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:12,fontSize:12,minHeight:260,maxHeight:420},
 });

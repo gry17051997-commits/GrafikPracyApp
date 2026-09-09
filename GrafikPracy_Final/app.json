@@ -8,7 +8,7 @@
     "icon": "./icon-512.png",
     "android": {
       "package": "pl.grafikpracy.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"

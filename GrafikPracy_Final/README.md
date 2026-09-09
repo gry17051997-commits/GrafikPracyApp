@@ -1,8 +1,21 @@
-# Grafik Pracy 1.0.0
+# Grafik Pracy V5 - Firebase
 
-Finalna wersja projektu Expo/React Native.
+Gotowy projekt Expo/React Native z lokalnym zapisem oraz wspólnym grafikiem online przez Firebase Firestore.
 
-Funkcje: osobne tygodnie, rotacja Pawła/Mateusza, Łukasz jako niedzielny skoczek, 10/12 h, stawki, magazyny, godziny, edycja, blokowanie, usuwanie, zamiana zmian, nieobecności, podsumowanie oraz automatyczny zapis danych w telefonie.
+## Firebase
+Konfiguracja projektu Firebase jest już wpisana w `firebaseConfig.js`.
 
-Do Snacka dodaj zależność `@react-native-async-storage/async-storage`.
-Do budowy APK użyj profilu `preview` z `eas.json`.
+W Firebase włączone powinny być:
+- Authentication -> Email/Password
+- Firestore Database
+
+Reguły bezpieczeństwa są w `firestore.rules`.
+
+## Role
+Nowe konta rejestrowane w aplikacji otrzymują rolę `employee`.
+Aby konto administratora mogło edytować grafik, w Firestore należy w dokumencie `users/<UID>` zmienić pole `role` z `employee` na `admin`.
+
+Pracownik ma dostęp tylko do odczytu wspólnego grafiku. Administrator może generować i edytować grafik.
+
+## Budowanie APK
+Projekt używa Expo SDK 54 i EAS Build. Profil `preview` tworzy APK bez publikowania w Google Play.
