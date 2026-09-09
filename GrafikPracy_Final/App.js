@@ -19,7 +19,8 @@ import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import {captureRef} from 'react-native-view-shot';
 
-const KEY = 'grafik-pracy-v4';
+const KEY = 'grafik-pracy-v2';
+const LEGACY_KEY = 'grafik-pracy-v4';
 const PEOPLE = {
   P: {name: 'Paweł', color: '#4f8cff'},
   M: {name: 'Mateusz', color: '#8f6cff'},
@@ -150,7 +151,7 @@ export default function App() {
   useEffect(() => {
     (async() => {
       try {
-        const raw = await AsyncStorage.getItem(KEY);
+        const raw = (await AsyncStorage.getItem(KEY)) || (await AsyncStorage.getItem(LEGACY_KEY));
         if (raw) {
           const data = JSON.parse(raw);
           setHours(data.hours || 10);
@@ -180,7 +181,7 @@ export default function App() {
       [hours]: times
     },personColors};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times]);
+  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors]);
 
   useEffect(() => {
     if (!weeks[wkKey]) {
