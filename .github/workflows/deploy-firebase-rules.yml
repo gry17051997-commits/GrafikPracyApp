@@ -6,6 +6,7 @@ on:
     paths:
       - 'GrafikPracy_Final/firestore.rules'
       - '.github/workflows/deploy-firebase-rules.yml'
+  workflow_dispatch:
 
 jobs:
   deploy_firestore_rules:
@@ -33,8 +34,15 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
+          test -n "$FIREBASE_SERVICE_ACCOUNT" || { echo "Brak sekretu FIREBASE_SERVICE_ACCOUNT"; exit 1; }
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
           node -e "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/firebase-service-account.json','utf8')); console.log('JSON konta serwisowego: OK')"
+
+      - name: Sprawdź dostęp do projektu Firebase
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          firebase projects:list --project grafik-pracy-c9006 --non-interactive
 
       - name: Wdróż reguły Firestore
         env:
