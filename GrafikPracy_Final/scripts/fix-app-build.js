@@ -6,20 +6,22 @@ if (!fs.existsSync(file)) process.exit(0);
 
 let s = fs.readFileSync(file, 'utf8');
 
-// Remove the accidental duplicate body left after updateShift. This block
-// closes App() too early and causes Babel to report "return outside of function".
-s = s.replace(/\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{\n\s*w\[dayIndex\]\.shifts\[shiftIndex\] = \{\n\s*\.\.\.w\[dayIndex\]\.shifts\[shiftIndex\],\n\s*\.\.\.patch,\n\s*manual:true\n\s*\};\n\s*return w;\n\s*\}\);\n\s*\};\n/, '\n');
+// Keep only the first updateShift declaration. Repeated copies make Babel
+// see later returns as being outside App().
+const updateShiftRe = /\n  const updateShift = \(dayIndex,shiftIndex,patch\) => \{[\s\S]*?\n  \};\n/g;
+let updateShiftSeen = false;
+s = s.replace(updateShiftRe, match => {
+  if (!updateShiftSeen) {
+    updateShiftSeen = true;
+    return match;
+  }
+  return '\n';
+});
 
-// Fix the table cell variable and employee filtering in the main card view.
+// Remove duplicate condition synchronization.
 s = s.replace(
-  "const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;",
-  "const p = s.person ? PEOPLE[s.person] : null;"
-);
-
-// Fix the compact table cell so p is always defined and the selected person filter works.
-s = s.replace(
-  "const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}",
-  "const sh=d.shifts[si]; const p=sh.person && (personFilter==='all' || sh.person===personFilter) ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,p?{backgroundColor:personColor(sh.person)}:{}]}"
+  "      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);",
+  "      if (data.conditions) setConditions(data.conditions);"
 );
 
 // Fix cloud save error handler using an undefined e variable.
@@ -28,10 +30,16 @@ s = s.replace(
   "setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));"
 );
 
-// Remove duplicated condition synchronization.
+// Fix the table cell variable and employee filtering in the main card view.
 s = s.replace(
-  "      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);",
-  "      if (data.conditions) setConditions(data.conditions);"
+  "const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;",
+  "const p = s.person ? PEOPLE[s.person] : null;"
+);
+
+// Fix the compact table cell so p is always defined.
+s = s.replace(
+  "const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}",
+  "const sh=d.shifts[si]; const p=sh.person && (personFilter==='all' || sh.person===personFilter) ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,p?{backgroundColor:personColor(sh.person)}:{}]}"
 );
 
 // Employees may not regenerate or change their profile identity.
