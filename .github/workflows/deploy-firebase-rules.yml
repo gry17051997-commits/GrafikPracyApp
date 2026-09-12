@@ -5,7 +5,6 @@ on:
     branches: ['main']
     paths:
       - 'GrafikPracy_Final/firestore.rules'
-      - 'GrafikPracy_Final/firebase.json'
       - '.github/workflows/deploy-firebase-rules.yml'
 
 jobs:
@@ -19,6 +18,16 @@ jobs:
 
       - name: Zainstaluj Firebase CLI
         run: npm install -g firebase-tools
+
+      - name: Przygotuj konfigurację Firebase
+        run: |
+          cat > firebase.json <<'EOF'
+          {
+            "firestore": {
+              "rules": "GrafikPracy_Final/firestore.rules"
+            }
+          }
+          EOF
 
       - name: Wdróż reguły Firestore
         env:
