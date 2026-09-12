@@ -20,5 +20,20 @@ s = s.replace(
 
 s = s.replace("      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);", "      if (data.conditions) setConditions(data.conditions);");
 
+// Keep employee accounts read-only even if a future UI control is added without its own guard.
+const readOnlyGuards = [
+  ["onPress={()=>setViewMode('table')}", "onPress={()=>!readOnly && setViewMode('table')}"] ,
+  ["onPress={()=>setViewMode('cards')}", "onPress={()=>!readOnly && setViewMode('cards')}"] ,
+  ["onPress={regenerate}", "onPress={()=>!readOnly && regenerate()}"] ,
+  ["onPress={()=>setExportModal(true)}", "onPress={()=>setExportModal(true)}"]
+];
+for (const [a,b] of readOnlyGuards) s = s.replace(a,b);
+
+// PDF export: apply the configured employee color to each occupied employee cell.
+s = s.replace(
+  "return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;",
+  "const bg=visible?personColor(s.person):'#fff'; const fg=visible?contrastText(bg):'#111'; return `<td style=\\\"background:${bg};color:${fg}\\\"><b>${escapeHtml(name)}</b><br><span style=\\\"color:${fg};opacity:.78\\\">${escapeHtml(wh)}</span><br><span style=\\\"color:${fg};opacity:.78\\\">${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;"
+);
+
 fs.writeFileSync(file, s);
 console.log('Grafik Pracy build patch applied');
