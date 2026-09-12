@@ -2,7 +2,7 @@
   "expo": {
     "name": "Grafik Pracy",
     "slug": "grafikpracyapp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./icon-512.png",
@@ -11,7 +11,7 @@
     },
     "android": {
       "package": "pl.grafikpracy.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
