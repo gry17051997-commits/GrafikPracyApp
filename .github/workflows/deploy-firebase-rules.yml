@@ -29,11 +29,15 @@ jobs:
           }
           EOF
 
-      - name: Wdróż reguły Firestore
+      - name: Przygotuj konto serwisowe
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-          firebase deploy --only firestore:rules --project grafik-pracy-c9006 --non-interactive
-          rm -f "$RUNNER_TEMP/firebase-service-account.json"
+          node -e "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/firebase-service-account.json','utf8')); console.log('JSON konta serwisowego: OK')"
+
+      - name: Wdróż reguły Firestore
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          firebase deploy --only firestore:rules --project grafik-pracy-c9006 --non-interactive --debug
