@@ -1,8 +1,13 @@
 const fs = require('fs');
 const path = require('path');
 
-const file = path.join(process.cwd(), 'GrafikPracy_Final', 'App.js');
-if (!fs.existsSync(file)) process.exit(0);
+// The script may run from the repository root or from GrafikPracy_Final.
+const candidates = [
+  path.join(process.cwd(), 'GrafikPracy_Final', 'App.js'),
+  path.join(process.cwd(), 'App.js')
+];
+const file = candidates.find(p => fs.existsSync(p));
+if (!file) process.exit(0);
 
 let s = fs.readFileSync(file, 'utf8');
 
