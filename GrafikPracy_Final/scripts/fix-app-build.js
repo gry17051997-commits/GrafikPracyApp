@@ -6,43 +6,50 @@ if (!fs.existsSync(file)) process.exit(0);
 
 let s = fs.readFileSync(file, 'utf8');
 
-const stray = `
-    if (readOnly || dayHasPassed(dayIndex)) return;
-    setWeek(w => {
-      w[dayIndex].shifts[shiftIndex] = {
-        ...w[dayIndex].shifts[shiftIndex],
-        ...patch,
-        manual:true
-      };
-      return w;
-    });
-  };
-`;
-if (s.includes(stray)) s = s.replace(stray, '\n');
+// Remove the accidental duplicate body left after updateShift. This block
+// closes App() too early and causes Babel to report "return outside of function".
+s = s.replace(/\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{\n\s*w\[dayIndex\]\.shifts\[shiftIndex\] = \{\n\s*\.\.\.w\[dayIndex\]\.shifts\[shiftIndex\],\n\s*\.\.\.patch,\n\s*manual:true\n\s*\};\n\s*return w;\n\s*\}\);\n\s*\};\n/, '\n');
 
-const oldTable = `const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
-            <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
-            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
-            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(times,si+1) : ''}</Text>`;
-const newTable = `const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,p?{backgroundColor:personColor(sh.person)}:{}]}>
-            <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
-            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
-            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(times,si+1) : ''}</Text>`;
-if (s.includes(oldTable)) s = s.replace(oldTable, newTable);
+// Fix the table cell variable and employee filtering in the main card view.
+s = s.replace(
+  "const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;",
+  "const p = s.person ? PEOPLE[s.person] : null;"
+);
 
-const oldCard = `const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;`;
-const newCard = `const p = s.person ? PEOPLE[s.person] : null;`;
-if (s.includes(oldCard)) s = s.replace(oldCard, newCard);
+// Fix the compact table cell so p is always defined and the selected person filter works.
+s = s.replace(
+  "const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}",
+  "const sh=d.shifts[si]; const p=sh.person && (personFilter==='all' || sh.person===personFilter) ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,p?{backgroundColor:personColor(sh.person)}:{}]}"
+);
 
+// Fix cloud save error handler using an undefined e variable.
 s = s.replace(
   "setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));",
   "setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));"
 );
 
-s = s.replace("      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);", "      if (data.conditions) setConditions(data.conditions);");
+// Remove duplicated condition synchronization.
+s = s.replace(
+  "      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);",
+  "      if (data.conditions) setConditions(data.conditions);"
+);
 
-// Generator remains disabled for employees; changing table/card view and opening export remain allowed.
+// Employees may not regenerate or change their profile identity.
 s = s.replace("onPress={regenerate}", "onPress={()=>!readOnly && regenerate()}");
+s = s.replace(
+  "<TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k);",
+  "<TouchableOpacity key={k} disabled={readOnly} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{if(readOnly)return;setMyPerson(k);"
+);
+
+// Give employees an explicit swap entry point.
+const swapAnchor = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
+        <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
+      </TouchableOpacity>`;
+const swapPanel = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
+        <Text style={S.btnText}>{cloudRole==='admin'?'🔄 Zamiana i edycja zmian':'🔄 ZGŁOŚ ZAMIANĘ'}</Text>
+      </TouchableOpacity>
+      {FIREBASE_ENABLED && cloudRole!=='admin' && <Text style={S.helpLine}>Aby zgłosić zamianę, wybierz swoją zmianę poniżej i naciśnij „🔄 Zaproponuj zamianę”.</Text>}`;
+if (s.includes(swapAnchor)) s = s.replace(swapAnchor, swapPanel);
 
 // PDF export: apply configured employee colors to occupied cells.
 s = s.replace(
