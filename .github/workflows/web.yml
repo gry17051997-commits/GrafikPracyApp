@@ -37,6 +37,20 @@ jobs:
       - name: Export Expo web
         run: npx expo export --platform web
 
+      - name: Apply smartphone web layout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          index = Path('dist/index.html')
+          css = Path('web-mobile.css').read_text(encoding='utf-8')
+          marker = '<style id="grafik-pracy-mobile">'
+          if index.exists():
+              html = index.read_text(encoding='utf-8')
+              if marker not in html:
+                  html = html.replace('</head>', marker + '\n' + css + '\n</style>\n</head>', 1)
+                  index.write_text(html, encoding='utf-8')
+          PY
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
