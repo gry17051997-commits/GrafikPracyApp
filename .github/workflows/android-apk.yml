@@ -45,13 +45,29 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
-      - name: Build signed installable APK
+      - name: Configure embedded JS bundling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/app/build.gradle')
+          text = path.read_text()
+          marker = 'react {\n'
+          if marker not in text:
+              raise SystemExit('React Gradle configuration block not found')
+          additions = '''react {\n    cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())\n    bundleCommand = "export:embed"\n    debuggableVariants = []\n'''
+          text = text.replace(marker, additions, 1)
+          path.write_text(text)
+          PY
+          grep -A6 '^react {' android/app/build.gradle
+
+      - name: Build installable APK with embedded JS
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK
+      - name: Verify APK contains embedded JavaScript bundle
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/(index\.android\.bundle|.*\.hbc)$' | head -20
           ls -lh android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK artifact
