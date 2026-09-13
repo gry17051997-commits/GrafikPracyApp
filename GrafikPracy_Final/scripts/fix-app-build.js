@@ -28,4 +28,4 @@ s=s.replace("            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.n
 s=s.replace("              <Text style={S.navText}>Podsumowanie</Text>\n            </TouchableOpacity>\n            <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]}","              <Text style={S.navText}>Podsumowanie</Text>\n            </TouchableOpacity>}\n            {!guestMode && <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]}");
 s=s.replace("              <Text style={S.navText}>Ustawienia</Text>\n            </TouchableOpacity>\n          </View>","              <Text style={S.navText}>Ustawienia</Text>\n            </TouchableOpacity>}\n          </View>");
 fs.writeFileSync(file,s);
-console.log('final integration patch ok');
+console.log('final integration patch ready');
