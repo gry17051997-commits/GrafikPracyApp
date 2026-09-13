@@ -1,0 +1,63 @@
+name: Build Android APK (GitHub)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+
+permissions:
+  contents: read
+
+env:
+  EXPO_NO_DOCTOR: '1'
+  CI: '1'
+
+jobs:
+  build_android:
+    name: Build installable Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Build signed installable APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grafik-Pracy-Android-APK
+          path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
