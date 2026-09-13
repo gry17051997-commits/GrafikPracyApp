@@ -1,27 +1,91 @@
 const fs = require('fs');
 const path = require('path');
-const candidates = [path.join(process.cwd(),'GrafikPracy_Final','App.js'),path.join(process.cwd(),'App.js')];
+
+// The script may run from the repository root or from GrafikPracy_Final.
+const candidates = [
+  path.join(process.cwd(), 'GrafikPracy_Final', 'App.js'),
+  path.join(process.cwd(), 'App.js')
+];
 const file = candidates.find(p => fs.existsSync(p));
 if (!file) process.exit(0);
-let s = fs.readFileSync(file,'utf8');
+
+let s = fs.readFileSync(file, 'utf8');
+
+// Keep only the first updateShift declaration. Repeated copies make Babel
+// see later returns as being outside App().
 const updateShiftRe = /\n  const updateShift = \(dayIndex,shiftIndex,patch\) => \{[\s\S]*?\n  \};\n/g;
-let seen=false;
-s=s.replace(updateShiftRe,m=>{if(!seen){seen=true;return m;}return '\n';});
-s=s.replace(/\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{\n\s*w\[dayIndex\]\.shifts\[shiftIndex\] = \{\n\s*\.\.\.w\[dayIndex\]\.shifts\[shiftIndex\],\n\s*\.\.\.patch,\n\s*manual:true\n\s*\};\n\s*return w;\n\s*\}\);\n\s*\};\n/,'\n');
-s=s.replace("      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);","      if (data.conditions) setConditions(data.conditions);");
-s=s.replace("setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));","setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));");
-s=s.replace("onPress={regenerate}","onPress={()=>!readOnly && regenerate()}");
-s=s.replace("onPress={()=>setRotation(k)}","onPress={()=>!readOnly && setRotation(k)}");
-s=s.replace("onChangeText={v=>setTimes(t=>({...t,s1:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,s1:v}))}");
-s=s.replace("onChangeText={v=>setTimes(t=>({...t,e1:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,e1:v}))}");
-s=s.replace("onChangeText={v=>setTimes(t=>({...t,s2:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,s2:v}))}");
-s=s.replace("onChangeText={v=>setTimes(t=>({...t,e2:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,e2:v}))}");
-const oldSwap=`!dayHasPassed(di) && s.person && (cloudRole==='admin' || s.person===myPerson)`;
-s=s.replace(oldSwap,`!dayHasPassed(di) && s.person`);
-if(!s.includes('const guestMode = FIREBASE_ENABLED && !cloudUser;')){
-  const inject=`\n  const guestMode = FIREBASE_ENABLED && !cloudUser;\n  const [guestWeekOffset,setGuestWeekOffset] = useState(0);\n  const guestSchedule = useMemo(()=>{const start=monday(new Date());const key=iso(addDays(start,guestWeekOffset*7));return weeks[key]||generateWeek(rotation,warehouse);},[weeks,rotation,warehouse,guestWeekOffset]);\n  const guestShiftDateTime=(baseDate,si)=>{const st=si===0?times.s1:times.s2;const en=si===0?times.e1:times.e2;const [sh,sm]=String(st||'00:00').split(':').map(Number);const [eh,em]=String(en||'00:00').split(':').map(Number);const start=new Date(baseDate);start.setHours(sh||0,sm||0,0,0);const end=new Date(baseDate);end.setHours(eh||0,em||0,0,0);if(end<=start)end.setDate(end.getDate()+1);return {start,end};};\n  const guestLive=useMemo(()=>{const now=new Date(),all=[],base=monday(new Date());[0,1].forEach(wo=>{const ws=addDays(base,wo*7),schedule=weeks[iso(ws)]||generateWeek(rotation,warehouse);(schedule||[]).forEach((d,di)=>(d.shifts||[]).forEach((sh,si)=>{if(!sh.person)return;const dt=guestShiftDateTime(addDays(ws,di),si);all.push({...sh,dayIndex:di,weekOffset:wo,startDate:dt.start,endDate:dt.end,dayDate:addDays(ws,di),wh:sh.warehouse||d.warehouse||warehouse});}));});return {active:all.filter(x=>now>=x.startDate&&now<x.endDate).sort((a,b)=>a.endDate-b.endDate)[0]||null,next:all.filter(x=>x.startDate>now).sort((a,b)=>a.startDate-b.startDate)[0]||null};},[weeks,rotation,warehouse,times]);\n  const guestCountdown=end=>{const sec=Math.max(0,Math.floor((end.getTime()-Date.now())/1000));return String(Math.floor(sec/3600)).padStart(2,'0')+':'+String(Math.floor(sec%3600/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');};\n  const renderGuestScreen=()=>{const live=guestLive.active,next=guestLive.next,ws=addDays(monday(new Date()),guestWeekOffset*7);return <SafeAreaView style={[S.root,{backgroundColor:dark?'#11151c':'#f5f7fa'}]}><ScrollView contentContainerStyle={{padding:16,paddingBottom:40}}><Text style={[S.title,{color:dark?'#fff':'#11151c'}]}>📅 Grafik Pracy</Text><View style={S.proposalCard}><Text style={S.optionText}>👻 TRYB GOŚCIA</Text><Text style={S.helpLine}>Podgląd bez logowania. Pełne możliwości aplikacji są dostępne po zalogowaniu.</Text><TouchableOpacity style={S.swapBtn} onPress={()=>setGuestWeekOffset(guestWeekOffset===0?1:0)}><Text style={S.btnText}>{guestWeekOffset===0?'➡️ Następny tydzień':'⬅️ Bieżący tydzień'}</Text></TouchableOpacity></View><View style={S.proposalCard}><Text style={S.section}>🟢 KTO TERAZ PRACUJE?</Text>{live?<><Text style={S.title}>{PEOPLE[live.person]?.name||live.person}</Text><Text style={S.helpLine}>📦 {live.wh}</Text><Text style={S.helpLine}>🕐 {live.startDate.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} – {live.endDate.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</Text><Text style={S.title}>⏳ {guestCountdown(live.endDate)}</Text></>:<Text style={S.helpLine}>Nikt nie ma teraz aktywnej zmiany.</Text>}</View><View style={S.proposalCard}><Text style={S.section}>⏭️ NASTĘPNA ZMIANA</Text>{next?<><Text style={S.title}>{PEOPLE[next.person]?.name||next.person}</Text><Text style={S.helpLine}>📦 {next.wh}</Text><Text style={S.helpLine}>📅 {DAYS[next.dayIndex]}, {shortDate(next.dayDate)} · 🕐 {next.startDate.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</Text></>:<Text style={S.helpLine}>Brak kolejnej zaplanowanej zmiany.</Text>}</View><Text style={S.section}>{guestWeekOffset===0?'📆 BIEŻĄCY TYDZIEŃ':'📆 NASTĘPNY TYDZIEŃ'} · {fullDate(ws)}</Text>{(guestSchedule||[]).map((d,di)=><View key={di} style={S.dayCard}><Text style={S.dayTitle}>{DAYS[di]} · {shortDate(addDays(ws,di))}</Text>{(d.shifts||[]).map((sh,si)=><View key={si} style={S.shiftRow}><Text style={S.optionText}>Zm. {si+1}, {shiftTime(times,si+1)}</Text><Text style={S.helpLine}>{sh.person?(PEOPLE[sh.person]?.name||sh.person)+' · '+(sh.warehouse||d.warehouse||warehouse):'Wolne'}</Text></View>)}</View>)}<View style={S.proposalCard}><Text style={S.section}>🔐 ZALOGUJ SIĘ, ABY ODBLOKOWAĆ PEŁNY DOSTĘP</Text><TextInput value={authEmail} onChangeText={setAuthEmail} placeholder='E-mail' autoCapitalize='none' keyboardType='email-address' style={S.input}/><TextInput value={authPassword} onChangeText={setAuthPassword} placeholder='Hasło' secureTextEntry style={S.input}/><TouchableOpacity style={S.primaryBtn} onPress={cloudLogin} disabled={authBusy}><Text style={S.btnText}>🔑 Zaloguj się</Text></TouchableOpacity></View></ScrollView></SafeAreaView>;};\n`;
-  const r=s.indexOf('  return (');
-  if(r>=0){s=s.slice(0,r)+inject+s.slice(r);s=s.replace('  return (\n','  return (guestMode ? renderGuestScreen() : (\n');const end='\n  );\n}\n';const p=s.lastIndexOf(end);if(p>=0)s=s.slice(0,p)+'\n  ));\n}\n'+s.slice(p+end.length);}
-}
-fs.writeFileSync(file,s);
-console.log('Grafik Pracy patch applied');
+let updateShiftSeen = false;
+s = s.replace(updateShiftRe, match => {
+  if (!updateShiftSeen) {
+    updateShiftSeen = true;
+    return match;
+  }
+  return '\n';
+});
+
+// Remove the orphaned tail of a duplicate updateShift that can remain after
+// the declaration itself has been removed.
+const orphanUpdateTail = /\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{\n\s*w\[dayIndex\]\.shifts\[shiftIndex\] = \{\n\s*\.\.\.w\[dayIndex\]\.shifts\[shiftIndex\],\n\s*\.\.\.patch,\n\s*manual:true\n\s*\};\n\s*return w;\n\s*\}\);\n\s*\};\n/;
+s = s.replace(orphanUpdateTail, '\n');
+
+// Remove duplicate condition synchronization.
+s = s.replace(
+  "      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);",
+  "      if (data.conditions) setConditions(data.conditions);"
+);
+
+// Fix cloud save error handler using an undefined e variable.
+s = s.replace(
+  "setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));",
+  "setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));"
+);
+
+// Fix the table cell variable and employee filtering in the main card view.
+s = s.replace(
+  "const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;",
+  "const p = s.person ? PEOPLE[s.person] : null;"
+);
+
+// Fix the compact table cell so p is always defined.
+s = s.replace(
+  "const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}",
+  "const sh=d.shifts[si]; const p=sh.person && (personFilter==='all' || sh.person===personFilter) ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,p?{backgroundColor:personColor(sh.person)}:{}]}"
+);
+
+// Employees may not regenerate or change their profile identity.
+s = s.replace("onPress={regenerate}", "onPress={()=>!readOnly && regenerate()}");
+s = s.replace(
+  "<TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k);",
+  "<TouchableOpacity key={k} disabled={readOnly} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{if(readOnly)return;setMyPerson(k);"
+);
+
+// Give employees an explicit swap entry point.
+const swapAnchor = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
+        <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
+      </TouchableOpacity>`;
+const swapPanel = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
+        <Text style={S.btnText}>{cloudRole==='admin'?'🔄 Zamiana i edycja zmian':'🔄 ZGŁOŚ ZAMIANĘ'}</Text>
+      </TouchableOpacity>
+      {FIREBASE_ENABLED && cloudRole!=='admin' && <Text style={S.helpLine}>Aby zgłosić zamianę, wybierz swoją zmianę poniżej i naciśnij „🔄 Zaproponuj zamianę”.</Text>}`;
+if (s.includes(swapAnchor)) s = s.replace(swapAnchor, swapPanel);
+
+// PDF export: apply configured employee colors to occupied cells.
+s = s.replace(
+  "return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;",
+  "const bg=visible?personColor(s.person):'#fff'; const fg=visible?contrastText(bg):'#111'; return `<td style=\"background:${bg};color:${fg}\"><b>${escapeHtml(name)}</b><br><span style=\"color:${fg};opacity:.78\">${escapeHtml(wh)}</span><br><span style=\"color:${fg};opacity:.78\">${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;"
+);
+
+// Employee accounts are read-only for schedule settings, while view switching remains available.
+s = s.replace("onPress={()=>setRotation(k)}", "onPress={()=>!readOnly && setRotation(k)}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,s1:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,s1:v}))}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,e1:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,e1:v}))}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,s2:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,s2:v}))}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,e2:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,e2:v}))}");
+
+// Employees may propose a change for any employee's shift, not only their own.
+s = s.replace("!dayHasPassed(di) && s.person && (cloudRole==='admin' || s.person===myPerson)", "!dayHasPassed(di) && s.person");
+
+// Guest mode and live-shift dashboard are injected below in a separate patch.
+
+fs.writeFileSync(file, s);
+console.log('Grafik Pracy build patch applied');
