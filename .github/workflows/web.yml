@@ -34,6 +34,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Apply application build fixes
+        run: node scripts/fix-app-build.js
+
+      - name: Apply rotation switch fix
+        run: node scripts/fix-rotation-switch.js
+
       - name: Export Expo web
         run: npx expo export --platform web
 
