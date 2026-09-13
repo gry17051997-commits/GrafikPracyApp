@@ -8,7 +8,8 @@ let s = fs.readFileSync(file,'utf8');
 const updateShiftRe = /\n  const updateShift = \(dayIndex,shiftIndex,patch\) => \{[\s\S]*?\n  \};\n/g;
 let seen=false;
 s=s.replace(updateShiftRe,m=>{if(!seen){seen=true;return m;}return '\n';});
-s=s.replace(/\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{[\s\S]*?\n\s*\};\n/,'\n');
+const orphanUpdateTail = /\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{\n\s*w\[dayIndex\]\.shifts\[shiftIndex\] = \{\n\s*\.\.\.w\[dayIndex\]\.shifts\[shiftIndex\],\n\s*\.\.\.patch,\n\s*manual:true\n\s*\};\n\s*return w;\n\s*\}\);\n\s*\};\n/;
+s=s.replace(orphanUpdateTail,'\n');
 s=s.replace("      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);","      if (data.conditions) setConditions(data.conditions);");
 s=s.replace("setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));","setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));");
 s=s.replace("const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;","const p = s.person ? PEOPLE[s.person] : null;");
@@ -19,8 +20,6 @@ s=s.replace("onChangeText={v=>setTimes(t=>({...t,s1:v}))}","onChangeText={v=>!re
 s=s.replace("onChangeText={v=>setTimes(t=>({...t,e1:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,e1:v}))}");
 s=s.replace("onChangeText={v=>setTimes(t=>({...t,s2:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,s2:v}))}");
 s=s.replace("onChangeText={v=>setTimes(t=>({...t,e2:v}))}","onChangeText={v=>!readOnly && setTimes(t=>({...t,e2:v}))}");
-
-// Any authenticated employee can propose a swap from any occupied shift.
 s=s.replace("!dayHasPassed(di) && s.person && (cloudRole==='admin' || s.person===myPerson)","!dayHasPassed(di) && s.person && cloudUser");
 s=s.replace("fromPerson:swapModal.person || myPerson,","fromPerson:swapModal.person || null,");
 
@@ -30,10 +29,8 @@ if(!s.includes("const liveShiftInfo=useMemo")){
   const r=s.indexOf('  return ('); if(r>=0)s=s.slice(0,r)+code+s.slice(r);
 }
 
-// Guests may read only the shared schedule document.
 s=s.replace("if (!FIREBASE_ENABLED || !db || !cloudUser) return;\n    const unsub = onSnapshot(doc(db,'schedules','main')","if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;\n    const unsub = onSnapshot(doc(db,'schedules','main')");
 s=s.replace("  },[cloudUser]);\n\n  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser) return;\n    const q", "  },[cloudUser,guestMode]);\n\n  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser) return;\n    const q",1);
-
 s=s.replace("if (FIREBASE_ENABLED && (!cloudUser || !cloudReady)) {","if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {");
 s=s.replace("<TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity>","<TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>setGuestMode(true)}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>");
 
@@ -46,19 +43,14 @@ if(!s.includes("tab==='teraz' ? dashboardView")){
   s=s.replace("{tab==='grafik' ? schedule : tab==='summary' ? summary : settings}","{tab==='teraz' ? dashboardView : tab==='grafik' ? (guestMode ? guestPreview : schedule) : tab==='summary' ? summary : settings}");
 }
 
-// Navigation: Teraz is shared, summary is admin-only, settings are hidden in guest mode.
 s=s.replace("<TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>","<TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity><TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>");
 s=s.replace("            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}>","            {(!FIREBASE_ENABLED || cloudRole==='admin') && <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}>");
 s=s.replace("            <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}>","            {!guestMode && <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}>");
 s=s.replace("<Text style={S.navText}>Ustawienia</Text>\n            </TouchableOpacity>\n          </View>","<Text style={S.navText}>Ustawienia</Text>\n            </TouchableOpacity>}\n          </View>");
-
-// Hide generator-only controls from employees while leaving profile and swap proposals available.
 s=s.replace("      <Text style={S.section}>⚡ Warunki generatora</Text>","      {cloudRole==='admin' && <><Text style={S.section}>⚡ Warunki generatora</Text>");
 s=s.replace("      {FIREBASE_ENABLED && cloudRole==='admin' && <>","      </>}{FIREBASE_ENABLED && cloudRole==='admin' && <>");
 s=s.replace("      <Text style={S.section}>Kolory pracowników</Text>","      {cloudRole==='admin' && <><Text style={S.section}>Kolory pracowników</Text>");
 s=s.replace("      {FIREBASE_ENABLED && cloudUser && <>","      </>}{FIREBASE_ENABLED && cloudUser && <>");
-
 s=s.replace("  proposalCard:{","  shiftRow:{backgroundColor:'#222732',borderRadius:12,padding:10,marginTop:7},\n  proposalCard:{");
-
 fs.writeFileSync(file,s);
 console.log('Grafik Pracy final patch applied');
