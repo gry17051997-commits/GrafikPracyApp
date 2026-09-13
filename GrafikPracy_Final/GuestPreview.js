@@ -1,0 +1,11 @@
+import React from 'react';
+import {View,Text,ScrollView,StyleSheet} from 'react-native';
+const PEOPLE={P:'Paweł',M:'Mateusz',L:'Łukasz'};
+const DAYS=['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
+const monday=d=>{const x=new Date(d),n=x.getDay();x.setDate(x.getDate()+(n===0?-6:1-n));x.setHours(0,0,0,0);return x;};
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;};
+const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const fallbackWeek=(rotation,warehouse)=>{const a=rotation==='P'?'P':'M',b=a==='P'?'M':'P';return DAYS.map((_,i)=>({warehouse,shifts:[{person:i===6?'L':i%2?a:b},{person:i===6?'L':i%2?b:a}]}));};
+const time=(times,slot)=>slot===1?`${times?.s1||'06:00'}–${times?.e1||'16:00'}`:`${times?.s2||'16:00'}–${times?.e2||'02:00'}`;
+export default function GuestPreview({weeks,rotation,warehouse,times,now=new Date()}){const base=monday(now);return <ScrollView style={S.content} contentContainerStyle={{paddingBottom:100}}>{[0,1].map(wo=>{const ws=addDays(base,wo*7),w=weeks?.[iso(ws)]||fallbackWeek(rotation,warehouse);return <View key={wo}><Text style={S.week}>{wo===0?'📅 BIEŻĄCY TYDZIEŃ':'📅 NASTĘPNY TYDZIEŃ'} · {String(ws.getDate()).padStart(2,'0')}.{String(ws.getMonth()+1).padStart(2,'0')}</Text>{w.map((d,di)=><View key={di} style={S.day}><Text style={S.dayTitle}>{DAYS[di]} · {String(addDays(ws,di).getDate()).padStart(2,'0')}.{String(addDays(ws,di).getMonth()+1).padStart(2,'0')}</Text>{(d.shifts||[]).map((s,si)=><View key={si} style={S.shift}><Text style={S.person}>{s.person?PEOPLE[s.person]||s.person:'WOLNA'}</Text><Text style={S.meta}>Zmiana {si+1} · {time(times,si+1)} · {s.warehouse||d.warehouse||warehouse}</Text></View>)}</View>)}</View>})}</ScrollView>}
+const S=StyleSheet.create({content:{flex:1,padding:14},week:{color:'#fff',fontSize:20,fontWeight:'900',marginBottom:10},day:{backgroundColor:'rgba(25,29,38,0.95)',borderRadius:16,padding:12,marginBottom:10},dayTitle:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:6},shift:{backgroundColor:'#222732',borderRadius:11,padding:10,marginTop:6},person:{color:'#fff',fontSize:15,fontWeight:'800'},meta:{color:'#aeb5c2',fontSize:12,marginTop:3}});
