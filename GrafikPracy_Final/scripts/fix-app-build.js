@@ -66,7 +66,7 @@ const swapAnchor = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTa
 const swapPanel = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
         <Text style={S.btnText}>{cloudRole==='admin'?'🔄 Zamiana i edycja zmian':'🔄 ZGŁOŚ ZAMIANĘ'}</Text>
       </TouchableOpacity>
-      {FIREBASE_ENABLED && cloudRole!=='admin' && <Text style={S.helpLine}>Aby zgłosić zamianę, wybierz swoją zmianę poniżej i naciśnij „🔄 Zaproponuj zamianę”.</Text>`;
+      {FIREBASE_ENABLED && cloudRole!=='admin' && <Text style={S.helpLine}>Aby zgłosić zamianę, wybierz swoją zmianę poniżej i naciśnij „🔄 Zaproponuj zamianę”.</Text>}`;
 if (s.includes(swapAnchor)) s = s.replace(swapAnchor, swapPanel);
 
 // PDF export: apply configured employee colors to occupied cells.
@@ -74,6 +74,13 @@ s = s.replace(
   "return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;",
   "const bg=visible?personColor(s.person):'#fff'; const fg=visible?contrastText(bg):'#111'; return `<td style=\"background:${bg};color:${fg}\"><b>${escapeHtml(name)}</b><br><span style=\"color:${fg};opacity:.78\">${escapeHtml(wh)}</span><br><span style=\"color:${fg};opacity:.78\">${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;"
 );
+
+// Employee accounts are read-only for schedule settings, while view switching remains available.
+s = s.replace("onPress={()=>setRotation(k)}", "onPress={()=>!readOnly && setRotation(k)}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,s1:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,s1:v}))}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,e1:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,e1:v}))}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,s2:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,s2:v}))}");
+s = s.replace("onChangeText={v=>setTimes(t=>({...t,e2:v}))}", "onChangeText={v=>!readOnly && setTimes(t=>({...t,e2:v}))}");
 
 fs.writeFileSync(file, s);
 console.log('Grafik Pracy build patch applied');
