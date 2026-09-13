@@ -23,6 +23,11 @@ s = s.replace(updateShiftRe, match => {
   return '\n';
 });
 
+// Remove the orphaned tail of a duplicate updateShift that can remain after
+// the declaration itself has been removed.
+const orphanUpdateTail = /\n\s*if \(readOnly \|\| dayHasPassed\(dayIndex\)\) return;\n\s*setWeek\(w => \{\n\s*w\[dayIndex\]\.shifts\[shiftIndex\] = \{\n\s*\.\.\.w\[dayIndex\]\.shifts\[shiftIndex\],\n\s*\.\.\.patch,\n\s*manual:true\n\s*\};\n\s*return w;\n\s*\}\);\n\s*\};\n/;
+s = s.replace(orphanUpdateTail, '\n');
+
 // Remove duplicate condition synchronization.
 s = s.replace(
   "      if (data.conditions) setConditions(data.conditions);\n      if (data.conditions) setConditions(data.conditions);",
@@ -61,7 +66,7 @@ const swapAnchor = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTa
 const swapPanel = `      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
         <Text style={S.btnText}>{cloudRole==='admin'?'🔄 Zamiana i edycja zmian':'🔄 ZGŁOŚ ZAMIANĘ'}</Text>
       </TouchableOpacity>
-      {FIREBASE_ENABLED && cloudRole!=='admin' && <Text style={S.helpLine}>Aby zgłosić zamianę, wybierz swoją zmianę poniżej i naciśnij „🔄 Zaproponuj zamianę”.</Text>}`;
+      {FIREBASE_ENABLED && cloudRole!=='admin' && <Text style={S.helpLine}>Aby zgłosić zamianę, wybierz swoją zmianę poniżej i naciśnij „🔄 Zaproponuj zamianę”.</Text>`;
 if (s.includes(swapAnchor)) s = s.replace(swapAnchor, swapPanel);
 
 // PDF export: apply configured employee colors to occupied cells.
