@@ -21,8 +21,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Public read is intentional: guest mode shows the current and next week.
+    // Only the schedule document is public; users, proposals and audit remain protected.
     match /schedules/main {
-      allow read: if signedIn();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
