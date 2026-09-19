@@ -37,6 +37,27 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+
+    match /chatMessages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if isAdmin();
+    }
+
+    match /whatsappReports/{reportId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if isAdmin();
+    }
+
     match /audit/{entryId} {
       allow read: if isAdmin();
       allow create: if isAdmin();
