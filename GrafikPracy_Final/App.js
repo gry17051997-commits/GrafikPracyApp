@@ -416,7 +416,11 @@ export default function App() {
   };
 
   const scheduleReportNotifications = async () => {
-    if (Platform.OS === 'web' || !ready || !reportsEnabled || !vehicleRegistration.trim()) return;
+    if (Platform.OS === 'web' || !ready) return;
+    if (!reportsEnabled || !vehicleRegistration.trim()) {
+      await cancelReportNotifications();
+      return;
+    }
     const granted = await requestReportNotifications();
     if (!granted) return;
 
