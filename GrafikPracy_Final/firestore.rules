@@ -37,7 +37,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-
     match /chatMessages/{messageId} {
       allow read: if signedIn();
       allow create: if signedIn()
@@ -65,3 +64,5 @@ service cloud.firestore {
     }
   }
 }
+
+// CI trigger refresh
