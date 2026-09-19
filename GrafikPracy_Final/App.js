@@ -12,11 +12,14 @@ import {
   ImageBackground,
   Share,
   Platform,
-  Dimensions
+  Dimensions,
+  Linking
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
+import * as Notifications from 'expo-notifications';
+import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
@@ -24,6 +27,18 @@ import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, whe
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
+const REPORT_PREFS_KEY = 'grafik-pracy-reports-v1';
+const REPORT_NOTIFICATION_IDS_KEY = 'grafik-pracy-report-notification-ids-v1';
+const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false
+  })
+});
 const PEOPLE = {
   P: {name: 'Paweł', color: '#4f8cff'},
   M: {name: 'Mateusz', color: '#8f6cff'},
@@ -154,6 +169,19 @@ export default function App() {
   const [authPassword,setAuthPassword] = useState('');
   const [authBusy,setAuthBusy] = useState(false);
   const [cloudError,setCloudError] = useState('');
+  const [rememberLogin,setRememberLogin] = useState(false);
+  const [reportsEnabled,setReportsEnabled] = useState(true);
+  const [vehicleRegistration,setVehicleRegistration] = useState('');
+  const [reportGroupLink,setReportGroupLink] = useState('');
+  const [reportModal,setReportModal] = useState(false);
+  const [reportStatus,setReportStatus] = useState('Czekam na załadunek');
+  const [reportWarehouse,setReportWarehouse] = useState('PNT B');
+  const [reportFromWarehouse,setReportFromWarehouse] = useState('PNT B');
+  const [reportToWarehouse,setReportToWarehouse] = useState('ECE');
+  const [reportRamp,setReportRamp] = useState('');
+  const [reportDuration,setReportDuration] = useState('10 min');
+  const [reportLoaded,setReportLoaded] = useState('załadowany');
+  const [reportBusy,setReportBusy] = useState(false);
   const [cloudUpdated,setCloudUpdated] = useState(false);
   const [sharePerson,setSharePerson] = useState('all');
   const [shareFormat,setShareFormat] = useState('table');
@@ -196,6 +224,9 @@ export default function App() {
           setConditions(data.conditions || []);
           setProposals(data.proposals || []);
           setMyPerson(data.myPerson || 'P');
+          setVehicleRegistration(data.vehicleRegistration || '');
+          setReportGroupLink(data.reportGroupLink || '');
+          setReportsEnabled(data.reportsEnabled !== false);
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
         }
@@ -209,20 +240,30 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times:{
+    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors]);
+  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,myPerson,conditions,proposals]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !auth || !db) return;
 
     let roleUnsub = null;
 
-    const authUnsub = onAuthStateChanged(auth, user => {
+    const authUnsub = onAuthStateChanged(auth, async user => {
+      const remember = (await AsyncStorage.getItem(REMEMBER_LOGIN_KEY)) === '1';
+      setRememberLogin(remember);
+      if (user && !remember) {
+        try { await signOut(auth); } catch (e) {}
+        setCloudUser(null);
+        setCloudRole('employee');
+        setCloudReady(true);
+        return;
+      }
+
       setCloudUser(user || null);
       setCloudError('');
       setCloudReady(false);
@@ -310,9 +351,146 @@ export default function App() {
     setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
   },[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);
 
+  const parseHM = value => {
+    const m = String(value || '').match(/^(\\d{1,2}):(\\d{2})$/);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+  };
+
+  const compactWarehouse = value => String(value || '').replace(/\\s+/g,'').toUpperCase();
+
+  const reportText = () => {
+    const reg = vehicleRegistration.trim().toUpperCase();
+    if (!reg) return '';
+    if (reportStatus === 'W drodze') {
+      return `${reg} w drodze ${compactWarehouse(reportFromWarehouse)}->${compactWarehouse(reportToWarehouse)} ${reportLoaded}`;
+    }
+    if (reportStatus === 'Zaczynam pracę, jestem na miejscu') {
+      return `${reg} ${compactWarehouse(reportWarehouse)} zaczynam pracę, jestem na miejscu`;
+    }
+    if (reportStatus === 'Koniec zmiany') {
+      return `${reg} ${compactWarehouse(reportWarehouse)} koniec zmiany`;
+    }
+    const ramp = reportRamp.trim();
+    const duration = reportDuration.trim();
+    return `${reg} ${compactWarehouse(reportWarehouse)}${ramp ? ` ${ramp}` : ''} ${reportStatus.toLowerCase()}${duration ? ` ${duration}` : ''}`;
+  };
+
+  const openWhatsAppReport = async () => {
+    const text = reportText();
+    if (!text) {
+      Alert.alert('Raport','Uzupełnij numer rejestracyjny w ustawieniach.');
+      return;
+    }
+    setReportBusy(true);
+    try {
+      await Clipboard.setStringAsync(text);
+      if (reportGroupLink.trim()) {
+        await Linking.openURL(reportGroupLink.trim());
+      } else {
+        await Linking.openURL('whatsapp://');
+      }
+      setReportModal(false);
+      Alert.alert('Raport gotowy','Tekst raportu został skopiowany. W WhatsApp wklej go do grupy i naciśnij WYŚLIJ.');
+    } catch (e) {
+      Alert.alert('WhatsApp','Nie udało się otworzyć WhatsApp. Tekst raportu został skopiowany do schowka.');
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const requestReportNotifications = async () => {
+    if (Platform.OS === 'web') return false;
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) return true;
+    const requested = await Notifications.requestPermissionsAsync();
+    return requested.granted;
+  };
+
+  const cancelReportNotifications = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(REPORT_NOTIFICATION_IDS_KEY);
+      const ids = raw ? JSON.parse(raw) : [];
+      await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
+    } catch(e) {}
+    await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
+  };
+
+  const scheduleReportNotifications = async () => {
+    if (Platform.OS === 'web' || !ready || !reportsEnabled || !vehicleRegistration.trim()) return;
+    const granted = await requestReportNotifications();
+    if (!granted) return;
+
+    await cancelReportNotifications();
+    const ids = [];
+    const today = new Date();
+    const startDay = monday(today);
+
+    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
+      const date = addDays(startDay,dayOffset);
+      const key = iso(date);
+      const week = weeks[key] || null;
+      if (!week) continue;
+
+      week.forEach((day,di) => {
+        const shiftDate = addDays(startDay,dayOffset + di);
+        (day.shifts || []).forEach((shift,si) => {
+          if (shift.person !== myPerson) return;
+          const shiftTimes = times;
+          const startMin = parseHM(si === 0 ? shiftTimes.s1 : shiftTimes.s2);
+          let endMin = parseHM(si === 0 ? shiftTimes.e1 : shiftTimes.e2);
+          if (endMin <= startMin) endMin += 24 * 60;
+          const shiftStart = new Date(shiftDate);
+          shiftStart.setHours(Math.floor(startMin/60),startMin%60,0,0);
+          const shiftEnd = new Date(shiftStart);
+          shiftEnd.setMinutes(endMin);
+          const first = new Date(shiftStart);
+          first.setMinutes(40,0,0);
+          if (first <= shiftStart) first.setHours(first.getHours()+1);
+
+          for (let t = new Date(first); t < shiftEnd; t.setHours(t.getHours()+1)) {
+            if (t <= new Date()) continue;
+            const notification = await Notifications.scheduleNotificationAsync({
+              content: {
+                title: '📋 Raport godzinowy',
+                body: `Za 20 min pełna godzina. ${PEOPLE[myPerson]?.name || ''}, przygotuj raport.`,
+                data: {type:'work-report'}
+              },
+              trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.DATE,
+                date: new Date(t)
+              }
+            });
+            ids.push(notification);
+          }
+        });
+      });
+    }
+    await AsyncStorage.setItem(REPORT_NOTIFICATION_IDS_KEY,JSON.stringify(ids));
+  };
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web') return;
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+      if (response.notification.request.content.data?.type === 'work-report') {
+        setReportModal(true);
+      }
+    });
+    return () => sub.remove();
+  },[ready]);
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web') return;
+    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);
+    return () => clearTimeout(timer);
+  },[ready,reportsEnabled,myPerson,weeks,times,vehicleRegistration]);
+
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
-    try { await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword); setAuthPassword(''); }
+    try {
+      await AsyncStorage.setItem(REMEMBER_LOGIN_KEY, rememberLogin ? '1' : '0');
+      await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword);
+      setAuthPassword('');
+    }
     catch(e) { setCloudError(e?.code === 'auth/invalid-credential' ? 'Nieprawidłowy e-mail lub hasło.' : 'Nie udało się zalogować.'); }
     finally { setAuthBusy(false); }
   };
@@ -337,7 +515,13 @@ export default function App() {
     } finally { setAuthBusy(false); }
   };
 
-  const cloudLogout = async () => { try { await signOut(auth); } catch(e) {} };
+  const cloudLogout = async () => {
+    try {
+      await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'0');
+      setRememberLogin(false);
+      await signOut(auth);
+    } catch(e) {}
+  };
 
   useEffect(() => {
     if (!weeks[wkKey]) {
@@ -963,6 +1147,21 @@ export default function App() {
   const settings = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
+
+      <Text style={S.section}>📋 Raporty godzinowe</Text>
+      <Text style={S.helpLine}>Powiadomienie przychodzi 20 minut przed pełną godziną, ale tylko podczas Twojej zaplanowanej zmiany.</Text>
+      <View style={S.option}>
+        <Text style={S.optionText}>Raporty automatyczne</Text>
+        <TouchableOpacity style={[S.btn,reportsEnabled&&S.active]} onPress={()=>setReportsEnabled(v=>!v)}>
+          <Text style={S.btnText}>{reportsEnabled?'WŁĄCZONE':'WYŁĄCZONE'}</Text>
+        </TouchableOpacity>
+      </View>
+      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase())} autoCapitalize="characters" placeholder="Numer rejestracyjny, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]}/>
+      <TextInput value={reportGroupLink} onChangeText={setReportGroupLink} autoCapitalize="none" placeholder="Link do grupy WhatsApp (opcjonalnie)" placeholderTextColor="#777" style={S.input}/>
+      <TouchableOpacity style={S.generateFull} onPress={()=>setReportModal(true)}>
+        <Text style={S.btnText}>📝 TEST / UTWÓRZ RAPORT</Text>
+      </TouchableOpacity>
+
       <Text style={S.section}>Rotacja</Text>
       <View style={S.row}>
         {['P','M'].map(k=>
@@ -1232,6 +1431,65 @@ export default function App() {
     </Modal>
   );
 
+  const reportModalDialog = (
+    <Modal visible={reportModal} transparent animationType="slide" onRequestClose={()=>setReportModal(false)}>
+      <View style={S.overlay}>
+        <View style={[S.modal,{maxHeight:'94%'}]}>
+          <Text style={S.modalTitle}>📋 Raport godzinowy</Text>
+          <Text style={S.helpLine}>Powiadomienie: 20 min przed pełną godziną. Rejestracja jest pobierana automatycznie z profilu.</Text>
+
+          <Text style={S.section}>Status</Text>
+          <ScrollView style={{maxHeight:220}}>
+            {['Zaczynam pracę, jestem na miejscu','Czekam na załadunek','Czekam na rozładunek','W drodze','Czekam na przydzielenie rampy','Koniec zmiany'].map(status => (
+              <TouchableOpacity key={status} style={[S.option,reportStatus===status&&S.optionActive]} onPress={()=>setReportStatus(status)}>
+                <Text style={S.optionText}>{status}</Text>
+                {reportStatus===status&&<Text style={S.check}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {reportStatus==='W drodze' ? <>
+            <Text style={S.section}>Trasa</Text>
+            <View style={S.row}>
+              {WAREHOUSES.map(w=><TouchableOpacity key={'from'+w} style={[S.chip,reportFromWarehouse===w&&S.active]} onPress={()=>setReportFromWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
+            </View>
+            <Text style={S.helpLine}>Do:</Text>
+            <View style={S.row}>
+              {WAREHOUSES.map(w=><TouchableOpacity key={'to'+w} style={[S.chip,reportToWarehouse===w&&S.active]} onPress={()=>setReportToWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
+            </View>
+            <View style={S.row}>
+              <TouchableOpacity style={[S.chip,reportLoaded==='załadowany'&&S.active]} onPress={()=>setReportLoaded('załadowany')}><Text style={S.btnText}>Załadowany</Text></TouchableOpacity>
+              <TouchableOpacity style={[S.chip,reportLoaded==='na pusto'&&S.active]} onPress={()=>setReportLoaded('na pusto')}><Text style={S.btnText}>Na pusto</Text></TouchableOpacity>
+            </View>
+          </> : <>
+            <Text style={S.section}>Magazyn</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>
+              {WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,reportWarehouse===w&&S.active]} onPress={()=>setReportWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
+            </ScrollView>
+            {reportStatus!=='Zaczynam pracę, jestem na miejscu' && reportStatus!=='Koniec zmiany' && <>
+              <Text style={S.section}>Rampa</Text>
+              <TextInput value={reportRamp} onChangeText={setReportRamp} placeholder="np. R39" placeholderTextColor="#777" style={S.input}/>
+              <Text style={S.section}>Czas trwania</Text>
+              <View style={S.row}>
+                {['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.chip,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}
+              </View>
+            </>}
+          </>}
+
+          <Text style={S.section}>Gotowy tekst</Text>
+          <View style={S.option}><Text style={[S.optionText,{flex:1}]}>{reportText() || 'Ustaw numer rejestracyjny w Ustawieniach.'}</Text></View>
+
+          <View style={S.row}>
+            <TouchableOpacity style={S.generate} disabled={reportBusy} onPress={openWhatsAppReport}>
+              <Text style={S.btnText}>{reportBusy?'OTWIERANIE…':'📱 KOPIUJ I OTWÓRZ WHATSAPP'}</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setReportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const pinDialog = (
     <Modal visible={pinModal} transparent animationType="fade" onRequestClose={()=>setPinModal(false)}>
       <View style={S.overlay}>
@@ -1302,6 +1560,10 @@ export default function App() {
             <Text style={S.helpLine}>Zaloguj się, aby korzystać ze wspólnego grafiku.</Text>
             <TextInput value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" keyboardType="email-address" placeholder="E-mail" placeholderTextColor="#777" style={S.input}/>
             <TextInput value={authPassword} onChangeText={setAuthPassword} secureTextEntry placeholder="Hasło" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
+            <TouchableOpacity style={S.rememberRow} onPress={()=>setRememberLogin(v=>!v)}>
+              <View style={[S.rememberBox,rememberLogin&&S.rememberBoxActive]}>{rememberLogin&&<Text style={S.rememberCheck}>✓</Text>}</View>
+              <Text style={S.optionText}>Zapamiętaj mnie na tym urządzeniu</Text>
+            </TouchableOpacity>
             {!!cloudError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{cloudError}</Text>}
             <TouchableOpacity style={S.closeBtn} disabled={authBusy} onPress={cloudLogin}><Text style={S.btnText}>{authBusy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
             <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity>
@@ -1341,6 +1603,7 @@ export default function App() {
           {swapModalDialog}
           {pinDialog}
           {backupDialog}
+          {reportModalDialog}
 
           <View style={S.nav}>
             <TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>
@@ -1464,4 +1727,8 @@ const S = StyleSheet.create({
   proposalCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
   cloudStatusText:{color:'#9fd5ff',fontSize:11,textAlign:'center',fontWeight:'800'},
   backupInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:12,fontSize:12,minHeight:260,maxHeight:420},
+  rememberRow:{flexDirection:'row',alignItems:'center',gap:10,paddingVertical:12},
+  rememberBox:{width:24,height:24,borderRadius:6,borderWidth:2,borderColor:'#667085',alignItems:'center',justifyContent:'center'},
+  rememberBoxActive:{backgroundColor:'#467ff1',borderColor:'#467ff1'},
+  rememberCheck:{color:'#fff',fontSize:18,fontWeight:'900'},
 });
