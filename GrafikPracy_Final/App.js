@@ -130,7 +130,6 @@ export default function App() {
   const [warehouse,setWarehouse] = useState('PNT B');
   const [weekStart,setWeekStart] = useState(monday(new Date()));
   const [weeks,setWeeks] = useState({});
-  const [weekConfigs,setWeekConfigs] = useState({});
   const [times,setTimes] = useState(DEFAULT_TIMES[10]);
   const [edit,setEdit] = useState(null);
   const [help,setHelp] = useState(false);
@@ -177,12 +176,7 @@ export default function App() {
   const readOnly = FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin';
 
   const wkKey = iso(weekStart);
-  const activeConfig = weekConfigs[wkKey] || null;
-  const currentHours = activeConfig?.hours || hours;
-  const currentRotation = activeConfig?.rotation || rotation;
-  const currentWarehouse = activeConfig?.warehouse || warehouse;
-  const currentTimes = activeConfig?.times || times;
-  const currentWeek = weeks[wkKey] || generateWeek(currentRotation,currentWarehouse);
+  const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);
   const personColor = k => personColors[k] || PEOPLE[k].color;
 
   useEffect(() => {
@@ -215,13 +209,13 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,pin,pinEnabled,dark,times:{
+    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,pin,pinEnabled,dark,times,personColors]);
+  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !auth || !db) return;
@@ -312,9 +306,9 @@ export default function App() {
       cloudApplying.current = false;
       return;
     }
-    const payload = {hours,rotation,warehouse,weeks,weekConfigs,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
-    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,times,personColors,conditions,cloudUser,cloudRole]);
+    const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
+  },[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);
 
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
@@ -346,22 +340,10 @@ export default function App() {
   const cloudLogout = async () => { try { await signOut(auth); } catch(e) {} };
 
   useEffect(() => {
-    if (!ready) return;
-    const cfg = weekConfigs[wkKey];
-    if (cfg) {
-      setHours(cfg.hours || 10);
-      setRotation(cfg.rotation || 'P');
-      setWarehouse(cfg.warehouse || 'PNT B');
-      setTimes(cfg.times || DEFAULT_TIMES[cfg.hours || 10]);
-      if (!weeks[wkKey]) setWeeks(prev => ({...prev,[wkKey]:generateWeek(cfg.rotation || 'P',cfg.warehouse || 'PNT B')}));
-      return;
-    }
     if (!weeks[wkKey]) {
-      const cfg = {hours,rotation,warehouse,times};
-      setWeekConfigs(prev => ({...prev,[wkKey]:cfg}));
       setWeeks(prev => ({...prev,[wkKey]:generateWeek(rotation,warehouse)}));
     }
-  },[ready,wkKey]);
+  },[wkKey]);
 
   const setWeek = updater => {
     setWeeks(prev => ({
@@ -372,16 +354,8 @@ export default function App() {
 
   const changeHours = h => {
     if (readOnly) return;
-    const nextTimes = DEFAULT_TIMES[h];
     setHours(h);
-    setTimes(nextTimes);
-    setWeekConfigs(prev => ({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:h,rotation:prev[wkKey]?.rotation || rotation,warehouse:prev[wkKey]?.warehouse || warehouse,times:nextTimes}}));
-  };
-
-  const changeRotation = k => {
-    if (readOnly) return;
-    setRotation(k);
-    setWeekConfigs(prev => ({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:prev[wkKey]?.hours || hours,rotation:k,warehouse:prev[wkKey]?.warehouse || warehouse,times:prev[wkKey]?.times || times}}));
+    setTimes(DEFAULT_TIMES[h]);
   };
 
   const dayHasPassed = dayIndex => {
@@ -400,7 +374,8 @@ export default function App() {
   };
 
   const generateAdvancedWeek = () => {
-      const result = cloneWeek(currentWeek);
+    const base = cloneWeek(currentWeek);
+    const result = cloneWeek(currentWeek);
     // Preserve completed days and explicit manual/locked assignments.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
       if (dayHasPassed(di) || s.locked || s.manual) return;
@@ -789,7 +764,7 @@ export default function App() {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
           <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
-          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person && (sh.person===personFilter||personFilter==='all')?{backgroundColor:personColor(sh.person)}:{}]}>
+          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
             <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(times,si+1) : ''}</Text>
@@ -871,7 +846,7 @@ export default function App() {
             </View>
 
             {d.shifts.map((s,si) => {
-              const p = s.person ? PEOPLE[s.person] : null;
+              const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;
               return (
                 <View key={s.id} style={[S.shift,s.locked&&S.locked]}>
                   <View style={S.between}>
@@ -991,7 +966,7 @@ export default function App() {
       <Text style={S.section}>Rotacja</Text>
       <View style={S.row}>
         {['P','M'].map(k=>
-          <TouchableOpacity key={k} style={[S.btn,rotation===k&&S.active]} onPress={()=>changeRotation(k)}>
+          <TouchableOpacity key={k} style={[S.btn,rotation===k&&S.active]} onPress={()=>setRotation(k)}>
             <Text style={S.btnText}>Start: {PEOPLE[k].name}</Text>
           </TouchableOpacity>
         )}
@@ -999,7 +974,7 @@ export default function App() {
 
       <Text style={S.section}>Domyślny magazyn</Text>
       {WAREHOUSES.map(w=>
-        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>{if(readOnly)return; setWarehouse(w); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:prev[wkKey]?.hours||hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:w,times:prev[wkKey]?.times||times}}));}}>
+        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>!readOnly && setWarehouse(w)}>
           <Text style={S.optionText}>{w}</Text>
           {warehouse===w&&<Text style={S.check}>✓</Text>}
         </TouchableOpacity>
