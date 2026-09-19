@@ -435,10 +435,12 @@ export default function App() {
       const week = weeks[key] || null;
       if (!week) continue;
 
-      week.forEach((day,di) => {
+      for (let di = 0; di < week.length; di++) {
+        const day = week[di];
         const shiftDate = addDays(startDay,dayOffset + di);
-        (day.shifts || []).forEach((shift,si) => {
-          if (shift.person !== myPerson) return;
+        for (let si = 0; si < (day.shifts || []).length; si++) {
+          const shift = day.shifts[si];
+          if (shift.person !== myPerson) continue;
           const shiftTimes = times;
           const startMin = parseHM(si === 0 ? shiftTimes.s1 : shiftTimes.s2);
           let endMin = parseHM(si === 0 ? shiftTimes.e1 : shiftTimes.e2);
@@ -466,8 +468,8 @@ export default function App() {
             });
             ids.push(notification);
           }
-        });
-      });
+        }
+      }
     }
     await AsyncStorage.setItem(REPORT_NOTIFICATION_IDS_KEY,JSON.stringify(ids));
   };
