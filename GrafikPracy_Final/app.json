@@ -15,13 +15,19 @@
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
-      }
+      },
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "extra": {
       "eas": {
         "projectId": "a1bf7cf9-1bfd-4bd0-8392-e9c3266ce9b6"
       }
     },
-    "owner": "kafel17"
+    "owner": "kafel17",
+    "plugins": [
+      "expo-notifications"
+    ]
   }
 }
