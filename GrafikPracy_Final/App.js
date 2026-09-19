@@ -437,7 +437,29 @@ export default function App() {
     }
   };
 
-  const sendChatMessage = async () => {\n    const body = chatText.trim();\n    if (!body || chatBusy) return;\n    setChatBusy(true);\n    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};\n    try {\n      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);\n      else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));\n      setChatText('');\n    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); }\n    finally { setChatBusy(false); }\n  };\n\n  const resendReport = async text => {\n    if (!text) return;\n    try {\n      await Clipboard.setStringAsync(text);\n      const waUrl = reportGroupLink.trim() ? reportGroupLink.trim() : 'whatsapp://send?text=' + encodeURIComponent(text);\n      await Linking.openURL(waUrl);\n    } catch(e) { Alert.alert('WhatsApp','Raport skopiowano do schowka, ale nie udało się otworzyć WhatsApp.'); }\n  };\n\n  const requestReportNotifications = async () => {
+  const sendChatMessage = async () => {
+    const body = chatText.trim();
+    if (!body || chatBusy) return;
+    setChatBusy(true);
+    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    try {
+      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
+      else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
+      setChatText('');
+    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); }
+    finally { setChatBusy(false); }
+  };
+
+  const resendReport = async text => {
+    if (!text) return;
+    try {
+      await Clipboard.setStringAsync(text);
+      const waUrl = reportGroupLink.trim() ? reportGroupLink.trim() : 'whatsapp://send?text=' + encodeURIComponent(text);
+      await Linking.openURL(waUrl);
+    } catch(e) { Alert.alert('WhatsApp','Raport skopiowano do schowka, ale nie udało się otworzyć WhatsApp.'); }
+  };
+
+  const requestReportNotifications = async () => {
     if (Platform.OS === 'web') return false;
     const current = await Notifications.getPermissionsAsync();
     if (current.granted) return true;
