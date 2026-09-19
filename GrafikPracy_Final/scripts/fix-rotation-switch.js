@@ -11,7 +11,7 @@ if (!file) process.exit(0);
 let s = fs.readFileSync(file, 'utf8');
 
 if (!s.includes('const changeRotation = k =>')) {
-  const marker = "  const newWeek = () => {\n";
+  const marker = s.includes("  const newWeek = () => {\n") ? "  const newWeek = () => {\n" : "  const openWeekSetup = next => {\n";
   const fn = `  const changeRotation = k => {\n    if (readOnly) return;\n    setRotation(k);\n    setWeeks(prev => {\n      const existing = prev[wkKey];\n      if (!existing) return {...prev,[wkKey]:generateWeek(k,warehouse)};\n      const next = cloneWeek(existing);\n      next.forEach(d => d.shifts.forEach(s => {\n        if (s.manual || s.locked || s.person === 'L') return;\n        if (s.person === 'P') s.person = 'M';\n        else if (s.person === 'M') s.person = 'P';\n      }));\n      return {...prev,[wkKey]:next};\n    });\n  };\n\n`;
   if (!s.includes(marker)) throw new Error('Rotation insertion marker not found');
   s = s.replace(marker, fn + marker, 1);
