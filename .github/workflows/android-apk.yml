@@ -87,3 +87,5 @@ jobs:
           path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+# CI trigger refresh after chat build fix
