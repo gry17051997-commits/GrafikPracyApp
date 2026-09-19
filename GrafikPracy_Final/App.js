@@ -23,13 +23,15 @@ import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc} from 'firebase/firestore';
+import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
 const REPORT_PREFS_KEY = 'grafik-pracy-reports-v1';
 const REPORT_NOTIFICATION_IDS_KEY = 'grafik-pracy-report-notification-ids-v1';
 const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
+const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
+const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -182,6 +184,10 @@ export default function App() {
   const [reportDuration,setReportDuration] = useState('10 min');
   const [reportLoaded,setReportLoaded] = useState('załadowany');
   const [reportBusy,setReportBusy] = useState(false);
+  const [reportHistory,setReportHistory] = useState([]);
+  const [chatMessages,setChatMessages] = useState([]);
+  const [chatText,setChatText] = useState('');
+  const [chatBusy,setChatBusy] = useState(false);
   const [cloudUpdated,setCloudUpdated] = useState(false);
   const [sharePerson,setSharePerson] = useState('all');
   const [shareFormat,setShareFormat] = useState('table');
@@ -227,6 +233,8 @@ export default function App() {
           setVehicleRegistration(data.vehicleRegistration || '');
           setReportGroupLink(data.reportGroupLink || '');
           setReportsEnabled(data.reportsEnabled !== false);
+          setReportHistory(data.reportHistory || []);
+          setChatMessages(data.chatMessages || []);
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
         }
@@ -300,6 +308,37 @@ export default function App() {
       if (roleUnsub) roleUnsub();
     };
   },[]);
+
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.getItem(REPORT_HISTORY_KEY).then(raw => { if (raw) setReportHistory(JSON.parse(raw)); }).catch(()=>{});
+    AsyncStorage.getItem(CHAT_LOCAL_KEY).then(raw => { if (raw && !FIREBASE_ENABLED) setChatMessages(JSON.parse(raw)); }).catch(()=>{});
+  },[ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.setItem(REPORT_HISTORY_KEY,JSON.stringify(reportHistory.slice(0,100))).catch(()=>{});
+    if (!FIREBASE_ENABLED) AsyncStorage.setItem(CHAT_LOCAL_KEY,JSON.stringify(chatMessages.slice(-100))).catch(()=>{});
+  },[ready,reportHistory,chatMessages]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const q = query(collection(db,'chatMessages'), orderBy('createdAt','desc'), limit(100));
+    const unsub = onSnapshot(q, snap => {
+      const rows = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+      setChatMessages(rows);
+    }, err => setCloudError('Brak dostępu do czatu. Kod: ' + (err?.code || 'unknown')));
+    return unsub;
+  },[cloudUser]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const q = cloudRole === 'admin'
+      ? query(collection(db,'whatsappReports'), orderBy('createdAt','desc'), limit(100))
+      : query(collection(db,'whatsappReports'), where('uid','==',cloudUser.uid), orderBy('createdAt','desc'), limit(50));
+    const unsub = onSnapshot(q, snap => setReportHistory(snap.docs.map(d=>({id:d.id,...d.data()}))), err => setCloudError('Brak dostępu do raportów WhatsApp. Kod: ' + (err?.code || 'unknown')));
+    return unsub;
+  },[cloudUser,cloudRole]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
@@ -384,11 +423,11 @@ export default function App() {
     setReportBusy(true);
     try {
       await Clipboard.setStringAsync(text);
-      if (reportGroupLink.trim()) {
-        await Linking.openURL(reportGroupLink.trim());
-      } else {
-        await Linking.openURL('whatsapp://');
-      }
+      const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,createdAt:new Date().toISOString(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
+      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'whatsappReports'),reportEntry);
+      else setReportHistory(prev => [reportEntry,...prev].slice(0,100));
+      if (reportGroupLink.trim()) await Linking.openURL(reportGroupLink.trim());
+      else { try { await Linking.openURL('whatsapp://send?text=' + encodeURIComponent(text)); } catch(e) { await Linking.openURL('whatsapp://'); } }
       setReportModal(false);
       Alert.alert('Raport gotowy','Tekst raportu został skopiowany. W WhatsApp wklej go do grupy i naciśnij WYŚLIJ.');
     } catch (e) {
@@ -398,7 +437,7 @@ export default function App() {
     }
   };
 
-  const requestReportNotifications = async () => {
+  const sendChatMessage = async () => {\n    const body = chatText.trim();\n    if (!body || chatBusy) return;\n    setChatBusy(true);\n    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};\n    try {\n      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);\n      else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));\n      setChatText('');\n    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); }\n    finally { setChatBusy(false); }\n  };\n\n  const resendReport = async text => {\n    if (!text) return;\n    try {\n      await Clipboard.setStringAsync(text);\n      const waUrl = reportGroupLink.trim() ? reportGroupLink.trim() : 'whatsapp://send?text=' + encodeURIComponent(text);\n      await Linking.openURL(waUrl);\n    } catch(e) { Alert.alert('WhatsApp','Raport skopiowano do schowka, ale nie udało się otworzyć WhatsApp.'); }\n  };\n\n  const requestReportNotifications = async () => {
     if (Platform.OS === 'web') return false;
     const current = await Notifications.getPermissionsAsync();
     if (current.granted) return true;
@@ -1083,7 +1122,7 @@ export default function App() {
     return shifts.length ? {day:DAYS[i],date:shortDate(addDays(weekStart,i)),shifts} : null;
   }).filter(Boolean);
 
-  const summary = (
+  const chat = (\n    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>\n      {header}\n      <View style={S.chatHeader}>\n        <View style={{flex:1}}>\n          <Text style={S.section}>💬 Czat pracowników</Text>\n          <Text style={S.helpLine}>Wiadomości są wspólne dla zalogowanych pracowników i administratora.</Text>\n        </View>\n        <Text style={S.chatBadge}>{chatMessages.length}</Text>\n      </View>\n      <View style={S.chatBox}>\n        {chatMessages.length ? chatMessages.slice(-80).map(m => {\n          const mine = !!cloudUser && m.uid === cloudUser.uid;\n          return (\n            <View key={m.id || (m.createdAt + '-' + m.uid)} style={[S.chatMessage,mine&&S.chatMine]}>\n              <View style={S.between}>\n                <Text style={S.chatAuthor}>{m.person || m.email || 'Użytkownik'}</Text>\n                <Text style={S.chatTime}>{m.createdAt ? new Date(m.createdAt).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</Text>\n              </View>\n              <Text style={S.chatText}>{m.text}</Text>\n            </View>\n          );\n        }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}\n      </View>\n      {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (\n        <View style={S.chatComposer}>\n          <TextInput value={chatText} onChangeText={setChatText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>\n          <TouchableOpacity disabled={chatBusy || !chatText.trim()} style={[S.generate,S.chatSend]} onPress={sendChatMessage}><Text style={S.btnText}>{chatBusy?'…':'WYŚLIJ'}</Text></TouchableOpacity>\n        </View>\n      )}\n      <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>\n      <Text style={S.helpLine}>Każdy raport jest zapisywany w historii. Ponowne wysłanie kopiuje tekst i otwiera WhatsApp lub ustawioną grupę.</Text>\n      {reportHistory.slice(0,30).map((r,i) => (\n        <View key={r.id || (r.createdAt + '-' + i)} style={S.reportCard}>\n          <Text style={S.optionText}>{r.text}</Text>\n          <Text style={S.muted}>{r.createdAt ? new Date(r.createdAt).toLocaleString('pl-PL') : ''} · {r.person || ''}</Text>\n          <TouchableOpacity style={S.swapMini} onPress={()=>resendReport(r.text)}><Text style={S.actionText}>📱 KOPIUJ I OTWÓRZ WHATSAPP</Text></TouchableOpacity>\n        </View>\n      ))}\n    </ScrollView>\n  );\n\n  const summary = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
       <Text style={S.section}>Podsumowanie dla</Text>
@@ -1599,7 +1638,7 @@ export default function App() {
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
-          {tab==='grafik' ? schedule : tab==='summary' ? summary : settings}
+          {tab==='grafik' ? schedule : tab==='summary' ? summary : tab==='chat' ? chat : settings}
           {editModal}
           {colorModal}
           {helpModal}
@@ -1620,6 +1659,7 @@ export default function App() {
               <Text style={S.navIcon}>📊</Text>
               <Text style={S.navText}>Podsumowanie</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}>
               <Text style={S.navIcon}>⚙️</Text>
               <Text style={S.navText}>Ustawienia</Text>
@@ -1691,6 +1731,18 @@ const S = StyleSheet.create({
   navActive:{backgroundColor:'#272d38'},
   navIcon:{fontSize:18},
   navText:{color:'#9aa1ae',marginTop:2,fontSize:12,fontWeight:'700'},
+  chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(25,29,38,0.94)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
+  chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
+  chatBox:{backgroundColor:'rgba(18,22,29,0.96)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#2b3240',minHeight:280,maxHeight:520},
+  chatMessage:{backgroundColor:'#252b35',borderRadius:13,padding:10,marginBottom:8,maxWidth:'92%'},
+  chatMine:{alignSelf:'flex-end',backgroundColor:'#30466f'},
+  chatAuthor:{color:'#fff',fontWeight:'900',fontSize:12},
+  chatTime:{color:'#8992a2',fontSize:10},
+  chatText:{color:'#fff',fontSize:15,lineHeight:20,marginTop:4},
+  chatComposer:{flexDirection:'row',gap:8,alignItems:'flex-end',marginTop:9,marginBottom:10},
+  chatInput:{flex:1,backgroundColor:'#171b23',color:'#fff',borderRadius:12,padding:12,fontSize:15,minHeight:48,maxHeight:110},
+  chatSend:{flex:0,minWidth:88},
+  reportCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'}
   overlay:{flex:1,backgroundColor:'rgba(0,0,0,0.82)',justifyContent:'center',padding:14},
   modal:{backgroundColor:'#191d26',borderRadius:21,padding:18,maxHeight:'88%',borderWidth:1,borderColor:'#303745'},
   modalTitle:{color:'#fff',fontSize:23,fontWeight:'900',marginBottom:8},
