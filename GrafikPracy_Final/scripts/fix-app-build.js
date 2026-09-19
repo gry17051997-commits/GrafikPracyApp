@@ -27,5 +27,38 @@ s=s.replace("<TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} on
 s=s.replace("            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}>","            {(!FIREBASE_ENABLED || cloudRole==='admin') && <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}>");
 s=s.replace("              <Text style={S.navText}>Podsumowanie</Text>\n            </TouchableOpacity>\n            <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]}","              <Text style={S.navText}>Podsumowanie</Text>\n            </TouchableOpacity>}\n            {!guestMode && <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]}");
 s=s.replace("              <Text style={S.navText}>Ustawienia</Text>\n            </TouchableOpacity>\n          </View>","              <Text style={S.navText}>Ustawienia</Text>\n            </TouchableOpacity>}\n          </View>");
+
+/* Weekly configuration, regeneration and warehouse fixes */
+once("  const [weekStart,setWeekStart] = useState(monday(new Date()));\n",
+"  const [weekStart,setWeekStart] = useState(monday(new Date()));\n  const [weekConfigs,setWeekConfigs] = useState({});\n  const [weekSetup,setWeekSetup] = useState(null);\n  const [weekSetupHours,setWeekSetupHours] = useState(10);\n  const [weekSetupRotation,setWeekSetupRotation] = useState('P');\n  const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');\n");
+once("          setWeeks(data.weeks || {});\n",
+"          setWeeks(data.weeks || {});\n          setWeekConfigs(data.weekConfigs || {});\n");
+s=s.replace("const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times:{",
+"const data = {hours,rotation,warehouse,weeks,weekConfigs,pin,pinEnabled,dark,times:{");
+s=s.replace("if (data.weeks) setWeeks(data.weeks);\n",
+"if (data.weeks) setWeeks(data.weeks);\n      if (data.weekConfigs) setWeekConfigs(data.weekConfigs);\n");
+s=s.replace("const payload = {hours,rotation,warehouse,weeks,times:{",
+"const payload = {hours,rotation,warehouse,weeks,weekConfigs,times:{");
+s=s.replace("},[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);",
+"},[ready,hours,rotation,warehouse,weeks,weekConfigs,times,personColors,conditions,cloudUser,cloudRole]);");
+s=s.replace("const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);",
+"const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);");
+s=s.replace("if (!weeks[wkKey]) {\n      setWeeks(prev => ({...prev,[wkKey]:generateWeek(rotation,warehouse)}));\n    }\n  },[wkKey]);",
+"if (!ready) return;\n    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {\n      setWeekSetup({weekStart});\n      setWeekSetupHours(hours);\n      setWeekSetupRotation(rotation);\n      setWeekSetupWarehouse(warehouse);\n    }\n  },[ready,wkKey,weeks,weekConfigs]);");
+s=s.replace("  const changeHours = h => {\n    if (readOnly) return;\n    setHours(h);\n    setTimes(DEFAULT_TIMES[h]);\n  };",
+"  const changeHours = h => {\n    if (readOnly) return;\n    setHours(h);\n    setTimes(DEFAULT_TIMES[h]);\n    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:h,times:DEFAULT_TIMES[h],rotation:prev[wkKey]?.rotation||rotation,warehouse:prev[wkKey]?.warehouse||warehouse}}));\n  };");
+s=s.replace("if (dayHasPassed(di) || s.locked || s.manual) return;","if (dayHasPassed(di) || s.locked) return;");
+s=s.replace("if (dayHasPassed(di) || s.locked || s.manual) return;\n      const forcedOff","if (dayHasPassed(di) || s.locked) return;\n      const forcedOff");
+s=s.replace("s.person=c.person; s.manual=false; counts[c.person]++;","s.person=c.person; counts[c.person]++;");
+s=s.replace("if(s.person===null) s.manual=true;","if(s.person===null) s.manual=false;");
+s=s.replace("const moveWeek = n => setWeekStart(addDays(weekStart,n*7));\n  const todayWeek = () => setWeekStart(monday(new Date()));",
+"const openWeekSetup = next => {\n    setWeekSetup(next);\n    const key=iso(next), cfg=weekConfigs[key];\n    setWeekSetupHours(cfg?.hours || 10);\n    setWeekSetupRotation(cfg?.rotation || rotation);\n    setWeekSetupWarehouse(cfg?.warehouse || warehouse);\n  };\n  const confirmWeekSetup = () => {\n    if(!weekSetup || readOnly) return;\n    const key=iso(weekSetup);\n    const cfg={hours:weekSetupHours,rotation:weekSetupRotation,warehouse:weekSetupWarehouse,times:DEFAULT_TIMES[weekSetupHours]};\n    setWeekConfigs(prev=>({...prev,[key]:cfg}));\n    setHours(weekSetupHours);\n    setRotation(weekSetupRotation);\n    setWarehouse(weekSetupWarehouse);\n    setTimes(DEFAULT_TIMES[weekSetupHours]);\n    setWeeks(prev=>({...prev,[key]:prev[key]||generateWeek(weekSetupRotation,weekSetupWarehouse)}));\n    setWeekStart(weekSetup);\n    setWeekSetup(null);\n  };\n  const moveWeek = n => { const next=addDays(weekStart,n*7); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };\n  const todayWeek = () => { const next=monday(new Date()); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };");
+s=s.replace("  const newWeek = () => {\n    const next = addDays(weekStart,7);\n    setWeekStart(next);\n    if (!weeks[iso(next)]) {\n      setWeeks(prev => ({...prev,[iso(next)]:generateWeek(rotation,warehouse)}));\n    }\n  };",
+"  const newWeek = () => moveWeek(1);");
+once("  const settings = (\n",
+"  const weekSetupDialog = (\n    <Modal visible={!!weekSetup} transparent animationType="fade" onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>\n      <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>\n      <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>\n      <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>\n      <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>\n      <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>\n      <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>\n    </View></View></Modal>\n  );\n\n  const settings = (\n");
+s=s.replace("          {backupDialog}\n\n          <View style={S.nav}>","          {backupDialog}\n          {weekSetupDialog}\n\n          <View style={S.nav}>");
+s=s.replace("onPress={()=>!readOnly && setWarehouse(w)}","onPress={()=>{if(readOnly)return; setWarehouse(w); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:w,times}})); setWeek(w=>w.map(d=>({...d,warehouse:w,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:w})})));}}");
+
 fs.writeFileSync(file,s);
 console.log('final integration patch ready');
