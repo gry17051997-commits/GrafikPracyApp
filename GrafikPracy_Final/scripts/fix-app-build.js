@@ -75,7 +75,8 @@ String.raw`  const weekSetupDialog = (
     </View></View></Modal>
   );
 
-  const settings = (
+  const settings = (\n`);
+
 s=s.replace("onPress={()=>!readOnly && setWarehouse(w)}","onPress={()=>{if(readOnly)return; const wh=w; setWarehouse(wh); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:wh,times}})); setWeek(prev=>prev.map(d=>({...d,warehouse:wh,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:wh})})));}}");
 
 fs.writeFileSync(file,s);
