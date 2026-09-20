@@ -59,13 +59,23 @@ service cloud.firestore {
 
     match /locationConfig/main {
       allow read: if signedIn();
-      allow write: if signedIn();
+      allow write: if isAdmin();
     }
 
     match /vehicleTracking/{vehicleId} {
-      allow read, write: if signedIn();
+      allow read: if signedIn();
+      allow create: if isAdmin() || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
+      allow update: if isAdmin() || (signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == resource.data.ownerUid);
+      allow delete: if isAdmin();
       match /locations/{locationId} {
-        allow read, write: if signedIn();
+        allow read: if signedIn();
+        allow create: if isAdmin() || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
+        allow update: if isAdmin() || (signedIn()
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid);
+        allow delete: if isAdmin();
       }
     }
 
