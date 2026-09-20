@@ -2,7 +2,7 @@
   "expo": {
     "name": "Grafik Pracy",
     "slug": "grafikpracyapp",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./icon-512.png",
@@ -11,7 +11,7 @@
     },
     "android": {
       "package": "pl.grafikpracy.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
@@ -40,6 +40,43 @@
           "locationAlwaysAndWhenInUsePermission": "Grafik Pracy używa lokalizacji służbowego telefonu w tle, aby pokazywać auto na żywo i automatycznie dobierać raporty.",
           "isAndroidBackgroundLocationEnabled": true,
           "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "GrafikTeraz",
+              "label": "Grafik Pracy • Teraz",
+              "minWidth": "180dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 2,
+              "description": "Aktualna zmiana, pracownik i odliczanie.",
+              "updatePeriodMillis": 1800000
+            },
+            {
+              "name": "GrafikAuto",
+              "label": "Grafik Pracy • Auto",
+              "minWidth": "180dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 2,
+              "description": "Status auta i lokalizacji GPS.",
+              "updatePeriodMillis": 1800000
+            },
+            {
+              "name": "GrafikRaport",
+              "label": "Grafik Pracy • Raport",
+              "minWidth": "180dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 2,
+              "description": "Ostatni raport WhatsApp i naliczany czas.",
+              "updatePeriodMillis": 1800000
+            }
+          ]
         }
       ]
     ]
