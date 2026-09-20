@@ -43,9 +43,6 @@ jobs:
       - name: Apply rotation switch fix
         run: node scripts/fix-rotation-switch.js
 
-      - name: Ensure web dependencies
-        run: npm install react-native-web@^0.21.0
-
       - name: Export Expo web
         run: npx expo export --platform web
 
