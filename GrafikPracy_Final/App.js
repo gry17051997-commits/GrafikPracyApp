@@ -1472,13 +1472,14 @@ export default function App() {
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
 
-      <Text style={S.section}>📍 Lokalizacja służbowego auta</Text>
-      <Text style={S.helpLine}>Służbowy telefon w aucie może działać jako nadajnik GPS. Pozycja jest udostępniana na żywo, a historia trasy jest automatycznie przechowywana maksymalnie 7 dni.</Text>
+      <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
+      <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta, wpisując jego numer rejestracyjny. Następnie włącz nadajnik. Telefon będzie wysyłał swoją pozycję w tle do Firebase, a administrator zobaczy ją w zakładce Auto.</Text>
+      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase())} autoCapitalize="characters" placeholder="PRZYPISZ DO AUTA, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
       <View style={S.option}>
-        <View style={{flex:1}}><Text style={S.optionText}>Nadajnik GPS</Text><Text style={S.muted}>{locationTracking?'🟢 aktywny w tle':'🔴 wyłączony'}</Text></View>
-        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'WŁĄCZ'}</Text></TouchableOpacity>
+        <View style={{flex:1}}><Text style={S.optionText}>Telefon służbowy</Text><Text style={S.muted}>{vehicleRegistration.trim()?'🚚 przypisany do '+vehicleRegistration.trim():'⚠️ najpierw wpisz numer auta'}</Text><Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text></View>
+        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ'}</Text></TouchableOpacity>
       </View>
-      <Text style={S.helpLine}>Numer rejestracyjny powyżej identyfikuje służbowe auto. Na Androidzie lokalizacja w tle wymaga zgody systemowej i widocznego powiadomienia usługi.</Text>
+      <Text style={S.helpLine}>Po aktywacji Android poprosi o lokalizację dokładną oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję. Podczas działania pojawi się stałe powiadomienie usługi.</Text>
       <Text style={S.section}>🏭 Kalibracja stref magazynów</Text>
       {WAREHOUSES.map(w=><View key={w} style={S.option}>
         <View style={{flex:1}}><Text style={S.optionText}>{w}</Text><Text style={S.muted}>{warehouseGeo[w]?'📍 '+Number(warehouseGeo[w].latitude).toFixed(5)+', '+Number(warehouseGeo[w].longitude).toFixed(5):'brak punktu GPS'}</Text></View>
@@ -1493,7 +1494,6 @@ export default function App() {
           <Text style={S.btnText}>{reportsEnabled?'WŁĄCZONE':'WYŁĄCZONE'}</Text>
         </TouchableOpacity>
       </View>
-      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase())} autoCapitalize="characters" placeholder="Numer rejestracyjny, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]}/>
       <TextInput value={reportGroupLink} onChangeText={setReportGroupLink} autoCapitalize="none" placeholder="Link do grupy WhatsApp (opcjonalnie)" placeholderTextColor="#777" style={S.input}/>
       <TouchableOpacity style={S.generateFull} onPress={()=>setReportModal(true)}>
         <Text style={S.btnText}>📝 TEST / UTWÓRZ RAPORT</Text>
