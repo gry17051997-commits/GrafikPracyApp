@@ -80,3 +80,4 @@ s=s.replace("onPress={()=>!readOnly && setWarehouse(w)}","onPress={()=>{if(readO
 
 fs.writeFileSync(file,s);
 console.log('final integration patch ready');
+}
