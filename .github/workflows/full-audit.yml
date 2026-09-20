@@ -1,0 +1,87 @@
+name: Full Project Audit
+
+on:
+  push:
+    branches: ['main']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafik-pracy-audit
+  cancel-in-progress: true
+
+env:
+  CI: '1'
+  EXPO_NO_DOCTOR: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  audit:
+    name: Full project audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Validate CI patch scripts
+        run: |
+          node --check scripts/fix-app-build.js
+          node --check scripts/fix-chat-build.js
+          node --check scripts/fix-rotation-switch.js
+
+      - name: Validate Expo configuration
+        run: npx expo config --type public
+
+      - name: Generate native Android project for validation
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Verify Android native configuration
+        run: |
+          test -f android/app/build.gradle
+          test -f android/app/src/main/AndroidManifest.xml
+          grep -q 'react-native-android-widget' android/settings.gradle android/app/build.gradle || true
+          grep -q 'ACCESS_BACKGROUND_LOCATION' android/app/src/main/AndroidManifest.xml
+          grep -q 'FOREGROUND_SERVICE_LOCATION' android/app/src/main/AndroidManifest.xml
+
+      - name: Compile Expo Web bundle for audit
+        run: npx expo export --platform web --output-dir audit-dist
+
+      - name: Verify Web output
+        run: |
+          test -s audit-dist/index.html
+          test -d audit-dist/_expo
+
+      - name: Check dependency lock drift
+        run: |
+          if git diff --quiet -- GrafikPracy_Final/package-lock.json; then
+            echo "package-lock.json: OK"
+          else
+            echo "package-lock.json: DRIFT DETECTED"
+            git diff --stat -- GrafikPracy_Final/package-lock.json
+          fi
+
+      - name: Audit summary
+        run: |
+          echo "AUDIT PASSED: scripts, Expo config, Android prebuild and Web compilation."
+          echo "No Android APK was assembled and no Web deployment was performed."
