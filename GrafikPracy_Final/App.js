@@ -159,6 +159,11 @@ export default function App() {
   const [rotation,setRotation] = useState('P');
   const [warehouse,setWarehouse] = useState('PNT B');
   const [weekStart,setWeekStart] = useState(monday(new Date()));
+  const [weekConfigs,setWeekConfigs] = useState({});
+  const [weekSetup,setWeekSetup] = useState(null);
+  const [weekSetupHours,setWeekSetupHours] = useState(10);
+  const [weekSetupRotation,setWeekSetupRotation] = useState('P');
+  const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');
   const [weeks,setWeeks] = useState({});
   const [times,setTimes] = useState(DEFAULT_TIMES[10]);
   const [edit,setEdit] = useState(null);
@@ -224,10 +229,22 @@ export default function App() {
   const [swapTargetShift,setSwapTargetShift] = useState(1);
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
+  const [guestMode,setGuestMode] = useState(false);
   const readOnly = FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin';
 
   const wkKey = iso(weekStart);
-  const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);
+  const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
+  const clearCurrentWeek = () => {
+    if (readOnly) return;
+    Alert.alert('Wyczyść tydzień','Usunąć wszystkich pracowników z całego aktualnie wyświetlanego tygodnia?', [
+      {text:'Anuluj',style:'cancel'},
+      {text:'Wyczyść cały tydzień',style:'destructive',onPress:()=>{
+        const wh=weekConfigs[wkKey]?.warehouse || warehouse;
+        setWeeks(prev=>({...prev,[wkKey]:emptyWeek(wh)}));
+      }}
+    ]);
+  };
+  const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
 
   useEffect(() => {
@@ -240,6 +257,7 @@ export default function App() {
           setRotation(data.rotation || 'P');
           setWarehouse(data.warehouse || 'PNT B');
           setWeeks(data.weeks || {});
+          setWeekConfigs(data.weekConfigs || {});
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
@@ -327,6 +345,7 @@ export default function App() {
       }
 
       setCloudUser(user || null);
+      if (user) setGuestMode(false);
       setCloudError('');
       setCloudReady(false);
 
@@ -383,7 +402,7 @@ export default function App() {
       setChatMessages(rows);
     }, err => setCloudError('Brak dostępu do czatu. Kod: ' + (err?.code || 'unknown')));
     return unsub;
-  },[cloudUser]);
+  },[cloudUser,guestMode]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
@@ -395,7 +414,7 @@ export default function App() {
   },[cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
     const unsub = onSnapshot(doc(db,'schedules','main'), snap => {
       if (!snap.exists()) return;
       const data = snap.data() || {};
@@ -404,6 +423,7 @@ export default function App() {
       if (data.rotation) setRotation(data.rotation);
       if (data.warehouse) setWarehouse(data.warehouse);
       if (data.weeks) setWeeks(data.weeks);
+      if (data.weekConfigs) setWeekConfigs(data.weekConfigs);
       if (data.personColors) setPersonColors(data.personColors);
       if (data.conditions) setConditions(data.conditions);
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
@@ -439,9 +459,9 @@ export default function App() {
       cloudApplying.current = false;
       return;
     }
-    const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+    const payload = {hours,rotation,warehouse,weeks,weekConfigs,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
     setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
-  },[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,times,personColors,conditions,cloudUser,cloudRole]);
 
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
@@ -747,10 +767,14 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!weeks[wkKey]) {
-      setWeeks(prev => ({...prev,[wkKey]:generateWeek(rotation,warehouse)}));
+    if (!ready) return;
+    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {
+      setWeekSetup({weekStart});
+      setWeekSetupHours(hours);
+      setWeekSetupRotation(rotation);
+      setWeekSetupWarehouse(warehouse);
     }
-  },[wkKey]);
+  },[ready,wkKey,weeks,weekConfigs]);
 
   const setWeek = updater => {
     setWeeks(prev => ({
@@ -763,6 +787,7 @@ export default function App() {
     if (readOnly) return;
     setHours(h);
     setTimes(DEFAULT_TIMES[h]);
+    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:h,times:DEFAULT_TIMES[h],rotation:prev[wkKey]?.rotation||rotation,warehouse:prev[wkKey]?.warehouse||warehouse}}));
   };
 
   const dayHasPassed = dayIndex => {
@@ -785,13 +810,13 @@ export default function App() {
     const result = cloneWeek(currentWeek);
     // Preserve completed days and explicit manual/locked assignments.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
-      if (dayHasPassed(di) || s.locked || s.manual) return;
+      if (dayHasPassed(di) || s.locked) return;
       s.person = null;
     }));
 
     const slots=[];
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
-      if (dayHasPassed(di) || s.locked || s.manual) return;
+      if (dayHasPassed(di) || s.locked) return;
       const forcedOff = conditions.some(c=>c.type==='off' && conditionApplies(c,'',di,si));
       if (!forcedOff) slots.push({di,si});
     }));
@@ -809,7 +834,7 @@ export default function App() {
       if(!c.person || c.dayIndex===undefined || !c.shift) return;
       const si=Number(c.shift)-1, di=Number(c.dayIndex), s=result[di]?.shifts?.[si];
       if(!s || dayHasPassed(di) || s.locked || s.manual) return;
-      s.person=c.person; s.manual=false; counts[c.person]++;
+      s.person=c.person; counts[c.person]++;
     });
 
     // Fill remaining slots using target counts, respecting hard prohibitions.
@@ -844,7 +869,7 @@ export default function App() {
     }
     // Apply requested replacement for days off.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
-      if(s.person===null) s.manual=true;
+      if(s.person===null) s.manual=false;
     }));
     return result;
   };
@@ -886,17 +911,6 @@ export default function App() {
     });
   };
 
-    if (readOnly || dayHasPassed(dayIndex)) return;
-    setWeek(w => {
-      w[dayIndex].shifts[shiftIndex] = {
-        ...w[dayIndex].shifts[shiftIndex],
-        ...patch,
-        manual:true
-      };
-      return w;
-    });
-  };
-
   const openOff = (dayIndex,shiftIndex) => {
     if(readOnly || dayHasPassed(dayIndex)) return;
     const sh=currentWeek[dayIndex]?.shifts?.[shiftIndex];
@@ -933,7 +947,7 @@ export default function App() {
     const proposal={
       fromUid:cloudUser.uid,
       fromEmail:cloudUser.email || '',
-      fromPerson:swapModal.person || myPerson,
+      fromPerson:swapModal.person || null,
       fromDay:swapModal.dayIndex,
       fromShift:swapModal.shiftIndex+1,
       toPerson:swapTarget,
@@ -972,8 +986,44 @@ export default function App() {
     } catch(e){setCloudError('Nie udało się odrzucić propozycji. Kod: ' + (e?.code || 'unknown'));}
   };
 
-  const moveWeek = n => setWeekStart(addDays(weekStart,n*7));
-  const todayWeek = () => setWeekStart(monday(new Date()));
+  const changeRotation = k => {
+    if (readOnly) return;
+    setRotation(k);
+    setWeeks(prev => {
+      const existing = prev[wkKey];
+      if (!existing) return {...prev,[wkKey]:generateWeek(k,warehouse)};
+      const next = cloneWeek(existing);
+      next.forEach(d => d.shifts.forEach(s => {
+        if (s.manual || s.locked || s.person === 'L') return;
+        if (s.person === 'P') s.person = 'M';
+        else if (s.person === 'M') s.person = 'P';
+      }));
+      return {...prev,[wkKey]:next};
+    });
+  };
+
+  const openWeekSetup = next => {
+    setWeekSetup(next);
+    const key=iso(next), cfg=weekConfigs[key];
+    setWeekSetupHours(cfg?.hours || 10);
+    setWeekSetupRotation(cfg?.rotation || rotation);
+    setWeekSetupWarehouse(cfg?.warehouse || warehouse);
+  };
+  const confirmWeekSetup = () => {
+    if(!weekSetup || readOnly) return;
+    const key=iso(weekSetup);
+    const cfg={hours:weekSetupHours,rotation:weekSetupRotation,warehouse:weekSetupWarehouse,times:DEFAULT_TIMES[weekSetupHours]};
+    setWeekConfigs(prev=>({...prev,[key]:cfg}));
+    setHours(weekSetupHours);
+    setRotation(weekSetupRotation);
+    setWarehouse(weekSetupWarehouse);
+    setTimes(DEFAULT_TIMES[weekSetupHours]);
+    setWeeks(prev=>({...prev,[key]:prev[key]||generateWeek(weekSetupRotation,weekSetupWarehouse)}));
+    setWeekStart(weekSetup);
+    setWeekSetup(null);
+  };
+  const moveWeek = n => { const next=addDays(weekStart,n*7); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };
+  const todayWeek = () => { const next=monday(new Date()); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };
 
   const totals = useMemo(() => {
     const result = {
@@ -1015,13 +1065,7 @@ export default function App() {
     return arr;
   },[currentWeek]);
 
-  const newWeek = () => {
-    const next = addDays(weekStart,7);
-    setWeekStart(next);
-    if (!weeks[iso(next)]) {
-      setWeeks(prev => ({...prev,[iso(next)]:generateWeek(rotation,warehouse)}));
-    }
-  };
+  const newWeek = () => moveWeek(1);
 
   const resetAll = () => {
     if (readOnly) return;
@@ -1253,7 +1297,7 @@ export default function App() {
             </View>
 
             {d.shifts.map((s,si) => {
-              const p = s.person && (personFilter==='all' || s.person===personFilter) ? PEOPLE[s.person] : null;
+              const p = s.person ? PEOPLE[s.person] : null;
               return (
                 <View key={s.id} style={[S.shift,s.locked&&S.locked]}>
                   <View style={S.between}>
@@ -1283,7 +1327,7 @@ export default function App() {
                       <Text style={S.delete}>Usuń</Text>
                     </TouchableOpacity>
                   </View>
-                  {!dayHasPassed(di) && s.person && (cloudRole==='admin' || s.person===myPerson) && <TouchableOpacity style={S.swapMini} onPress={()=>setSwapModal({dayIndex:di,shiftIndex:si,person:s.person})}><Text style={S.actionText}>🔄 Zaproponuj zamianę</Text></TouchableOpacity>}
+                  {!dayHasPassed(di) && s.person && cloudUser && <TouchableOpacity style={S.swapMini} onPress={()=>setSwapModal({dayIndex:di,shiftIndex:si,person:s.person})}><Text style={S.actionText}>🔄 Zaproponuj zamianę</Text></TouchableOpacity>}
                   {!dayHasPassed(di) && !readOnly && <TouchableOpacity style={S.swapMini} onPress={()=>openOff(di,si)}><Text style={S.actionText}>🏖️ Ustaw wolne</Text></TouchableOpacity>}
                 </View>
               );
@@ -1300,7 +1344,49 @@ export default function App() {
     return shifts.length ? {day:DAYS[i],date:shortDate(addDays(weekStart,i)),shifts} : null;
   }).filter(Boolean);
 
-  const chat = (\n    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>\n      {header}\n      <View style={S.chatHeader}>\n        <View style={{flex:1}}>\n          <Text style={S.section}>💬 Czat pracowników</Text>\n          <Text style={S.helpLine}>Wiadomości są wspólne dla zalogowanych pracowników i administratora.</Text>\n        </View>\n        <Text style={S.chatBadge}>{chatMessages.length}</Text>\n      </View>\n      <View style={S.chatBox}>\n        {chatMessages.length ? chatMessages.slice(-80).map(m => {\n          const mine = !!cloudUser && m.uid === cloudUser.uid;\n          return (\n            <View key={m.id || (m.createdAt + '-' + m.uid)} style={[S.chatMessage,mine&&S.chatMine]}>\n              <View style={S.between}>\n                <Text style={S.chatAuthor}>{m.person || m.email || 'Użytkownik'}</Text>\n                <Text style={S.chatTime}>{m.createdAt ? new Date(m.createdAt).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</Text>\n              </View>\n              <Text style={S.chatText}>{m.text}</Text>\n            </View>\n          );\n        }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}\n      </View>\n      {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (\n        <View style={S.chatComposer}>\n          <TextInput value={chatText} onChangeText={setChatText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>\n          <TouchableOpacity disabled={chatBusy || !chatText.trim()} style={[S.generate,S.chatSend]} onPress={sendChatMessage}><Text style={S.btnText}>{chatBusy?'…':'WYŚLIJ'}</Text></TouchableOpacity>\n        </View>\n      )}\n      <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>\n      <Text style={S.helpLine}>Każdy raport jest zapisywany w historii. Ponowne wysłanie kopiuje tekst i otwiera WhatsApp lub ustawioną grupę.</Text>\n      {reportHistory.slice(0,30).map((r,i) => (\n        <View key={r.id || (r.createdAt + '-' + i)} style={S.reportCard}>\n          <Text style={S.optionText}>{r.text}</Text>\n          <Text style={S.muted}>{r.createdAt ? new Date(r.createdAt).toLocaleString('pl-PL') : ''} · {r.person || ''}</Text>\n          <TouchableOpacity style={S.swapMini} onPress={()=>resendReport(r.text)}><Text style={S.actionText}>📱 KOPIUJ I OTWÓRZ WHATSAPP</Text></TouchableOpacity>\n        </View>\n      ))}\n    </ScrollView>\n  );\n\n  const summary = (
+  const chat = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+      {header}
+      <View style={S.chatHeader}>
+        <View style={{flex:1}}>
+          <Text style={S.section}>💬 Czat pracowników</Text>
+          <Text style={S.helpLine}>Wiadomości są wspólne dla zalogowanych pracowników i administratora.</Text>
+        </View>
+        <Text style={S.chatBadge}>{chatMessages.length}</Text>
+      </View>
+      <View style={S.chatBox}>
+        {chatMessages.length ? chatMessages.slice(-80).map(m => {
+          const mine = !!cloudUser && m.uid === cloudUser.uid;
+          return (
+            <View key={m.id || (m.createdAt + '-' + m.uid)} style={[S.chatMessage,mine&&S.chatMine]}>
+              <View style={S.between}>
+                <Text style={S.chatAuthor}>{m.person || m.email || 'Użytkownik'}</Text>
+                <Text style={S.chatTime}>{m.createdAt ? new Date(m.createdAt).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</Text>
+              </View>
+              <Text style={S.chatText}>{m.text}</Text>
+            </View>
+          );
+        }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}
+      </View>
+      {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (
+        <View style={S.chatComposer}>
+          <TextInput value={chatText} onChangeText={setChatText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>
+          <TouchableOpacity disabled={chatBusy || !chatText.trim()} style={[S.generate,S.chatSend]} onPress={sendChatMessage}><Text style={S.btnText}>{chatBusy?'…':'WYŚLIJ'}</Text></TouchableOpacity>
+        </View>
+      )}
+      <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>
+      <Text style={S.helpLine}>Każdy raport jest zapisywany w historii. Ponowne wysłanie kopiuje tekst i otwiera WhatsApp lub ustawioną grupę.</Text>
+      {reportHistory.slice(0,30).map((r,i) => (
+        <View key={r.id || (r.createdAt + '-' + i)} style={S.reportCard}>
+          <Text style={S.optionText}>{r.text}</Text>
+          <Text style={S.muted}>{r.createdAt ? new Date(r.createdAt).toLocaleString('pl-PL') : ''} · {r.person || ''}</Text>
+          <TouchableOpacity style={S.swapMini} onPress={()=>resendReport(r.text)}><Text style={S.actionText}>📱 KOPIUJ I OTWÓRZ WHATSAPP</Text></TouchableOpacity>
+        </View>
+      ))}
+    </ScrollView>
+  );
+
+  const summary = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
       <Text style={S.section}>Podsumowanie dla</Text>
@@ -1367,8 +1453,19 @@ export default function App() {
     </ScrollView>
   );
 
-  const settings = (
-    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+  const weekSetupDialog = (
+    <Modal visible={!!weekSetup} transparent animationType='fade' onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>
+      <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
+      <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>
+      <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+      <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
+    </View></View></Modal>
+  );
+
+  const settings = (\n    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
 
       <Text style={S.section}>📍 Lokalizacja służbowego auta</Text>
@@ -1401,7 +1498,7 @@ export default function App() {
       <Text style={S.section}>Rotacja</Text>
       <View style={S.row}>
         {['P','M'].map(k=>
-          <TouchableOpacity key={k} style={[S.btn,rotation===k&&S.active]} onPress={()=>setRotation(k)}>
+          <TouchableOpacity key={k} style={[S.btn,rotation===k&&S.active]} onPress={()=>changeRotation(k)}>
             <Text style={S.btnText}>Start: {PEOPLE[k].name}</Text>
           </TouchableOpacity>
         )}
@@ -1409,7 +1506,7 @@ export default function App() {
 
       <Text style={S.section}>Domyślny magazyn</Text>
       {WAREHOUSES.map(w=>
-        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>!readOnly && setWarehouse(w)}>
+        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>{if(readOnly)return; const wh=w; setWarehouse(wh); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:wh,times}})); setWeek(prev=>prev.map(d=>({...d,warehouse:wh,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:wh})})));}}>
           <Text style={S.optionText}>{w}</Text>
           {warehouse===w&&<Text style={S.check}>✓</Text>}
         </TouchableOpacity>
@@ -1553,7 +1650,7 @@ export default function App() {
         <Text style={S.modalTitle}>🔄 Zaproponuj zamianę</Text>
         <Text style={S.helpLine}>{swapModal ? `${DAYS[swapModal.dayIndex]} · zmiana ${swapModal.shiftIndex+1}` : ''}</Text>
         <Text style={S.section}>Z kim?</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>{PERSON_KEYS.filter(k=>k!==myPerson).map(k=><TouchableOpacity key={k} style={[S.chip,swapTarget===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSwapTarget(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>{PERSON_KEYS.filter(k=>k!==swapModal?.person).map(k=><TouchableOpacity key={k} style={[S.chip,swapTarget===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSwapTarget(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
         <Text style={S.section}>Na którą zmianę tej osoby?</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{DAYS.map((d,i)=><TouchableOpacity key={d} style={[S.chip,swapTargetDay===i&&S.active]} onPress={()=>setSwapTargetDay(i)}><Text style={S.btnText}>{d.slice(0,3)}</Text></TouchableOpacity>)}</ScrollView>
         <View style={S.row}>{[1,2].map(x=><TouchableOpacity key={x} style={[S.btn,swapTargetShift===x&&S.active]} onPress={()=>setSwapTargetShift(x)}><Text style={S.btnText}>Zmiana {x}</Text></TouchableOpacity>)}</View>
@@ -1780,7 +1877,7 @@ export default function App() {
     </Modal>
   );
 
-  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady)) {
+  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {
     return (
       <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
         <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
@@ -1795,7 +1892,7 @@ export default function App() {
             </TouchableOpacity>
             {!!cloudError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{cloudError}</Text>}
             <TouchableOpacity style={S.closeBtn} disabled={authBusy} onPress={cloudLogin}><Text style={S.btnText}>{authBusy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{setGuestMode(true);setTab('teraz')}}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>
           </View>
         </View></SafeAreaView></View>
       </ImageBackground>
@@ -1835,7 +1932,7 @@ export default function App() {
           {reportModalDialog}
 
           <View style={S.nav}>
-            <TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity><TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='auto'&&S.navActive]} onPress={()=>setTab('auto')}><Text style={S.navIcon}>📍</Text><Text style={S.navText}>Auto</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsumowanie</Text></TouchableOpacity>
