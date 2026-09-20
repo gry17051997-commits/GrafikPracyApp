@@ -273,8 +273,8 @@ export default function App() {
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const unsub = onSnapshot(doc(db,'locationConfig','main'), snap => {
-      if (!snap.exists()) return;
       locationConfigLoaded.current = true;
+      if (!snap.exists()) return;
       setWarehouseGeo(snap.data()?.warehouseGeo || {});
     });
     return () => unsub();
