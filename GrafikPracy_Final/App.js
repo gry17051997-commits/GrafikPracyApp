@@ -265,6 +265,22 @@ export default function App() {
   },[]);
 
   useEffect(() => {
+    if (!ready || Platform.OS !== 'android') return;
+    const t = setTimeout(async () => {
+      try {
+        const {requestWidgetUpdate} = require('react-native-android-widget');
+        const {buildWidgetData} = require('./widget-task-handler');
+        const {GrafikTerazWidget,GrafikAutoWidget,GrafikRaportWidget} = require('./widgets');
+        const data = await buildWidgetData();
+        requestWidgetUpdate({widgetName:'GrafikTeraz',renderWidget:() => <GrafikTerazWidget data={data.now}/>});
+        requestWidgetUpdate({widgetName:'GrafikAuto',renderWidget:() => <GrafikAutoWidget data={data.auto}/>});
+        requestWidgetUpdate({widgetName:'GrafikRaport',renderWidget:() => <GrafikRaportWidget data={data.report}/>});
+      } catch (e) {}
+    }, 250);
+    return () => clearTimeout(t);
+  }, [ready,weeks,times,reportHistory,vehicleRegistration,warehouseGeo]);
+
+  useEffect(() => {
     if (!ready) return;
     const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,times:{
       10: DEFAULT_TIMES[10],
