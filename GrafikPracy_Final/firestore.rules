@@ -57,6 +57,18 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    match /locationConfig/main {
+      allow read: if signedIn();
+      allow write: if signedIn();
+    }
+
+    match /vehicleTracking/{vehicleId} {
+      allow read, write: if signedIn();
+      match /locations/{locationId} {
+        allow read, write: if signedIn();
+      }
+    }
+
     match /audit/{entryId} {
       allow read: if isAdmin();
       allow create: if isAdmin();
