@@ -24,11 +24,11 @@ export default function Dashboard({weeks,rotation,warehouse,times,now=new Date()
  return <View style={S.wrap}>
   <View style={S.card}>
    <Text style={S.kicker}>🟢 KTO TERAZ PRACUJE?</Text>
-   {active?<><Text style={S.name}>{PEOPLE[active.person]||active.person}</Text><Text style={S.line}>📦 {active.warehouse}</Text><Text style={S.line}>🕐 {fmt(active.start)} – {fmt(active.end)}</Text><Text style={S.count}>⏳ {countdown(active.end)}</Text></>:<Text style={S.name}>Nikt</Text>}
+   {active?<><Text style={S.name}>{PEOPLE[active.person]||active.person||'Nieznany pracownik'}</Text><Text style={S.line}>📦 {active.warehouse}</Text><Text style={S.line}>🕐 {fmt(active.start)} – {fmt(active.end)}</Text><Text style={S.count}>⏳ {countdown(active.end)}</Text></>:<Text style={S.name}>Nikt</Text>}
   </View>
   <View style={S.next}>
    <Text style={S.kicker}>⏭️ NASTĘPNA ZMIANA</Text>
-   {next?<><Text style={S.nextName}>{PEOPLE[next.person]||next.person}</Text><Text style={S.line}>📦 {next.warehouse}</Text><Text style={S.line}>📅 {DAYS[next.day]} · {String(next.date.getDate()).padStart(2,'0')}.{String(next.date.getMonth()+1).padStart(2,'0')}</Text><Text style={S.line}>🕐 {fmt(next.start)} · zmiana {next.shift}</Text></>:<Text style={S.line}>Brak zaplanowanej kolejnej zmiany.</Text>}
+   {next?<><Text style={S.nextName}>{PEOPLE[next.person]||next.person||'Nieznany pracownik'}</Text><Text style={S.line}>📦 {next.warehouse}</Text><Text style={S.line}>📅 {DAYS[next.day]} · {String(next.date.getDate()).padStart(2,'0')}.{String(next.date.getMonth()+1).padStart(2,'0')}</Text><Text style={S.line}>🕐 {fmt(next.start)} · zmiana {next.shift}</Text></>:<Text style={S.line}>Brak zaplanowanej kolejnej zmiany.</Text>}
   </View>
  </View>;
 }
