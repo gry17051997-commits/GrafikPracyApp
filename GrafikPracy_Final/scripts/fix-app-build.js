@@ -51,7 +51,7 @@ once("  const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);",
 s=s.replace("const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);",
 "const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);");
 s=s.replace("if (!weeks[wkKey]) {\n      setWeeks(prev => ({...prev,[wkKey]:generateWeek(rotation,warehouse)}));\n    }\n  },[wkKey]);",
-"if (!ready) return;\n    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {\n      setWeekSetup({weekStart});\n      setWeekSetupHours(hours);\n      setWeekSetupRotation(rotation);\n      setWeekSetupWarehouse(warehouse);\n    }\n  },[ready,wkKey,weeks,weekConfigs]);");
+"if (!ready) return;\n    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {\n      setWeekSetup(weekStart);\n      setWeekSetupHours(hours);\n      setWeekSetupRotation(rotation);\n      setWeekSetupWarehouse(warehouse);\n    }\n  },[ready,wkKey,weeks,weekConfigs]);");
 s=s.replace("  const changeHours = h => {\n    if (readOnly) return;\n    setHours(h);\n    setTimes(DEFAULT_TIMES[h]);\n  };",
 "  const changeHours = h => {\n    if (readOnly) return;\n    setHours(h);\n    setTimes(DEFAULT_TIMES[h]);\n    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:h,times:DEFAULT_TIMES[h],rotation:prev[wkKey]?.rotation||rotation,warehouse:prev[wkKey]?.warehouse||warehouse}}));\n  };");
 s=s.replace("if (dayHasPassed(di) || s.locked || s.manual) return;","if (dayHasPassed(di) || s.locked) return;");
