@@ -989,6 +989,7 @@ export default function App() {
   const changeRotation = k => {
     if (readOnly) return;
     setRotation(k);
+    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:prev[wkKey]?.hours||hours,times:prev[wkKey]?.times||times,rotation:k,warehouse:prev[wkKey]?.warehouse||warehouse}}));
     setWeeks(prev => {
       const existing = prev[wkKey];
       if (!existing) return {...prev,[wkKey]:generateWeek(k,warehouse)};
