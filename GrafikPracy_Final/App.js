@@ -228,7 +228,7 @@ export default function App() {
 
   const wkKey = iso(weekStart);
   const currentWeek = weeks[wkKey] || generateWeek(rotation,warehouse);
-  const personColor = k => personColors[k] || PEOPLE[k].color;
+  const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
 
   useEffect(() => {
     (async() => {
@@ -282,13 +282,13 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,times:{
+    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,myPerson,conditions,proposals,warehouseGeo]);
+  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo]);
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
