@@ -3,7 +3,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
 import {collection, deleteDoc, doc, getDocs, limit, query, where, setDoc} from 'firebase/firestore';
-import {db, FIREBASE_ENABLED} from './firebaseConfig';
+import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
 export const LOCATION_CONFIG_KEY = 'grafik-pracy-location-config-v1';
@@ -33,8 +33,11 @@ async function saveLocation(location) {
   const vehicleId=safeVehicleId(cfg.vehicleId||cfg.registration);
   const c=location.coords;
   const now=Date.now();
+  const ownerUid=auth?.currentUser?.uid||null;
+  if(!ownerUid) return;
   const payload={
     vehicleId,
+    ownerUid,
     registration:cfg.registration||vehicleId,
     latitude:Number(c.latitude),
     longitude:Number(c.longitude),
