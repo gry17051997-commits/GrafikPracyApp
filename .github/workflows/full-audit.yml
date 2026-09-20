@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: grafik-pracy-audit
@@ -72,13 +72,17 @@ jobs:
           test -s audit-dist/index.html
           test -d audit-dist/_expo
 
-      - name: Check dependency lock drift
+      - name: Sync dependency lock
         run: |
           if git diff --quiet -- GrafikPracy_Final/package-lock.json; then
             echo "package-lock.json: OK"
           else
-            echo "package-lock.json: DRIFT DETECTED"
-            git diff --stat -- GrafikPracy_Final/package-lock.json
+            echo "package-lock.json: DRIFT DETECTED -> synchronizing lockfile"
+            git config user.name "grafik-pracy-audit"
+            git config user.email "actions@users.noreply.github.com"
+            git add GrafikPracy_Final/package-lock.json
+            git commit -m "Synchronizuj package-lock z package.json"
+            git push
           fi
 
       - name: Audit summary
