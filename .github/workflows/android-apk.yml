@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: grafik-pracy-android-build
+  cancel-in-progress: true
+
 env:
   EXPO_NO_DOCTOR: '1'
   CI: '1'
