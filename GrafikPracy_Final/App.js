@@ -230,7 +230,7 @@ export default function App() {
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
   const [guestMode,setGuestMode] = useState(false);
-  const readOnly = FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin';
+  const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
 
   const wkKey = iso(weekStart);
   const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
