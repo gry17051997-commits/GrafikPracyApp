@@ -63,7 +63,7 @@ s=s.replace("const moveWeek = n => setWeekStart(addDays(weekStart,n*7));\n  cons
 s=s.replace("  const newWeek = () => {\n    const next = addDays(weekStart,7);\n    setWeekStart(next);\n    if (!weeks[iso(next)]) {\n      setWeeks(prev => ({...prev,[iso(next)]:generateWeek(rotation,warehouse)}));\n    }\n  };",
 "  const newWeek = () => moveWeek(1);");
 once("  const settings = (\n",
-String.raw`  const weekSetupDialog = (
+`  const weekSetupDialog = (
     <Modal visible={!!weekSetup} transparent animationType='fade' onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>
       <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
       <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>
