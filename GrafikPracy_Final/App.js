@@ -29,6 +29,15 @@ import NowDashboard from './NowDashboard';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
 
+const updateAndroidWidgets = () => {
+  if (Platform.OS !== 'android') return;
+  try {
+    const {requestWidgetUpdate} = require('react-native-android-widget');
+    const names = ['GrafikTeraz','GrafikAuto','GrafikRaport'];
+    names.forEach(widgetName => requestWidgetUpdate({widgetName, renderWidget: () => null}).catch?.(() => {}));
+  } catch (e) {}
+};
+
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
 const REPORT_PREFS_KEY = 'grafik-pracy-reports-v1';
