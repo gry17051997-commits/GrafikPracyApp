@@ -49,6 +49,9 @@ jobs:
       - name: Apply application build fixes
         run: node scripts/fix-app-build.js
 
+      - name: Apply chat build fixes
+        run: node scripts/fix-chat-build.js
+
       - name: Apply rotation switch fix
         run: node scripts/fix-rotation-switch.js
 
