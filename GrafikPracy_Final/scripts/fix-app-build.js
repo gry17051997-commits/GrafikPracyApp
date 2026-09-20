@@ -29,8 +29,7 @@ once("<TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPres
 s=s.replace("{tab==='grafik' ? schedule : tab==='summary' ? summary : settings}","{tab==='teraz' ? <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>{header}{guestMode&&<View style={S.proposalCard}><Text style={S.optionText}>👻 TRYB GOŚCIA</Text><Text style={S.helpLine}>Podgląd bieżącego grafiku bez logowania. Zaloguj się, aby korzystać z pełnych funkcji.</Text></View>}<Dashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times}/></ScrollView> : tab==='grafik' ? (guestMode ? <GuestPreview weeks={weeks} rotation={rotation} warehouse={warehouse} times={times}/> : <><View style={{paddingHorizontal:12,paddingTop:8}}><TouchableOpacity disabled={readOnly} style={[S.btn,{borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity></View>{schedule}</>) : tab==='summary' ? summary : settings}");
 if (!s.includes("tab==='teraz'&&S.navActive")) once("<TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>","<TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity><TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>");
 // Keep the summary navigation item structurally intact. Role-based visibility is handled by the app itself.
-// Do not mutate navigation JSX here. The source navigation is already structurally valid.
-// Do not mutate navigation JSX here. The source navigation is already structurally valid.
+// Navigation JSX is intentionally left untouched here.
 
 /* Weekly configuration, regeneration and warehouse fixes */
 once("  const [weekStart,setWeekStart] = useState(monday(new Date()));\n",
