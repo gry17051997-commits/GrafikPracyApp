@@ -22,6 +22,7 @@ import * as Notifications from 'expo-notifications';
 import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
+import NowDashboard from './NowDashboard';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
 
@@ -1652,7 +1653,7 @@ export default function App() {
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
-          {tab==='grafik' ? schedule : tab==='summary' ? summary : tab==='chat' ? chat : settings}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
           {editModal}
           {colorModal}
           {helpModal}
@@ -1665,19 +1666,11 @@ export default function App() {
           {reportModalDialog}
 
           <View style={S.nav}>
-            <TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}>
-              <Text style={S.navIcon}>📅</Text>
-              <Text style={S.navText}>Grafik</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}>
-              <Text style={S.navIcon}>📊</Text>
-              <Text style={S.navText}>Podsumowanie</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsum.</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}>
-              <Text style={S.navIcon}>⚙️</Text>
-              <Text style={S.navText}>Ustawienia</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
           </View>
         </SafeAreaView>
       </View>
@@ -1740,11 +1733,11 @@ const S = StyleSheet.create({
   sep:{color:'#aaa',fontSize:18},
   generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
   danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
-  nav:{height:74,backgroundColor:'rgba(25,29,38,0.98)',borderTopWidth:1,borderTopColor:'#2a3039',flexDirection:'row',alignItems:'center'},
-  navBtn:{flex:1,alignItems:'center',padding:8,marginHorizontal:4,borderRadius:13},
+  nav:{height:74,backgroundColor:'rgba(25,29,38,0.98)',borderTopWidth:1,borderTopColor:'#2a3039',flexDirection:'row',alignItems:'center',paddingHorizontal:2},
+  navBtn:{flex:1,alignItems:'center',justifyContent:'center',paddingVertical:8,paddingHorizontal:2,marginHorizontal:2,borderRadius:13},
   navActive:{backgroundColor:'#272d38'},
   navIcon:{fontSize:18},
-  navText:{color:'#9aa1ae',marginTop:2,fontSize:12,fontWeight:'700'},
+  navText:{color:'#9aa1ae',marginTop:2,fontSize:11,fontWeight:'800'},
   chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(25,29,38,0.94)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
   chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
   chatBox:{backgroundColor:'rgba(18,22,29,0.96)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#2b3240',minHeight:280,maxHeight:520},
