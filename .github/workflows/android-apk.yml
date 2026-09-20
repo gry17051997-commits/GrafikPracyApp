@@ -2,8 +2,6 @@ name: Build Android APK (GitHub)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ['main']
 
 permissions:
   contents: read
