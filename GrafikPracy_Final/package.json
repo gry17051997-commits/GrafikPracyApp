@@ -22,6 +22,9 @@
     "firebase": "^12.0.0",
     "expo-notifications": "~0.32.17",
     "expo-clipboard": "~8.0.8",
-    "react-native-web": "^0.21.0"
+    "react-native-web": "^0.21.0",
+    "expo-location": "~19.0.8",
+    "expo-task-manager": "~14.0.9",
+    "react-native-webview": "~13.15.0"
   }
 }
