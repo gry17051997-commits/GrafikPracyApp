@@ -1813,7 +1813,7 @@ export default function App() {
             <TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='auto'&&S.navActive]} onPress={()=>setTab('auto')}><Text style={S.navIcon}>📍</Text><Text style={S.navText}>Auto</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsum.</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsumowanie</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
           </View>
