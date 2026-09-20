@@ -352,7 +352,6 @@ export default function App() {
       if (data.weeks) setWeeks(data.weeks);
       if (data.personColors) setPersonColors(data.personColors);
       if (data.conditions) setConditions(data.conditions);
-      if (data.conditions) setConditions(data.conditions);
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       setCloudUpdated(true);
       setTimeout(() => setCloudUpdated(false), 2500);
@@ -387,15 +386,15 @@ export default function App() {
       return;
     }
     const payload = {hours,rotation,warehouse,weeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
-    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(()=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
+    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
   },[ready,hours,rotation,warehouse,weeks,times,personColors,conditions,cloudUser,cloudRole]);
 
   const parseHM = value => {
-    const m = String(value || '').match(/^(\\d{1,2}):(\\d{2})$/);
+    const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
   };
 
-  const compactWarehouse = value => String(value || '').replace(/\\s+/g,'').toUpperCase();
+  const compactWarehouse = value => String(value || '').replace(/\s+/g,'').toUpperCase();
 
   const reportText = () => {
     const reg = vehicleRegistration.trim().toUpperCase();
@@ -1764,7 +1763,7 @@ const S = StyleSheet.create({
   chatComposer:{flexDirection:'row',gap:8,alignItems:'flex-end',marginTop:9,marginBottom:10},
   chatInput:{flex:1,backgroundColor:'#171b23',color:'#fff',borderRadius:12,padding:12,fontSize:15,minHeight:48,maxHeight:110},
   chatSend:{flex:0,minWidth:88},
-  reportCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'}
+  reportCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
   overlay:{flex:1,backgroundColor:'rgba(0,0,0,0.82)',justifyContent:'center',padding:14},
   modal:{backgroundColor:'#191d26',borderRadius:21,padding:18,maxHeight:'88%',borderWidth:1,borderColor:'#303745'},
   modalTitle:{color:'#fff',fontSize:23,fontWeight:'900',marginBottom:8},
