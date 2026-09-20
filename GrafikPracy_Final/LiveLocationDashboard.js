@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Linking, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
-import {doc, onSnapshot} from 'firebase/firestore';
+import {collection, doc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {getVehicleLocationConfig} from './LocationService';
 import {WebView} from 'react-native-webview';
@@ -30,13 +30,18 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const [location,setLocation]=useState(null);
   const [config,setConfig]=useState({});
   const [tick,setTick]=useState(0);
+  const [history,setHistory]=useState([]);
 
   useEffect(()=>{
     let unsub;
     (async()=>{
       const c=await getVehicleLocationConfig(); setConfig(c);
       if(!FIREBASE_ENABLED||!db) return;
-      unsub=onSnapshot(doc(db,'vehicleTracking',idFor(c.vehicleId||vehicleRegistration)),s=>setLocation(s.exists()?s.data():null),()=>setLocation(null));
+      const vehicleId=idFor(c.vehicleId||vehicleRegistration);
+      unsub=onSnapshot(doc(db,'vehicleTracking',vehicleId),s=>setLocation(s.exists()?s.data():null),()=>setLocation(null));
+      const historyQuery=query(collection(db,'vehicleTracking',vehicleId,'locations'),orderBy('updatedAt','desc'),limit(120));
+      const historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),()=>setHistory([]));
+      return () => historyUnsub();
     })();
     return()=>unsub&&unsub();
   },[vehicleRegistration]);
@@ -90,8 +95,13 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       {nearby?<Text style={styles.main}>{nearby.name+' · '+Math.round(nearby.distance)+' m'}</Text>:<Text style={styles.sub}>Brak skonfigurowanych stref GPS.</Text>}
       <Text style={styles.sub}>Strefa rozpoznania: 220 m. Poza strefą aplikacja nie zgaduje magazynu.</Text>
     </View>
+        <View style={styles.card}>
+      <Text style={styles.section}>🧭 HISTORIA TRASY · 7 DNI</Text>
+      <Text style={styles.sub}>Punkty starsze niż 7 dni są automatycznie usuwane. Pokazuję ostatnie {history.length} zapisanych punktów.</Text>
+      {history.slice(0,6).map((p,i)=><Text key={String(p.updatedAt)+'-'+i} style={styles.history}>{new Date(Number(p.updatedAt)).toLocaleString('pl-PL')} · {Number(p.latitude).toFixed(5)}, {Number(p.longitude).toFixed(5)} · {Number(p.speed||0)>0?Math.round(Number(p.speed)*3.6)+' km/h':'postój'}</Text>)}
+    </View>
     <View style={styles.mapWrap}>{location?(Platform.OS==='web'?webMap:nativeMap):<Text style={styles.sub}>Mapa pojawi się po odebraniu lokalizacji.</Text>}</View>
   </ScrollView>;
 }
 
-const styles={header:{backgroundColor:'#191d26',borderRadius:20,padding:18,marginBottom:10},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#191d26',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#2b3240'},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#467ff1',borderRadius:12,padding:13,alignItems:'center',marginTop:10},buttonText:{color:'#fff',fontWeight:'900'},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#11151c',alignItems:'center',justifyContent:'center',padding:10}};
+const styles={header:{backgroundColor:'#191d26',borderRadius:20,padding:18,marginBottom:10},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#191d26',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#2b3240'},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#467ff1',borderRadius:12,padding:13,alignItems:'center',marginTop:10},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#11151c',alignItems:'center',justifyContent:'center',padding:10}};
