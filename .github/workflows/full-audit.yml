@@ -1,4 +1,5 @@
 name: Full Project Audit
+# Final verification of the exact repository HEAD before release builds
 
 on:
   push:
