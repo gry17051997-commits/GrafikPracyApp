@@ -63,9 +63,19 @@ s=s.replace("const moveWeek = n => setWeekStart(addDays(weekStart,n*7));\n  cons
 s=s.replace("  const newWeek = () => {\n    const next = addDays(weekStart,7);\n    setWeekStart(next);\n    if (!weeks[iso(next)]) {\n      setWeeks(prev => ({...prev,[iso(next)]:generateWeek(rotation,warehouse)}));\n    }\n  };",
 "  const newWeek = () => moveWeek(1);");
 once("  const settings = (\n",
-"  const weekSetupDialog = (\n    <Modal visible={!!weekSetup} transparent animationType='fade' onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>\n      <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>\n      <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>\n      <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>\n      <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>\n      <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>\n      <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
-      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>\n    </View></View></Modal>\n  );\n\n  const settings = (\n");
-s=s.replace("          {backupDialog}\n\n          <View style={S.nav}>","          {backupDialog}\n          {weekSetupDialog}\n\n          <View style={S.nav}>");
+String.raw`  const weekSetupDialog = (
+    <Modal visible={!!weekSetup} transparent animationType='fade' onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>
+      <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
+      <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>
+      <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+      <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
+    </View></View></Modal>
+  );
+
+  const settings = (
 s=s.replace("onPress={()=>!readOnly && setWarehouse(w)}","onPress={()=>{if(readOnly)return; const wh=w; setWarehouse(wh); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:wh,times}})); setWeek(prev=>prev.map(d=>({...d,warehouse:wh,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:wh})})));}}");
 
 fs.writeFileSync(file,s);
