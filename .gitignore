@@ -6,3 +6,15 @@ node_modules/
 
 credentials.json
 credential.json
+
+# Expo / React Native generated files
+android/
+ios/
+dist/
+build/
+.expo/
+.expo-shared/
+
+# Archives and local artifacts
+*.zip
+*.apk
