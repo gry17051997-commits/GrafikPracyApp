@@ -21,6 +21,9 @@ import * as Print from 'expo-print';
 import * as Notifications from 'expo-notifications';
 import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
+import * as Location from 'expo-location';
+import LiveLocationDashboard from './LiveLocationDashboard';
+import {getVehicleLocationConfig, startVehicleLocationTracking, stopVehicleLocationTracking, LOCATION_CONFIG_KEY} from './LocationService';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
@@ -186,6 +189,10 @@ export default function App() {
   const [reportLoaded,setReportLoaded] = useState('załadowany');
   const [reportBusy,setReportBusy] = useState(false);
   const [reportHistory,setReportHistory] = useState([]);
+  const [warehouseGeo,setWarehouseGeo] = useState({});
+  const [locationTracking,setLocationTracking] = useState(false);
+  const [locationBusy,setLocationBusy] = useState(false);
+  const locationConfigLoaded = useRef(false);
   const [chatMessages,setChatMessages] = useState([]);
   const [chatText,setChatText] = useState('');
   const [chatBusy,setChatBusy] = useState(false);
@@ -235,6 +242,7 @@ export default function App() {
           setReportGroupLink(data.reportGroupLink || '');
           setReportsEnabled(data.reportsEnabled !== false);
           setReportHistory(data.reportHistory || []);
+          setWarehouseGeo(data.warehouseGeo || {});
           setChatMessages(data.chatMessages || []);
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
@@ -249,13 +257,33 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,times:{
+    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,myPerson,conditions,proposals]);
+  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,myPerson,conditions,proposals,warehouseGeo]);
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web') return;
+    getVehicleLocationConfig().then(c => setLocationTracking(c.enabled !== false && !!c.vehicleId)).catch(() => {});
+  },[ready]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const unsub = onSnapshot(doc(db,'locationConfig','main'), snap => {
+      if (!snap.exists()) return;
+      locationConfigLoaded.current = true;
+      setWarehouseGeo(snap.data()?.warehouseGeo || {});
+    });
+    return () => unsub();
+  },[cloudUser]);
+
+  useEffect(() => {
+    if (!ready || !FIREBASE_ENABLED || !db || !cloudUser || !locationConfigLoaded.current) return;
+    setDoc(doc(db,'locationConfig','main'),{warehouseGeo,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid},{merge:true}).catch(() => {});
+  },[warehouseGeo,ready,cloudUser]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !auth || !db) return;
@@ -439,6 +467,60 @@ export default function App() {
       const elapsed = Math.max(0, Math.floor((Date.now() - new Date(last.createdAt || Date.now()).getTime()) / 60000));
       setReportDuration(formatReportDuration(baseMinutes + elapsed));
     }
+  };
+
+  const applyLocationSuggestion = suggestion => {
+    if (!suggestion) return;
+    setReportStatus(suggestion.status || 'W drodze');
+    if (suggestion.status === 'W drodze') {
+      setReportFromWarehouse(suggestion.from || reportFromWarehouse);
+      setReportToWarehouse(suggestion.to || reportToWarehouse);
+    } else if (suggestion.warehouse) {
+      setReportWarehouse(suggestion.warehouse);
+    }
+    setTab('ustawienia');
+    setTimeout(() => setReportModal(true), 80);
+  };
+
+  const toggleVehicleTracking = async () => {
+    if (locationBusy) return;
+    setLocationBusy(true);
+    try {
+      if (locationTracking) {
+        await stopVehicleLocationTracking();
+        setLocationTracking(false);
+        Alert.alert('Lokalizacja','Nadajnik GPS został wyłączony.');
+      } else {
+        const result = await startVehicleLocationTracking({vehicleId:vehicleRegistration,registration:vehicleRegistration});
+        if (result.ok) {
+          setLocationTracking(true);
+          Alert.alert('Lokalizacja aktywna','Służbowy telefon będzie wysyłał pozycję w tle.');
+        } else if (result.reason === 'background-permission') {
+          Alert.alert('Lokalizacja','Android nie przyznał dostępu do lokalizacji w tle. Włącz „Zawsze zezwalaj” w ustawieniach aplikacji.');
+        } else if (result.reason === 'foreground-permission') {
+          Alert.alert('Lokalizacja','Brak zgody na lokalizację.');
+        } else {
+          Alert.alert('Lokalizacja','Do działania potrzebne jest połączenie z Firebase.');
+        }
+      }
+    } catch(e) {
+      Alert.alert('Lokalizacja','Nie udało się uruchomić nadajnika: '+(e?.message||'nieznany błąd'));
+    } finally { setLocationBusy(false); }
+  };
+
+  const calibrateWarehouse = async name => {
+    if (Platform.OS === 'web') {
+      Alert.alert('GPS','Kalibrację wykonaj na służbowym telefonie z Androidem.');
+      return;
+    }
+    try {
+      const fg=await Location.requestForegroundPermissionsAsync();
+      if (fg.status!=='granted') { Alert.alert('GPS','Brak zgody na lokalizację.'); return; }
+      const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+      const accuracy=Number(pos.coords.accuracy||0);
+      setWarehouseGeo(prev=>({...prev,[name]:{latitude:pos.coords.latitude,longitude:pos.coords.longitude,radius:220,accuracy,updatedAt:Date.now()}}));
+      Alert.alert('Strefa ustawiona',name+' zapisany w bieżącej pozycji GPS.');
+    } catch(e) { Alert.alert('GPS','Nie udało się pobrać pozycji.'); }
   };
 
   const openReportModal = () => {
@@ -1264,6 +1346,19 @@ export default function App() {
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
 
+      <Text style={S.section}>📍 Lokalizacja służbowego auta</Text>
+      <Text style={S.helpLine}>Służbowy telefon w aucie może działać jako nadajnik GPS. Pozycja jest udostępniana na żywo, a historia trasy jest automatycznie przechowywana maksymalnie 7 dni.</Text>
+      <View style={S.option}>
+        <View style={{flex:1}}><Text style={S.optionText}>Nadajnik GPS</Text><Text style={S.muted}>{locationTracking?'🟢 aktywny w tle':'🔴 wyłączony'}</Text></View>
+        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'WŁĄCZ'}</Text></TouchableOpacity>
+      </View>
+      <Text style={S.helpLine}>Numer rejestracyjny powyżej identyfikuje służbowe auto. Na Androidzie lokalizacja w tle wymaga zgody systemowej i widocznego powiadomienia usługi.</Text>
+      <Text style={S.section}>🏭 Kalibracja stref magazynów</Text>
+      {WAREHOUSES.map(w=><View key={w} style={S.option}>
+        <View style={{flex:1}}><Text style={S.optionText}>{w}</Text><Text style={S.muted}>{warehouseGeo[w]?'📍 '+Number(warehouseGeo[w].latitude).toFixed(5)+', '+Number(warehouseGeo[w].longitude).toFixed(5):'brak punktu GPS'}</Text></View>
+        <TouchableOpacity style={S.btn} onPress={()=>calibrateWarehouse(w)}><Text style={S.btnText}>USTAW GPS</Text></TouchableOpacity>
+      </View>)}
+
       <Text style={S.section}>📋 Raporty godzinowe</Text>
       <Text style={S.helpLine}>Powiadomienie przychodzi 20 minut przed pełną godziną, ale tylko podczas Twojej zaplanowanej zmiany.</Text>
       <View style={S.option}>
@@ -1702,7 +1797,7 @@ export default function App() {
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
-          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
           {editModal}
           {colorModal}
           {helpModal}
@@ -1717,6 +1812,7 @@ export default function App() {
           <View style={S.nav}>
             <TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.navBtn,tab==='auto'&&S.navActive]} onPress={()=>setTab('auto')}><Text style={S.navIcon}>📍</Text><Text style={S.navText}>Auto</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsum.</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
             <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
