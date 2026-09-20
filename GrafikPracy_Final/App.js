@@ -1014,7 +1014,7 @@ export default function App() {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
           <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
-          {[0,1].map(si => { const sh=d.shifts[si]; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
+          {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
             <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(times,si+1) : ''}</Text>
@@ -1499,58 +1499,51 @@ export default function App() {
 
   const reportModalDialog = (
     <Modal visible={reportModal} transparent animationType="slide" onRequestClose={()=>setReportModal(false)}>
-      <View style={S.overlay}>
-        <View style={[S.modal,{maxHeight:'94%'}]}>
-          <Text style={S.modalTitle}>📋 Raport godzinowy</Text>
-          <Text style={S.helpLine}>Powiadomienie: 20 min przed pełną godziną. Rejestracja jest pobierana automatycznie z profilu.</Text>
-
-          <Text style={S.section}>Status</Text>
-          <ScrollView style={{maxHeight:220}}>
-            {['Zaczynam pracę, jestem na miejscu','Czekam na załadunek','Czekam na rozładunek','W drodze','Czekam na przydzielenie rampy','Koniec zmiany'].map(status => (
-              <TouchableOpacity key={status} style={[S.option,reportStatus===status&&S.optionActive]} onPress={()=>setReportStatus(status)}>
-                <Text style={S.optionText}>{status}</Text>
-                {reportStatus===status&&<Text style={S.check}>✓</Text>}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-
-          {reportStatus==='W drodze' ? <>
-            <Text style={S.section}>Trasa</Text>
-            <View style={S.row}>
-              {WAREHOUSES.map(w=><TouchableOpacity key={'from'+w} style={[S.chip,reportFromWarehouse===w&&S.active]} onPress={()=>setReportFromWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
+      <View style={S.reportOverlay}>
+        <View style={S.reportSheet}>
+          <View style={S.sheetHandle}/>
+          <View style={S.sheetHeader}>
+            <View style={{flex:1}}>
+              <Text style={S.modalTitle}>📋 Raport godzinowy</Text>
+              <Text style={S.sheetSub}>Szybki wybór → gotowy tekst → WhatsApp</Text>
             </View>
-            <Text style={S.helpLine}>Do:</Text>
-            <View style={S.row}>
-              {WAREHOUSES.map(w=><TouchableOpacity key={'to'+w} style={[S.chip,reportToWarehouse===w&&S.active]} onPress={()=>setReportToWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
-            </View>
-            <View style={S.row}>
-              <TouchableOpacity style={[S.chip,reportLoaded==='załadowany'&&S.active]} onPress={()=>setReportLoaded('załadowany')}><Text style={S.btnText}>Załadowany</Text></TouchableOpacity>
-              <TouchableOpacity style={[S.chip,reportLoaded==='na pusto'&&S.active]} onPress={()=>setReportLoaded('na pusto')}><Text style={S.btnText}>Na pusto</Text></TouchableOpacity>
-            </View>
-          </> : <>
-            <Text style={S.section}>Magazyn</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>
-              {WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,reportWarehouse===w&&S.active]} onPress={()=>setReportWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
-            </ScrollView>
-            {reportStatus!=='Zaczynam pracę, jestem na miejscu' && reportStatus!=='Koniec zmiany' && <>
-              <Text style={S.section}>Rampa</Text>
-              <TextInput value={reportRamp} onChangeText={setReportRamp} placeholder="np. R39" placeholderTextColor="#777" style={S.input}/>
-              <Text style={S.section}>Czas trwania</Text>
-              <View style={S.row}>
-                {['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.chip,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}
-              </View>
-            </>}
-          </>}
-
-          <Text style={S.section}>Gotowy tekst</Text>
-          <View style={S.option}><Text style={[S.optionText,{flex:1}]}>{reportText() || 'Ustaw numer rejestracyjny w Ustawieniach.'}</Text></View>
-
-          <View style={S.row}>
-            <TouchableOpacity style={S.generate} disabled={reportBusy} onPress={openWhatsAppReport}>
-              <Text style={S.btnText}>{reportBusy?'OTWIERANIE…':'📱 KOPIUJ I OTWÓRZ WHATSAPP'}</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={S.sheetClose} onPress={()=>setReportModal(false)}><Text style={S.sheetCloseText}>✕</Text></TouchableOpacity>
           </View>
-          <TouchableOpacity style={S.closeBtn} onPress={()=>setReportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom:18}}>
+            <Text style={S.section}>1. Status</Text>
+            <View style={S.statusGrid}>
+              {['Zaczynam pracę, jestem na miejscu','Czekam na załadunek','Czekam na rozładunek','W drodze','Czekam na przydzielenie rampy','Koniec zmiany'].map(status => (
+                <TouchableOpacity key={status} style={[S.statusTile,reportStatus===status&&S.statusTileActive]} onPress={()=>setReportStatus(status)}>
+                  <Text style={[S.statusTileText,reportStatus===status&&S.statusTileTextActive]}>{status}</Text>
+                  {reportStatus===status&&<Text style={S.statusCheck}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+            {reportStatus==='W drodze' ? <>
+              <Text style={S.section}>2. Trasa</Text>
+              <Text style={S.fieldLabel}>Z</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chipRow}>{WAREHOUSES.map(w=><TouchableOpacity key={'from'+w} style={[S.chip,reportFromWarehouse===w&&S.active]} onPress={()=>setReportFromWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+              <Text style={S.fieldLabel}>Do</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chipRow}>{WAREHOUSES.map(w=><TouchableOpacity key={'to'+w} style={[S.chip,reportToWarehouse===w&&S.active]} onPress={()=>setReportToWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+              <View style={S.row}><TouchableOpacity style={[S.chip,reportLoaded==='załadowany'&&S.active]} onPress={()=>setReportLoaded('załadowany')}><Text style={S.btnText}>Załadowany</Text></TouchableOpacity><TouchableOpacity style={[S.chip,reportLoaded==='na pusto'&&S.active]} onPress={()=>setReportLoaded('na pusto')}><Text style={S.btnText}>Na pusto</Text></TouchableOpacity></View>
+            </> : <>
+              <Text style={S.section}>2. Magazyn</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chipRow}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,reportWarehouse===w&&S.active]} onPress={()=>setReportWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+              {reportStatus!=='Zaczynam pracę, jestem na miejscu' && reportStatus!=='Koniec zmiany' && <>
+                <Text style={S.section}>3. Szczegóły</Text>
+                <Text style={S.fieldLabel}>Rampa</Text>
+                <TextInput value={reportRamp} onChangeText={setReportRamp} placeholder="np. R39" placeholderTextColor="#777" style={S.reportInput}/>
+                <Text style={S.fieldLabel}>Czas trwania</Text>
+                <View style={S.durationGrid}>{['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.durationTile,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}</View>
+              </>}
+            </>}
+            <Text style={S.section}>Gotowy tekst</Text>
+            <View style={S.reportPreview}><Text style={S.reportPreviewText}>{reportText() || 'Ustaw numer rejestracyjny w Ustawieniach.'}</Text></View>
+          </ScrollView>
+          <View style={S.reportFooter}>
+            <TouchableOpacity style={S.generateFull} disabled={reportBusy} onPress={openWhatsAppReport}><Text style={S.btnText}>{reportBusy?'OTWIERANIE…':'📱 KOPIUJ I OTWÓRZ WHATSAPP'}</Text></TouchableOpacity>
+            <TouchableOpacity style={S.sheetCancel} onPress={()=>setReportModal(false)}><Text style={S.sheetCancelText}>ZAMKNIJ</Text></TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1764,6 +1757,29 @@ const S = StyleSheet.create({
   chatInput:{flex:1,backgroundColor:'#171b23',color:'#fff',borderRadius:12,padding:12,fontSize:15,minHeight:48,maxHeight:110},
   chatSend:{flex:0,minWidth:88},
   reportCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
+  reportOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.78)',justifyContent:'flex-end'},
+  reportSheet:{backgroundColor:'#191d26',borderTopLeftRadius:26,borderTopRightRadius:26,maxHeight:'94%',paddingTop:8,borderWidth:1,borderColor:'#303745'},
+  sheetHandle:{width:42,height:4,borderRadius:2,backgroundColor:'#596273',alignSelf:'center',marginBottom:8},
+  sheetHeader:{flexDirection:'row',alignItems:'center',paddingHorizontal:18,paddingBottom:8},
+  sheetSub:{color:'#8f98a8',fontSize:12,marginTop:-3},
+  sheetClose:{width:38,height:38,borderRadius:19,backgroundColor:'#2a303b',alignItems:'center',justifyContent:'center'},
+  sheetCloseText:{color:'#fff',fontSize:18,fontWeight:'900'},
+  statusGrid:{flexDirection:'row',flexWrap:'wrap',gap:8,paddingHorizontal:18},
+  statusTile:{width:'48%',minHeight:58,backgroundColor:'#222732',borderRadius:13,padding:11,justifyContent:'center',borderWidth:1,borderColor:'#2e3542'},
+  statusTileActive:{backgroundColor:'#303b58',borderColor:'#467ff1'},
+  statusTileText:{color:'#d4d9e2',fontSize:12,fontWeight:'800',paddingRight:16},
+  statusTileTextActive:{color:'#fff'},
+  statusCheck:{position:'absolute',right:9,top:8,color:'#79a3ff',fontSize:18,fontWeight:'900'},
+  fieldLabel:{color:'#8f98a8',fontSize:12,fontWeight:'800',marginHorizontal:18,marginBottom:5},
+  chipRow:{paddingHorizontal:18,paddingBottom:2},
+  durationGrid:{flexDirection:'row',flexWrap:'wrap',gap:7,paddingHorizontal:18},
+  durationTile:{backgroundColor:'#2a303b',borderRadius:10,paddingVertical:11,paddingHorizontal:12},
+  reportInput:{marginHorizontal:18,backgroundColor:'#11151c',color:'#fff',borderRadius:11,padding:12,fontSize:15,marginBottom:10},
+  reportPreview:{marginHorizontal:18,backgroundColor:'#11151c',borderRadius:14,padding:14,borderWidth:1,borderColor:'#303745'},
+  reportPreviewText:{color:'#fff',fontSize:15,lineHeight:21,fontWeight:'700'},
+  reportFooter:{paddingHorizontal:18,paddingTop:8,paddingBottom:12,borderTopWidth:1,borderTopColor:'#2b313d',backgroundColor:'#191d26'},
+  sheetCancel:{alignItems:'center',padding:10},
+  sheetCancelText:{color:'#9ca5b5',fontWeight:'800'},
   overlay:{flex:1,backgroundColor:'rgba(0,0,0,0.82)',justifyContent:'center',padding:14},
   modal:{backgroundColor:'#191d26',borderRadius:21,padding:18,maxHeight:'88%',borderWidth:1,borderColor:'#303745'},
   modalTitle:{color:'#fff',fontSize:23,fontWeight:'900',marginBottom:8},
