@@ -1466,7 +1466,8 @@ export default function App() {
     </View></View></Modal>
   );
 
-  const settings = (\n    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+  const settings = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
 
       <Text style={S.section}>📍 Lokalizacja służbowego auta</Text>
