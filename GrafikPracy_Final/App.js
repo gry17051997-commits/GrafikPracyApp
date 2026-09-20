@@ -769,7 +769,7 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {
-      setWeekSetup({weekStart});
+      setWeekSetup(weekStart);
       setWeekSetupHours(hours);
       setWeekSetupRotation(rotation);
       setWeekSetupWarehouse(warehouse);
@@ -1012,7 +1012,9 @@ export default function App() {
   };
   const confirmWeekSetup = () => {
     if(!weekSetup || readOnly) return;
-    const key=iso(weekSetup);
+    const setupDate = weekSetup instanceof Date ? weekSetup : new Date(weekSetup?.weekStart || weekSetup);
+    if (Number.isNaN(setupDate.getTime())) return;
+    const key=iso(setupDate);
     const cfg={hours:weekSetupHours,rotation:weekSetupRotation,warehouse:weekSetupWarehouse,times:DEFAULT_TIMES[weekSetupHours]};
     setWeekConfigs(prev=>({...prev,[key]:cfg}));
     setHours(weekSetupHours);
