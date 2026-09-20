@@ -1,6 +1,8 @@
 name: Build Android APK (GitHub)
 
 on:
+  push:
+    branches: ['main']
   workflow_dispatch:
 
 permissions:
@@ -94,4 +96,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-# CI trigger refresh after chat build fix
+# Temporary release build trigger. Restored to manual-only after the final APK is verified.
