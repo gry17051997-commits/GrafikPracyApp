@@ -431,7 +431,7 @@ export default function App() {
       setTimeout(() => setCloudUpdated(false), 2500);
     }, err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany')));
     return unsub;
-  },[cloudUser]);
+  },[cloudUser,guestMode]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
