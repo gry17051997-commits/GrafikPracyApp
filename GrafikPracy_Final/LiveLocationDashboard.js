@@ -34,16 +34,16 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
 
   useEffect(()=>{
     let unsub;
+    let historyUnsub;
     (async()=>{
       const c=await getVehicleLocationConfig(); setConfig(c);
       if(!FIREBASE_ENABLED||!db) return;
       const vehicleId=idFor(c.vehicleId||vehicleRegistration);
       unsub=onSnapshot(doc(db,'vehicleTracking',vehicleId),s=>setLocation(s.exists()?s.data():null),()=>setLocation(null));
       const historyQuery=query(collection(db,'vehicleTracking',vehicleId,'locations'),orderBy('updatedAt','desc'),limit(120));
-      const historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),()=>setHistory([]));
-      return () => historyUnsub();
+      historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),()=>setHistory([]));
     })();
-    return()=>unsub&&unsub();
+    return()=>{if(unsub) unsub(); if(historyUnsub) historyUnsub();};
   },[vehicleRegistration]);
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),10000);return()=>clearInterval(t)},[]);
