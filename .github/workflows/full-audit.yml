@@ -74,13 +74,13 @@ jobs:
 
       - name: Sync dependency lock
         run: |
-          if git diff --quiet -- GrafikPracy_Final/package-lock.json; then
+          if git diff --quiet -- package-lock.json; then
             echo "package-lock.json: OK"
           else
             echo "package-lock.json: DRIFT DETECTED -> synchronizing lockfile"
             git config user.name "grafik-pracy-audit"
             git config user.email "actions@users.noreply.github.com"
-            git add GrafikPracy_Final/package-lock.json
+            git add package-lock.json
             git commit -m "Synchronizuj package-lock z package.json"
             git push
           fi
