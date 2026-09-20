@@ -1,8 +1,6 @@
 name: Build Android APK (GitHub)
 
 on:
-  push:
-    branches: ['main']
   workflow_dispatch:
 
 permissions:
@@ -72,7 +70,11 @@ jobs:
           marker = 'react {\n'
           if marker not in text:
               raise SystemExit('React Gradle configuration block not found')
-          additions = '''react {\n    cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())\n    bundleCommand = "export:embed"\n    debuggableVariants = []\n'''
+          additions = '''react {
+    cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+    bundleCommand = "export:embed"
+    debuggableVariants = []
+'''
           text = text.replace(marker, additions, 1)
           path.write_text(text)
           PY
@@ -96,4 +98,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-# Temporary release build trigger. Restored to manual-only after the final APK is verified.
+# Android builds are manual-only.
