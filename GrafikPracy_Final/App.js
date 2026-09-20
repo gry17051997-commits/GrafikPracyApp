@@ -397,6 +397,55 @@ export default function App() {
 
   const compactWarehouse = value => String(value || '').replace(/\s+/g,'').toUpperCase();
 
+  const parseReportDurationMinutes = value => {
+    const text = String(value || '').toLowerCase().replace(',', '.');
+    const hm = text.match(/(\d+(?:\.\d+)?)\s*h(?:\s*(\d+)\s*min)?/);
+    if (hm) return Math.round(Number(hm[1]) * 60 + Number(hm[2] || 0));
+    const mm = text.match(/(\d+)\s*min/);
+    return mm ? Number(mm[1]) : 0;
+  };
+
+  const formatReportDuration = minutes => {
+    const m = Math.max(0, Math.round(Number(minutes) || 0));
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    if (h && min) return h + ' h ' + min + ' min';
+    if (h) return h + ' h';
+    return min + ' min';
+  };
+
+  const getLastReportForStatus = status => {
+    return (reportHistory || [])
+      .filter(r => r && r.status === status && (!r.person || r.person === myPerson))
+      .sort((a,b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0] || null;
+  };
+
+  const applyReportContinuity = status => {
+    const last = getLastReportForStatus(status);
+    if (!last) return;
+
+    if (status !== 'W drodze') {
+      if (last.warehouse) setReportWarehouse(String(last.warehouse).split('->')[0] || reportWarehouse);
+      if (last.ramp) setReportRamp(last.ramp);
+    } else if (last.warehouse && String(last.warehouse).includes('->')) {
+      const parts = String(last.warehouse).split('->');
+      if (parts[0]) setReportFromWarehouse(parts[0]);
+      if (parts[1]) setReportToWarehouse(parts[1]);
+      if (last.loaded) setReportLoaded(last.loaded);
+    }
+
+    const baseMinutes = Number(last.durationMinutes) || parseReportDurationMinutes(last.text);
+    if (baseMinutes > 0) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - new Date(last.createdAt || Date.now()).getTime()) / 60000));
+      setReportDuration(formatReportDuration(baseMinutes + elapsed));
+    }
+  };
+
+  const openReportModal = () => {
+    applyReportContinuity(reportStatus);
+    setReportModal(true);
+  };
+
   const reportText = () => {
     const reg = vehicleRegistration.trim().toUpperCase();
     if (!reg) return '';
@@ -423,7 +472,7 @@ export default function App() {
     setReportBusy(true);
     try {
       await Clipboard.setStringAsync(text);
-      const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,createdAt:new Date().toISOString(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
+      const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,ramp:reportRamp.trim(),loaded:reportLoaded,durationMinutes:parseReportDurationMinutes(reportDuration),createdAt:new Date().toISOString(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'whatsappReports'),reportEntry);
       else setReportHistory(prev => [reportEntry,...prev].slice(0,100));
       if (reportGroupLink.trim()) await Linking.openURL(reportGroupLink.trim());
@@ -1514,7 +1563,7 @@ export default function App() {
             <Text style={S.section}>1. Status</Text>
             <View style={S.statusGrid}>
               {['Zaczynam pracę, jestem na miejscu','Czekam na załadunek','Czekam na rozładunek','W drodze','Czekam na przydzielenie rampy','Koniec zmiany'].map(status => (
-                <TouchableOpacity key={status} style={[S.statusTile,reportStatus===status&&S.statusTileActive]} onPress={()=>setReportStatus(status)}>
+                <TouchableOpacity key={status} style={[S.statusTile,reportStatus===status&&S.statusTileActive]} onPress={()=>{setReportStatus(status);applyReportContinuity(status)}}>
                   <Text style={[S.statusTileText,reportStatus===status&&S.statusTileTextActive]}>{status}</Text>
                   {reportStatus===status&&<Text style={S.statusCheck}>✓</Text>}
                 </TouchableOpacity>
@@ -1535,7 +1584,7 @@ export default function App() {
                 <Text style={S.fieldLabel}>Rampa</Text>
                 <TextInput value={reportRamp} onChangeText={setReportRamp} placeholder="np. R39" placeholderTextColor="#777" style={S.reportInput}/>
                 <Text style={S.fieldLabel}>Czas trwania</Text>
-                <View style={S.durationGrid}>{['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.durationTile,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}</View>
+                <View style={S.durationGrid}>{['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.durationTile,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}</View>\n                {getLastReportForStatus(reportStatus) && parseReportDurationMinutes(reportDuration) > 0 && <Text style={S.continuityHint}>🔄 Kontynuacja poprzedniego raportu: czas jest automatycznie naliczany od ostatniego wysłania.</Text>}
               </>}
             </>}
             <Text style={S.section}>Gotowy tekst</Text>
@@ -1767,6 +1816,7 @@ const S = StyleSheet.create({
   chipRow:{paddingHorizontal:18,paddingBottom:2},
   durationGrid:{flexDirection:'row',flexWrap:'wrap',gap:7,paddingHorizontal:18},
   durationTile:{backgroundColor:'#2a303b',borderRadius:10,paddingVertical:11,paddingHorizontal:12},
+  continuityHint:{color:'#9db9ff',fontSize:12,lineHeight:17,marginHorizontal:18,marginTop:7,marginBottom:4,fontWeight:'700'},
   reportInput:{marginHorizontal:18,backgroundColor:'#11151c',color:'#fff',borderRadius:11,padding:12,fontSize:15,marginBottom:10},
   reportPreview:{marginHorizontal:18,backgroundColor:'#11151c',borderRadius:14,padding:14,borderWidth:1,borderColor:'#303745'},
   reportPreviewText:{color:'#fff',fontSize:15,lineHeight:21,fontWeight:'700'},
