@@ -43,7 +43,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.hero}>
      <View style={S.liveRow}><View style={S.liveDot}/><Text style={S.eyebrow}>TERAZ</Text></View>
      {active ? <>
-       <Text style={S.heroName}>{PEOPLE[active.person]}</Text>
+       <Text style={S.heroName}>{PEOPLE[active.person]||active.person||'Nieznany pracownik'}</Text>
        <Text style={S.heroMeta}>📦 {active.warehouse}  ·  Zmiana {active.shift}</Text>
        <Text style={S.heroTime}>{fmt(active.start)} – {fmt(active.end)}</Text>
        <View style={S.timer}><Text style={S.timerLabel}>DO KOŃCA ZMIANY</Text><Text style={S.timerValue}>{countdown(active.end)}</Text></View>
@@ -55,7 +55,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
 
    <View style={S.sectionHeader}><Text style={S.sectionTitle}>⏭️ Następna zmiana</Text></View>
    {next ? <View style={[S.nextCard,{borderLeftColor:color(next.person)}]}>
-      <View style={S.nextTop}><Text style={S.nextName}>{PEOPLE[next.person]}</Text><Text style={[S.personDot,{color:color(next.person)}]}>●</Text></View>
+      <View style={S.nextTop}><Text style={S.nextName}>{PEOPLE[next.person]||next.person||'Nieznany pracownik'}</Text><Text style={[S.personDot,{color:color(next.person)}]}>●</Text></View>
       <Text style={S.nextMeta}>📅 {DAYS[next.dayIndex]}, {dateLabel(next.day)}</Text>
       <Text style={S.nextMeta}>🕐 {fmt(next.start)} – {fmt(next.end)}</Text>
       <Text style={S.nextMeta}>📦 {next.warehouse}  ·  Zmiana {next.shift}</Text>
