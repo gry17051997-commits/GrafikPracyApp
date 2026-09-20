@@ -14,19 +14,19 @@ const fmt=d=>d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
 const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec%3600/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
 const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
 
-export default function NowDashboard({weeks,rotation,warehouse,times,personColors}) {
+export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs}) {
  const [,tick]=useState(0);
  useEffect(()=>{const id=setInterval(()=>tick(v=>v+1),1000);return()=>clearInterval(id);},[]);
 
  const info=useMemo(()=>{
    const now=new Date(),base=monday(now),all=[];
    for(let wo=0;wo<3;wo++){
-     const ws=addDays(base,wo*7),w=weeks?.[iso(ws)]||fallbackWeek(rotation,warehouse);
+     const ws=addDays(base,wo*7),key=iso(ws),w=weeks?.[key]||[],cfg=weekConfigs?.[key]||{};
      (w||[]).forEach((d,di)=>(d.shifts||[]).forEach((s,si)=>{
        if(!s.person)return;
        const day=addDays(ws,di);
-       const start=dateTime(day,si===0?times?.s1:times?.s2);
-       const end=dateTime(day,si===0?times?.e1:times?.e2);
+       const wt=cfg.times||times||{}; const start=dateTime(day,si===0?wt.s1:wt.s2);
+       const end=dateTime(day,si===0?wt.e1:wt.e2);
        if(end<=start)end.setDate(end.getDate()+1);
        all.push({person:s.person,warehouse:s.warehouse||d.warehouse||warehouse,start,end,day,dayIndex:di,shift:si+1});
      }));
@@ -34,7 +34,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    const active=all.filter(x=>now>=x.start&&now<x.end).sort((a,b)=>a.end-b.end)[0]||null;
    const upcoming=all.filter(x=>x.start>now).sort((a,b)=>a.start-b.start);
    return {active,next:upcoming[0]||null,later:upcoming.slice(1,4)};
- },[weeks,rotation,warehouse,times]);
+ },[weeks,rotation,warehouse,times,weekConfigs]);
 
  const {active,next,later}=info;
  const color=k=>personColors?.[k]||'#467ff1';
