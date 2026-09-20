@@ -48,7 +48,7 @@ jobs:
           "$ANDROID_HOME/platform-tools/adb" version
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --ignore-scripts
 
       - name: Apply application build fixes
         run: node scripts/fix-app-build.js
