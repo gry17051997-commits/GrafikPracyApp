@@ -2,6 +2,10 @@ name: Build Android APK (GitHub)
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'GrafikPracy_Final/**'
+      - '.github/workflows/android-apk.yml'
 
 permissions:
   contents: read
