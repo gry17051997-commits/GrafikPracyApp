@@ -35,15 +35,32 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   useEffect(()=>{
     let unsub;
     let historyUnsub;
+    let vehiclesUnsub;
     (async()=>{
       const c=await getVehicleLocationConfig(); setConfig(c);
       if(!FIREBASE_ENABLED||!db) return;
-      const vehicleId=idFor(c.vehicleId||vehicleRegistration);
-      unsub=onSnapshot(doc(db,'vehicleTracking',vehicleId),s=>setLocation(s.exists()?s.data():null),()=>setLocation(null));
-      const historyQuery=query(collection(db,'vehicleTracking',vehicleId,'locations'),orderBy('updatedAt','desc'),limit(120));
-      historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),()=>setHistory([]));
+
+      // Na WWW AsyncStorage jest osobne od telefonu służbowego, więc lokalne
+      // przypisanie pojazdu nie może być jedynym źródłem identyfikatora.
+      // Pobieramy aktywne nadajniki z Firebase i wybieramy przypisany numer,
+      // a gdy WWW nie ma jeszcze numeru, najnowszy nadajnik.
+      const requestedId=idFor(c.vehicleId||vehicleRegistration);
+      const vehicleRef=collection(db,'vehicleTracking');
+      vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
+        const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.updatedAt);
+        if(!rows.length){ setLocation(null); return; }
+        const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
+        const selected=exact || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
+        setLocation(selected);
+        setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
+
+        if(historyUnsub) historyUnsub();
+        const selectedId=idFor(selected.vehicleId||selected.registration||selected.id);
+        const historyQuery=query(collection(db,'vehicleTracking',selectedId,'locations'),orderBy('updatedAt','desc'),limit(120));
+        historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),()=>setHistory([]));
+      },()=>setLocation(null));
     })();
-    return()=>{if(unsub) unsub(); if(historyUnsub) historyUnsub();};
+    return()=>{if(unsub) unsub(); if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
   },[vehicleRegistration]);
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),10000);return()=>clearInterval(t)},[]);
