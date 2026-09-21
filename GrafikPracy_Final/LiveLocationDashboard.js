@@ -51,8 +51,14 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
         const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.updatedAt);
         if(!rows.length){ setLocation(null); return; }
+        const now=Date.now();
         const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
-        const selected=exact || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
+        // Nie przywiązuj widoku do starego przypisania auta. Jeżeli wskazany
+        // nadajnik nie nadaje od ponad 2 minut, wybierz najnowszy aktywny.
+        const exactFresh=exact && (now-Number(exact.updatedAt||0)<=120000);
+        const selected=exactFresh
+          ? exact
+          : rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
         setLocation(selected);
         setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
