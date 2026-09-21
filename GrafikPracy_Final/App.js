@@ -1476,7 +1476,6 @@ export default function App() {
       <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta. Samo przypisanie nie wymaga jeszcze uruchomienia GPS. Dopiero potem włącz nadajnik lokalizacji.</Text>
       <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
       <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || locationTracking} style={[S.generateFull,{marginTop:0,opacity:(!vehicleRegistration.trim()||locationBusy||locationTracking)?0.45:1}]} onPress={async()=>{
-        if(readOnly) return;
         const reg=vehicleRegistration.trim();
         if(!reg) return;
         setLocationBusy(true);
@@ -1490,7 +1489,7 @@ export default function App() {
       }}><Text style={S.btnText}>{locationBusy?'ZAPISUJĘ…':'ZAPISZ POJAZD'}</Text></TouchableOpacity>
       <View style={S.option}>
         <View style={{flex:1}}><Text style={S.optionText}>Telefon służbowy</Text><Text style={S.muted}>{vehicleRegistration.trim()?'🚚 przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text><Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text></View>
-        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || !vehicleRegistration.trim() || readOnly} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy||readOnly)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text></TouchableOpacity>
+        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text></TouchableOpacity>
       </View>
       <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję. Jeśli zgoda zostanie odrzucona, przypisanie auta pozostanie zapisane.</Text>
       <Text style={S.section}>🏭 Kalibracja stref magazynów</Text>
