@@ -26,6 +26,16 @@ function distanceMeters(a,b) {
   return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
 
+async function waitForAuthenticatedUser(timeoutMs=10000) {
+  if (auth?.currentUser?.uid) return auth.currentUser.uid;
+  const started=Date.now();
+  while (Date.now()-started < timeoutMs) {
+    await new Promise(resolve=>setTimeout(resolve,500));
+    if (auth?.currentUser?.uid) return auth.currentUser.uid;
+  }
+  return null;
+}
+
 async function saveLocation(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
   const cfg=await getConfig();
@@ -95,6 +105,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   const old=await getConfig();
   const fg=await Location.requestForegroundPermissionsAsync();
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
+  const ownerUid=await waitForAuthenticatedUser();
+  if (!ownerUid) return {ok:false,reason:'auth'};
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:registration||vehicle}));
@@ -114,6 +126,12 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
         notificationColor:'#467ff1'
       }
     });
+  }
+  try {
+    const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+    await saveLocation(first);
+  } catch(e) {
+    console.log('LOCATION_INITIAL_FIX_ERROR',e);
   }
   return {ok:true,vehicleId:vehicle};
 }
