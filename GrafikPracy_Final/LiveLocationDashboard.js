@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Linking, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
-import {collection, doc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
+import {collection, doc, getDoc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {getVehicleLocationConfig} from './LocationService';
 import {WebView} from 'react-native-webview';
@@ -39,12 +39,14 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
     (async()=>{
       const c=await getVehicleLocationConfig(); setConfig(c);
       if(!FIREBASE_ENABLED||!db) return;
+      let cloudConfig={};
+      try { const snap=await getDoc(doc(db,'locationConfig','main')); cloudConfig=snap.exists()?snap.data()||{}:{}; } catch(e) {}
 
       // Na WWW AsyncStorage jest osobne od telefonu służbowego, więc lokalne
       // przypisanie pojazdu nie może być jedynym źródłem identyfikatora.
       // Pobieramy aktywne nadajniki z Firebase i wybieramy przypisany numer,
       // a gdy WWW nie ma jeszcze numeru, najnowszy nadajnik.
-      const requestedId=idFor(c.vehicleId||vehicleRegistration);
+      const requestedId=idFor(cloudConfig.vehicleId||c.vehicleId||vehicleRegistration);
       const vehicleRef=collection(db,'vehicleTracking');
       vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
         const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.updatedAt);
