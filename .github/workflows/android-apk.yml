@@ -72,7 +72,7 @@ jobs:
           from pathlib import Path
           path = Path("android/app/build.gradle")
           text = path.read_text()
-          marker = "react {\\n"
+          marker = "react {\n"
           if marker not in text:
               raise SystemExit("React Gradle configuration block not found")
           block = '''react {
