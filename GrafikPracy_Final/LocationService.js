@@ -79,16 +79,33 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
   });
 }
 
+export async function saveVehicleLocationAssignment(registration) {
+  const reg=String(registration||'').trim().toUpperCase();
+  if(!reg) throw new Error('Brak numeru rejestracyjnego.');
+  const vehicle=safeVehicleId(reg);
+  const old=await getConfig();
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:old.enabled===true,vehicleId:vehicle,registration:reg}));
+  if (FIREBASE_ENABLED && db && auth?.currentUser) {
+    await setDoc(doc(db,'locationConfig','main'),{
+      assignedVehicleId:vehicle,
+      assignedRegistration:reg,
+      assignedOwnerUid:auth.currentUser.uid,
+      assignedAt:Date.now()
+    },{merge:true});
+  }
+  return {ok:true,vehicleId:vehicle,registration:reg};
+}
+
 export async function startVehicleLocationTracking({vehicleId,registration}={}) {
   if (Platform.OS==='web') return {ok:false,reason:'web'};
   if (!FIREBASE_ENABLED || !db) return {ok:false,reason:'firebase'};
   const vehicle=safeVehicleId(vehicleId||registration);
   const old=await getConfig();
-  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:registration||vehicle}));
   const fg=await Location.requestForegroundPermissionsAsync();
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:registration||vehicle}));
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,{
