@@ -85,14 +85,6 @@ export async function saveVehicleLocationAssignment(registration) {
   const vehicle=safeVehicleId(reg);
   const old=await getConfig();
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:old.enabled===true,vehicleId:vehicle,registration:reg}));
-  if (FIREBASE_ENABLED && db && auth?.currentUser) {
-    await setDoc(doc(db,'locationConfig','main'),{
-      assignedVehicleId:vehicle,
-      assignedRegistration:reg,
-      assignedOwnerUid:auth.currentUser.uid,
-      assignedAt:Date.now()
-    },{merge:true});
-  }
   return {ok:true,vehicleId:vehicle,registration:reg};
 }
 
