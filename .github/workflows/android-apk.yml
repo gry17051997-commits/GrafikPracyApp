@@ -1,11 +1,11 @@
-name: Build Android APK (GitHub)
+name: Build Android APK
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'GrafikPracy_Final/**'
-      - '.github/workflows/android-apk.yml'
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/android-apk.yml"
 
 permissions:
   contents: read
@@ -15,17 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPO_NO_DOCTOR: '1'
-  CI: '1'
+  EXPO_NO_DOCTOR: "1"
+  CI: "1"
 
 jobs:
   build_android:
     name: Build installable Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+
     defaults:
       run:
         working-directory: GrafikPracy_Final
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,17 +43,16 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Verify preinstalled Android SDK
+      - name: Verify Android SDK
         run: |
           test -n "$ANDROID_HOME"
           test -x "$ANDROID_HOME/platform-tools/adb"
-          echo "ANDROID_HOME=$ANDROID_HOME"
           "$ANDROID_HOME/platform-tools/adb" version
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        run: npm ci --ignore-scripts
 
       - name: Apply application build fixes
         run: node scripts/fix-app-build.js
@@ -69,37 +70,35 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('android/app/build.gradle')
+          path = Path("android/app/build.gradle")
           text = path.read_text()
-          marker = 'react {\n'
+          marker = "react {\\n"
           if marker not in text:
-              raise SystemExit('React Gradle configuration block not found')
-          additions = '''react {
-    cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
-    bundleCommand = "export:embed"
-    debuggableVariants = []
-'''
-          text = text.replace(marker, additions, 1)
-          path.write_text(text)
+              raise SystemExit("React Gradle configuration block not found")
+          block = '''react {
+              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
+              bundleCommand = "export:embed"
+              debuggableVariants = []
+          '''
+          path.write_text(text.replace(marker, block, 1))
           PY
-          grep -A6 '^react {' android/app/build.gradle
+          grep -A5 "^react {" android/app/build.gradle
 
-      - name: Build installable APK with embedded JS
+      - name: Build APK
         working-directory: GrafikPracy_Final/android
-        run: timeout 15m ./gradlew assembleDebug --no-daemon --stacktrace --console=plain --max-workers=2 --info
+        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
 
-      - name: Verify APK contains embedded JavaScript bundle
+      - name: Verify APK
+        working-directory: GrafikPracy_Final
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E 'assets/(index\.android\.bundle|.*\.hbc)$' | head -20
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
           ls -lh android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Grafik-Pracy-Android-APK
           path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-
-# Android builds are manual-only.
