@@ -115,9 +115,9 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const nativeMap=location?<WebView originWhitelist={['*']} source={{html:mapHtml(location,warehouses)}} style={{flex:1}}/>:null;
   const webMap=location?<iframe title="mapa" style={{width:'100%',height:'100%',border:0}} srcDoc={mapHtml(location,warehouses)}/>:null;
 
-  return <ScrollView style={{flex:1,padding:12}} contentContainerStyle={{paddingBottom:110}}>
+  return <ScrollView style={{flex:1,padding:12}} contentContainerStyle={{paddingBottom:130}}>
     {isAdmin && <AdminUsersPanel cloudUser={auth.currentUser}/>} 
-    <View style={styles.header}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View>
+    <View style={styles.header}><View style={styles.headerTop}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View></View>
     <View style={styles.card}>
       <Text style={styles.big}>{location?(stale?'🟠 NIEAKTUALNA':'🟢 ONLINE'):'🔴 BRAK SYGNAŁU'}</Text>
       <Text style={styles.main}>{location?Number(location.latitude).toFixed(5)+', '+Number(location.longitude).toFixed(5):'Czekam na pierwszy punkt GPS…'}</Text>
@@ -143,4 +143,5 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   </ScrollView>;
 }
 
-const styles={error:{color:'#ff9b9b',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#191d26',borderRadius:20,padding:18,marginBottom:10},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#191d26',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#2b3240'},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#467ff1',borderRadius:12,padding:13,alignItems:'center',marginTop:10},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#11151c',alignItems:'center',justifyContent:'center',padding:10}};
+const styles={headerTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},error:{color:'#ff9b9b',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#141922',borderRadius:20,padding:18,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#141922',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#303a4a',shadowColor:'#000',shadowOpacity:0.12,shadowRadius:8,shadowOffset:{width:0,height:3},elevation:2},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',marginTop:10,borderWidth:1,borderColor:'#5d8ff5'},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#303a4a',alignItems:'center',justifyContent:'center',padding:10}};
+
