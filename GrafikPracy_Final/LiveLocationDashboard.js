@@ -4,6 +4,7 @@ import {collection, doc, getDoc, limit, onSnapshot, orderBy, query} from 'fireba
 import {FIREBASE_ENABLED, db, auth} from './firebaseConfig';
 import {getVehicleLocationConfig} from './LocationService';
 import {WebView} from 'react-native-webview';
+import AdminUsersPanel from './AdminUsersPanel';
 
 const distanceMeters=(a,b)=>{
   if(!a||!b) return Infinity;
@@ -32,6 +33,12 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const [tick,setTick]=useState(0);
   const [history,setHistory]=useState([]);
   const [locationError,setLocationError]=useState('');
+  const [isAdmin,setIsAdmin]=useState(false);
+
+  useEffect(()=>{
+    if(!db || !auth?.currentUser) return;
+    return onSnapshot(doc(db,'users',auth.currentUser.uid), snap=>setIsAdmin(snap.exists() && snap.data()?.role==='admin'), ()=>setIsAdmin(false));
+  },[]);
 
   useEffect(()=>{
     let historyUnsub;
@@ -109,6 +116,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const webMap=location?<iframe title="mapa" style={{width:'100%',height:'100%',border:0}} srcDoc={mapHtml(location,warehouses)}/>:null;
 
   return <ScrollView style={{flex:1,padding:12}} contentContainerStyle={{paddingBottom:110}}>
+    {isAdmin && <AdminUsersPanel cloudUser={auth.currentUser}/>} 
     <View style={styles.header}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View>
     <View style={styles.card}>
       <Text style={styles.big}>{location?(stale?'🟠 NIEAKTUALNA':'🟢 ONLINE'):'🔴 BRAK SYGNAŁU'}</Text>
