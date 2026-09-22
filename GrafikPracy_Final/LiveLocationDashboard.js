@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Linking, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {collection, doc, getDoc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
-import {FIREBASE_ENABLED, db} from './firebaseConfig';
+import {FIREBASE_ENABLED, db, auth} from './firebaseConfig';
 import {getVehicleLocationConfig} from './LocationService';
 import {WebView} from 'react-native-webview';
 
@@ -31,16 +31,20 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const [config,setConfig]=useState({});
   const [tick,setTick]=useState(0);
   const [history,setHistory]=useState([]);
+  const [locationError,setLocationError]=useState('');
 
   useEffect(()=>{
-    let unsub;
     let historyUnsub;
     let vehiclesUnsub;
+    let cancelled=false;
     (async()=>{
-      const c=await getVehicleLocationConfig(); setConfig(c);
-      if(!FIREBASE_ENABLED||!db) return;
+      const c=await getVehicleLocationConfig();
+      if(cancelled) return;
+      setConfig(c);
+      if(!FIREBASE_ENABLED||!db){ setLocationError('Firebase lokalizacji jest wyłączony.'); return; }
+      if(!auth?.currentUser?.uid){ setLocationError('Zaloguj się do wspólnego konta, aby odbierać lokalizację telefonu służbowego.'); return; }
       let cloudConfig={};
-      try { const snap=await getDoc(doc(db,'locationConfig','main')); cloudConfig=snap.exists()?snap.data()||{}:{}; } catch(e) {}
+      try { const snap=await getDoc(doc(db,'locationConfig','main')); cloudConfig=snap.exists()?snap.data()||{}:{}; } catch(e) { setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown')); }
 
       // Na WWW AsyncStorage jest osobne od telefonu służbowego, więc lokalne
       // przypisanie pojazdu nie może być jedynym źródłem identyfikatora.
@@ -49,26 +53,27 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       const requestedId=idFor(cloudConfig.vehicleId||c.vehicleId||vehicleRegistration);
       const vehicleRef=collection(db,'vehicleTracking');
       vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
-        const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.updatedAt);
-        if(!rows.length){ setLocation(null); return; }
+        const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&x.updatedAt);
+        if(!rows.length){ setLocation(null); setLocationError('Brak punktów GPS w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.'); return; }
         const now=Date.now();
         const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
-        // Nie przywiązuj widoku do starego przypisania auta. Jeżeli wskazany
-        // nadajnik nie nadaje od ponad 2 minut, wybierz najnowszy aktywny.
-        const exactFresh=exact && (now-Number(exact.updatedAt||0)<=120000);
-        const selected=exactFresh
-          ? exact
-          : rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
+        const exactFresh=exact && (now-Number(exact.updatedAt||0)<=180000);
+        const freshRows=rows.filter(x=>now-Number(x.updatedAt||0)<=180000);
+        const selected=exactFresh ? exact : freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
         setLocation(selected);
+        setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
         setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
         if(historyUnsub) historyUnsub();
         const selectedId=idFor(selected.vehicleId||selected.registration||selected.id);
         const historyQuery=query(collection(db,'vehicleTracking',selectedId,'locations'),orderBy('updatedAt','desc'),limit(120));
-        historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),()=>setHistory([]));
-      },()=>setLocation(null));
+        historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
+      },e=>{
+        setLocation(null); setHistory([]);
+        setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu lokalizacji. Telefon B musi być zalogowany do konta pracownika.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
+      });
     })();
-    return()=>{if(unsub) unsub(); if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
+    return()=>{cancelled=true; if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
   },[vehicleRegistration]);
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),10000);return()=>clearInterval(t)},[]);
@@ -80,7 +85,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   },[location,warehouseGeo,tick]);
 
   const speed=location&&Number(location.speed)>0?Math.round(Number(location.speed)*3.6):0;
-  const stale=location?Date.now()-Number(location.updatedAt||0)>120000:true;
+  const stale=location?Date.now()-Number(location.updatedAt||0)>180000:true;
   const last=reportHistory?.[0];
   let suggestion=null;
   if(location&&!stale){
@@ -109,6 +114,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       <Text style={styles.big}>{location?(stale?'🟠 NIEAKTUALNA':'🟢 ONLINE'):'🔴 BRAK SYGNAŁU'}</Text>
       <Text style={styles.main}>{location?Number(location.latitude).toFixed(5)+', '+Number(location.longitude).toFixed(5):'Czekam na pierwszy punkt GPS…'}</Text>
       {location&&<Text style={styles.sub}>Aktualizacja: {ageText(location.updatedAt)} · dokładność ±{Math.round(Number(location.accuracy||0))} m · {speed} km/h</Text>}
+      {!!locationError&&<Text style={styles.error}>⚠️ {locationError}</Text>}
       <TouchableOpacity style={styles.button} onPress={openMap}><Text style={styles.buttonText}>🗺️ OTWÓRZ MAPĘ</Text></TouchableOpacity>
     </View>
     <View style={styles.card}>
@@ -129,4 +135,4 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   </ScrollView>;
 }
 
-const styles={header:{backgroundColor:'#191d26',borderRadius:20,padding:18,marginBottom:10},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#191d26',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#2b3240'},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#467ff1',borderRadius:12,padding:13,alignItems:'center',marginTop:10},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#11151c',alignItems:'center',justifyContent:'center',padding:10}};
+const styles={error:{color:'#ff9b9b',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#191d26',borderRadius:20,padding:18,marginBottom:10},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#191d26',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#2b3240'},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#467ff1',borderRadius:12,padding:13,alignItems:'center',marginTop:10},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#11151c',alignItems:'center',justifyContent:'center',padding:10}};
