@@ -1258,7 +1258,7 @@ export default function App() {
   );
 
   const schedule = (
-    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
       <View style={S.row}>
         {[10,12].map(h=>
@@ -1348,7 +1348,7 @@ export default function App() {
   }).filter(Boolean);
 
   const chat = (
-    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
       <View style={S.chatHeader}>
         <View style={{flex:1}}>
@@ -2016,11 +2016,11 @@ const S = StyleSheet.create({
   sep:{color:'#aaa',fontSize:18},
   generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
   danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
-  nav:{height:68,width:'100%',maxWidth:760,alignSelf:'center',backgroundColor:'rgba(25,29,38,0.98)',borderTopWidth:1,borderTopColor:'#2a3039',flexDirection:'row',alignItems:'center',paddingHorizontal:2,paddingBottom:Platform.OS==='ios'?4:0},
-  navBtn:{flex:1,alignItems:'center',justifyContent:'center',paddingVertical:8,paddingHorizontal:2,marginHorizontal:2,borderRadius:13},
-  navActive:{backgroundColor:'#272d38'},
-  navIcon:{fontSize:18},
-  navText:{color:'#9aa1ae',marginTop:2,fontSize:11,fontWeight:'800'},
+  nav:{height:76,width:'94%',maxWidth:760,alignSelf:'center',backgroundColor:'rgba(18,22,30,0.99)',borderWidth:1,borderColor:'#394354',borderRadius:22,flexDirection:'row',alignItems:'center',paddingHorizontal:5,paddingTop:4,paddingBottom:Platform.OS==='android'?10:6,marginBottom:Platform.OS==='android'?12:8,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
+  navBtn:{flex:1,alignItems:'center',justifyContent:'center',paddingVertical:7,paddingHorizontal:2,marginHorizontal:2,borderRadius:16,minHeight:60},
+  navActive:{backgroundColor:'#2d3b5a',borderWidth:1,borderColor:'#4a6da8'},
+  navIcon:{fontSize:19},
+  navText:{color:'#9aa1ae',marginTop:3,fontSize:10,fontWeight:'800'},
   chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(25,29,38,0.94)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
   chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
   chatBox:{backgroundColor:'rgba(18,22,29,0.96)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#2b3240',minHeight:280,maxHeight:520},
