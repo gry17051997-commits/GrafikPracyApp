@@ -49,7 +49,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       if(cancelled) return;
       setConfig(c);
       if(!FIREBASE_ENABLED||!db){ setLocationError('Firebase lokalizacji jest wyłączony.'); return; }
-      if(!auth?.currentUser?.uid){ setLocationError('Zaloguj się do wspólnego konta, aby odbierać lokalizację telefonu służbowego.'); return; }
+      if(!cloudUser?.uid){ setLocationError('Zaloguj się do wspólnego konta, aby odbierać lokalizację telefonu służbowego.'); return; }
       let cloudConfig={};
       try { const snap=await getDoc(doc(db,'locationConfig','main')); cloudConfig=snap.exists()?snap.data()||{}:{}; } catch(e) { setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown')); }
 
@@ -81,7 +81,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       });
     })();
     return()=>{cancelled=true; if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
-  },[vehicleRegistration]);
+  },[vehicleRegistration,cloudUser?.uid]);
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),10000);return()=>clearInterval(t)},[]);
 
