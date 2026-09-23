@@ -4,7 +4,6 @@ import {collection, doc, getDoc, limit, onSnapshot, orderBy, query} from 'fireba
 import {FIREBASE_ENABLED, db, auth} from './firebaseConfig';
 import {getVehicleLocationConfig} from './LocationService';
 import {WebView} from 'react-native-webview';
-import AdminUsersPanel from './AdminUsersPanel';
 
 const distanceMeters=(a,b)=>{
   if(!a||!b) return Infinity;
@@ -160,8 +159,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const webMap=location?<iframe title="mapa" style={{width:'100%',height:'100%',border:0}} srcDoc={mapHtml(location,warehouses)}/>:null;
 
   return <ScrollView style={{flex:1,padding:12}} contentContainerStyle={{paddingBottom:130}}>
-    {isAdmin && <AdminUsersPanel cloudUser={auth.currentUser}/>} 
-    <View style={styles.header}><View style={styles.headerTop}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View></View>
+        <View style={styles.header}><View style={styles.headerTop}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View></View>
     <View style={styles.card}>
       <Text style={styles.big}>{location?(stale?'🟠 NIEAKTUALNA':'🟢 ONLINE'):'🔴 BRAK SYGNAŁU'}</Text>
       <Text style={styles.main}>{location?Number(location.latitude).toFixed(5)+', '+Number(location.longitude).toFixed(5):'Czekam na pierwszy punkt GPS…'}</Text>
