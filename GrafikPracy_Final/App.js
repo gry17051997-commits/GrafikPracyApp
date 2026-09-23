@@ -13,7 +13,8 @@ import {
   Share,
   Platform,
   Dimensions,
-  Linking
+  Linking,
+  AppState
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sharing from 'expo-sharing';
@@ -23,7 +24,7 @@ import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
-import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, LOCATION_CONFIG_KEY} from './LocationService';
+import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, LOCATION_CONFIG_KEY} from './LocationService';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
@@ -363,7 +364,23 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
-    getVehicleLocationConfig().then(c => setLocationTracking(c.enabled !== false && !!c.vehicleId)).catch(() => {});
+    let mounted=true;
+    const refreshLocationState=async()=>{
+      try {
+        const c=await getVehicleLocationConfig();
+        if (!mounted) return;
+        setLocationTracking(c.enabled === true && !!c.vehicleId);
+        if (c.enabled === true && c.vehicleId && auth?.currentUser?.uid) {
+          const result=await ensureVehicleLocationTracking();
+          if (mounted && result.restarted) setLocationTracking(true);
+        }
+      } catch(e) {}
+    };
+    refreshLocationState();
+    const sub=AppState.addEventListener('change',state=>{
+      if(state==='active') refreshLocationState();
+    });
+    return ()=>{mounted=false; sub?.remove?.();};
   },[ready]);
 
   useEffect(() => {
