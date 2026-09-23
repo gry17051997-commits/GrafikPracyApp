@@ -39,3 +39,9 @@
 - Przeniesiono szybkie czyszczenie I/II zmiany i całego tygodnia do ustawień, w bardziej logiczne miejsce.
 - Dodano pierwszą warstwę responsywnego dopracowania weba: focus, większa spójność kontrolek, touch targets, scrollbar i ograniczenie animacji dla użytkowników z preferencją reduced motion.
 - Kolejny etap UX powinien objąć kolejno: ekran Teraz, Auto/GPS, Podsumowanie, Czat, Ustawienia, formularze i modale, a następnie test końcowy Android + web.
+
+
+### UX/UI etap 2
+- Teraz: większy nacisk na najważniejsze informacje, status lokalizacji i szybki dostęp do mapy.
+- Auto/GPS: uporządkowanie informacji na zasadzie status → sugestia → najbliższy magazyn → historia → mapa.
+- Dalsze prace obejmują uspójnienie kart, nagłówków, przycisków i stanów pustych na wszystkich ekranach.
