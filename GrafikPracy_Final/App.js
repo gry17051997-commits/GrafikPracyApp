@@ -263,6 +263,36 @@ export default function App() {
       }}
     ]);
   };
+
+  const clearWholeWeekShift = shiftNumber => {
+    if (readOnly) return;
+    const label = shiftNumber === 1 ? 'pierwszej' : 'drugiej';
+    Alert.alert(
+      'Wyczyść zmianę',
+      'Usunąć wszystkich pracowników z ' + label + ' zmiany we wszystkich dniach aktualnego tygodnia?',
+      [
+        {text:'Anuluj',style:'cancel'},
+        {text:'Wyczyść zmianę',style:'destructive',onPress:()=>{
+          setWeeks(prev=>{
+            const source = prev[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);
+            const next = cloneWeek(source);
+            next.forEach(day=>{
+              const index = shiftNumber - 1;
+              if (day.shifts?.[index]) {
+                day.shifts[index] = {
+                  ...day.shifts[index],
+                  person:null,
+                  manual:false,
+                  locked:false
+                };
+              }
+            });
+            return {...prev,[wkKey]:next};
+          });
+        }}
+      ]
+    );
+  };
   const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
 
@@ -1486,7 +1516,9 @@ export default function App() {
       <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
       <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
       <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
-      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={()=>clearWholeWeekShift(1)}><Text style={S.btnText}>🧹 WYCZYŚĆ I ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:8,borderWidth:1,borderColor:'#ef4444'}]} onPress={()=>clearWholeWeekShift(2)}><Text style={S.btnText}>🧹 WYCZYŚĆ II ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:8,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
     </View></View></Modal>
   );
 
