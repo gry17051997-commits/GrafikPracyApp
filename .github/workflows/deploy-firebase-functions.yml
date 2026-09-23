@@ -5,6 +5,7 @@ on:
     branches: ['main']
     paths:
       - 'GrafikPracy_Final/functions/**'
+      - 'GrafikPracy_Final/AdminUsersPanel.js'
       - 'GrafikPracy_Final/firebase.json'
       - '.github/workflows/deploy-firebase-functions.yml'
   workflow_dispatch:
