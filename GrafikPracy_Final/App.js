@@ -830,8 +830,11 @@ export default function App() {
     try {
       await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'0');
       setRememberLogin(false);
+      try { await stopVehicleLocationTracking(); } catch(e) {}
       await signOut(auth);
-    } catch(e) {}
+    } catch(e) {
+      setCloudError('Nie udało się bezpiecznie wylogować. Spróbuj ponownie.');
+    }
   };
 
   useEffect(() => {
