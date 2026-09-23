@@ -421,6 +421,8 @@ export default function App() {
       }
 
       if (!user) {
+        try { await stopVehicleLocationTracking(); } catch(e) {}
+        setLocationTracking(false);
         setCloudRole('employee');
         setCloudReady(true);
         return;
