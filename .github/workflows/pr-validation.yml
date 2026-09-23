@@ -20,7 +20,7 @@ env:
 
 jobs:
   validate:
-    name: Validate Web + Android
+    name: Validate Web + Android + Stage 3
     runs-on: ubuntu-latest
     timeout-minutes: 35
     defaults:
@@ -44,6 +44,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --ignore-scripts
+
+      - name: Stage 3 regression tests
+        run: npm test
 
       - name: Validate project configuration
         run: npx expo config --type public
