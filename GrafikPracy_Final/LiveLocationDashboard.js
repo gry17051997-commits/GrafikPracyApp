@@ -27,7 +27,7 @@ const mapHtml=(loc,warehouses)=>{
   return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-popup-content{font:14px Arial}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const data='+points+';const p=data.loc||{latitude:51.05,longitude:16.65};const map=L.map("map").setView([p.latitude,p.longitude],13);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if(data.loc){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("🚚 AUTO").openPopup()}(data.warehouses||[]).filter(x=>x.latitude&&x.longitude).forEach(w=>L.circleMarker([w.latitude,w.longitude],{radius:7}).addTo(map).bindPopup(w.name));</script></body></html>';
 };
 
-export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',warehouseGeo={},reportHistory=[],onApplySuggestion}) {
+export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',warehouseGeo={},reportHistory=[],onApplySuggestion,cloudUser=null}) {
   const [location,setLocation]=useState(null);
   const [config,setConfig]=useState({});
   const [tick,setTick]=useState(0);
@@ -36,9 +36,12 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const [isAdmin,setIsAdmin]=useState(false);
 
   useEffect(()=>{
-    if(!db || !auth?.currentUser) return;
-    return onSnapshot(doc(db,'users',auth.currentUser.uid), snap=>setIsAdmin(snap.exists() && snap.data()?.role==='admin'), ()=>setIsAdmin(false));
-  },[]);
+    if(!db || !cloudUser?.uid) {
+      setIsAdmin(false);
+      return;
+    }
+    return onSnapshot(doc(db,'users',cloudUser.uid), snap=>setIsAdmin(snap.exists() && snap.data()?.role==='admin'), ()=>setIsAdmin(false));
+  },[cloudUser?.uid]);
 
   useEffect(()=>{
     let historyUnsub;
