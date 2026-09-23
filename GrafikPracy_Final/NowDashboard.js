@@ -19,7 +19,13 @@ const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'})
 const idFor=v=>String(v||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
 const mapHtml=loc=>{
  const points=JSON.stringify(loc||null);
- return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-control-attribution{font-size:8px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const p='+points+'||{latitude:51.05,longitude:16.65};const map=L.map("map",{zoomControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false}).setView([p.latitude,p.longitude],14);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if('+points+'){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("🚚 AUTO").openPopup()}</script></body></html>';
+ return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-control-attribution{font-size:8px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const p='+points+'||{latitude:51.05,longitude:16.65};const map=L.map("map",{zoomControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false}).setView([p.latitude,p.longitude],14);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if('+points+'){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("AUTO").openPopup()}setTimeout(()=>map.invalidateSize(),150);</script></body></html>';
+};
+const webMapSrc=loc=>{
+ if(!loc)return '';
+ const lat=Number(loc.latitude),lon=Number(loc.longitude),d=0.018;
+ return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;
+};const map=L.map("map",{zoomControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false}).setView([p.latitude,p.longitude],14);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if('+points+'){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("🚚 AUTO").openPopup()}</script></body></html>';
 };
 
 export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
@@ -103,7 +109,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.locationCard}>
      <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:'🟢 AUTO ONLINE'):'🔴 BRAK LOKALIZACJI'}</Text>
      {location&&<><Text style={S.locationCoords}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}</Text><Text style={S.locationMeta}>Aktualizacja {new Date(Number(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
-     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0}} srcDoc={mapHtml(location)}/>:<WebView originWhitelist={['*']} source={{html:mapHtml(location)}} style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
+     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} loading="lazy" src={webMapSrc(location)}/>:<WebView originWhitelist={['*']} source={{html:mapHtml(location)}} style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
    </View>
  </ScrollView>;
 }
