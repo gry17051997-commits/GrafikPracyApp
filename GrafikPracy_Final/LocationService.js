@@ -135,6 +135,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   const old=await getConfig();
   const fg=await Location.requestForegroundPermissionsAsync();
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
+  const servicesEnabled=await Location.hasServicesEnabledAsync();
+  if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
   const ownerUid=await waitForAuthenticatedUser();
   if (!ownerUid) return {ok:false,reason:'auth'};
   const bg=await Location.requestBackgroundPermissionsAsync();
@@ -184,6 +186,8 @@ export async function ensureVehicleLocationTracking() {
   const fg=await Location.getForegroundPermissionsAsync();
   const bg=await Location.getBackgroundPermissionsAsync();
   if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};
+  const servicesEnabled=await Location.hasServicesEnabledAsync();
+  if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
@@ -194,6 +198,15 @@ export async function ensureVehicleLocationTracking() {
       console.log('LOCATION_WATCHDOG_FIX_ERROR',e);
     }
     return {ok:true,restarted:true,vehicleId:safeVehicleId(cfg.vehicleId||cfg.registration)};
+  }
+  // Po powrocie aplikacji na pierwszy plan odświeżamy punkt także wtedy,
+  // gdy usługa nadal działa. Dzięki temu po dłuższym uśpieniu telefonu
+  // podgląd szybciej odzyskuje świeżą pozycję.
+  try {
+    const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+    await saveLocation(first);
+  } catch(e) {
+    console.log('LOCATION_FOREGROUND_REFRESH_ERROR',e);
   }
   return {ok:true,restarted:false,vehicleId:safeVehicleId(cfg.vehicleId||cfg.registration)};
 }
