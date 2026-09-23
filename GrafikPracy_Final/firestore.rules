@@ -23,16 +23,12 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
 
-      // Public registration creates only a minimal employee profile.
-      // Role escalation is impossible through this path.
       allow create: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['email','role','createdAt'])
         && request.resource.data.role == 'employee'
         && request.resource.data.email is string;
 
-      // A normal user may change only the person assignment used by the app.
-      // System-managed fields and Authentication data remain protected.
       allow update: if signedIn()
         && request.auth.uid == uid
         && !isAdmin()
@@ -40,21 +36,15 @@ service cloud.firestore {
         && validPersonKey(request.resource.data.personKey)
         && request.resource.data.role == resource.data.role;
 
-      // Administrators use Cloud Functions for profile management. They may not
-      // directly modify their own profile, which prevents bypassing the role guard.
       allow update: if isAdmin()
         && uid != request.auth.uid
         && request.resource.data.uid == uid
         && validRole(request.resource.data.role)
         && validPersonKey(request.resource.data.personKey);
 
-      // Direct client deletion is never allowed. Account deletion goes through
-      // the trusted Cloud Function, which also blocks deleting the caller.
       allow delete: if false;
     }
 
-    // Public read is intentional: guest mode shows the current and next week.
-    // Only the schedule document is public; users, proposals and audit remain protected.
     match /schedules/main {
       allow read: if true;
       allow write: if isAdmin();
@@ -97,11 +87,14 @@ service cloud.firestore {
     match /vehicleTracking/{vehicleId} {
       allow read: if signedIn();
 
-      // Employees may create only a document that explicitly belongs to them.
-      // The document id remains a business-level vehicle identifier; assignment
-      // to a vehicle must still be enforced by the application/business layer.
+      // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
+      // jest ustalany przez administratora w locationConfig/main. Pracownik
+      // nie może utworzyć dokumentu pod innym vehicleId tylko przez zmianę
+      // lokalnej konfiguracji telefonu.
       allow create: if isAdmin()
         || (signedIn()
+          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && request.resource.data.vehicleId == vehicleId
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.latitude is number
           && request.resource.data.longitude is number
@@ -112,7 +105,9 @@ service cloud.firestore {
 
       allow update: if isAdmin()
         || (signedIn()
+          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
           && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.vehicleId == vehicleId
           && request.resource.data.ownerUid == resource.data.ownerUid
           && request.resource.data.latitude is number
           && request.resource.data.longitude is number
@@ -128,6 +123,8 @@ service cloud.firestore {
 
         allow create: if isAdmin()
           || (signedIn()
+            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && request.resource.data.vehicleId == vehicleId
             && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.latitude is number
             && request.resource.data.longitude is number
@@ -138,7 +135,9 @@ service cloud.firestore {
 
         allow update: if isAdmin()
           || (signedIn()
+            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
             && resource.data.ownerUid == request.auth.uid
+            && request.resource.data.vehicleId == vehicleId
             && request.resource.data.ownerUid == resource.data.ownerUid
             && request.resource.data.latitude is number
             && request.resource.data.longitude is number
@@ -152,7 +151,6 @@ service cloud.firestore {
     }
 
     match /audit/{entryId} {
-      // Audit records are trusted records. Clients cannot forge them.
       allow read: if isAdmin();
       allow create, update, delete: if false;
     }
