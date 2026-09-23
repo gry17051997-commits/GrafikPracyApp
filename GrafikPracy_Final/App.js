@@ -1413,12 +1413,12 @@ export default function App() {
   const chat = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
-      <View style={S.chatHeader}>
+      <View style={S.chatHero}>
         <View style={{flex:1}}>
-          <Text style={S.section}>💬 Czat pracowników</Text>
-          <Text style={S.helpLine}>Wiadomości są wspólne dla zalogowanych pracowników i administratora.</Text>
+          <Text style={S.chatHeroTitle}>💬 Czat pracowników</Text>
+          <Text style={S.chatHeroSub}>{cloudUser ? 'Wspólny czat zespołu' : 'Podgląd wiadomości zespołu'}</Text>
         </View>
-        <Text style={S.chatBadge}>{chatMessages.length}</Text>
+        <View style={S.chatCount}><Text style={S.chatCountValue}>{chatMessages.length}</Text><Text style={S.chatCountLabel}>wiad.</Text></View>
       </View>
       <View style={S.chatBox}>
         {chatMessages.length ? chatMessages.slice(-80).map(m => {
@@ -1455,6 +1455,17 @@ export default function App() {
   const summary = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
+      <View style={S.summaryHero}>
+        <Text style={S.summaryEyebrow}>TYDZIEŃ</Text>
+        <Text style={S.summaryTitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))}</Text>
+        <View style={S.summaryStats}>
+          <View style={S.summaryStat}><Text style={S.summaryValue}>{totals.all.shifts}</Text><Text style={S.summaryLabel}>zmian</Text></View>
+          <View style={S.summaryDivider}/>
+          <View style={S.summaryStat}><Text style={S.summaryValue}>{totals.all.hours} h</Text><Text style={S.summaryLabel}>godzin</Text></View>
+          <View style={S.summaryDivider}/>
+          <View style={S.summaryStat}><Text style={S.summaryValue}>{totals.all.money} zł</Text><Text style={S.summaryLabel}>łącznie</Text></View>
+        </View>
+      </View>
       <Text style={S.section}>Podsumowanie dla</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
         <TouchableOpacity style={[S.chip,summaryPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
@@ -1534,6 +1545,11 @@ export default function App() {
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
 
+      <View style={S.settingsHero}>
+        <Text style={S.settingsEyebrow}>USTAWIENIA</Text>
+        <Text style={S.settingsTitle}>Centrum sterowania</Text>
+        <Text style={S.settingsSub}>GPS, raporty, grafik i dane aplikacji w jednym miejscu.</Text>
+      </View>
       <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
       <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta. Samo przypisanie nie wymaga jeszcze uruchomienia GPS. Dopiero potem włącz nadajnik lokalizacji.</Text>
       <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
@@ -2060,6 +2076,24 @@ const S = StyleSheet.create({
   todayMini:{backgroundColor:'#263858',borderRadius:11,paddingVertical:9,paddingHorizontal:10,marginLeft:7},
   todayMiniText:{color:'#dbe7ff',fontSize:11,fontWeight:'900'},
   swapBtn:{backgroundColor:'#2a303b',borderRadius:12,padding:13,alignItems:'center',marginBottom:12},
+  summaryHero:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:20,padding:17,marginBottom:12,borderWidth:1,borderColor:'#303a4a'},
+  summaryEyebrow:{color:'#8fa1bd',fontSize:11,fontWeight:'900',letterSpacing:1},
+  summaryTitle:{color:'#fff',fontSize:18,fontWeight:'900',marginTop:5},
+  summaryStats:{flexDirection:'row',alignItems:'center',marginTop:16},
+  summaryStat:{flex:1,alignItems:'center'},
+  summaryValue:{color:'#fff',fontSize:21,fontWeight:'900'},
+  summaryLabel:{color:'#8f99aa',fontSize:11,fontWeight:'800',marginTop:2},
+  summaryDivider:{width:1,height:34,backgroundColor:'#303a4a'},
+  chatHero:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:20,padding:16,marginBottom:12,borderWidth:1,borderColor:'#303a4a',flexDirection:'row',alignItems:'center'},
+  chatHeroTitle:{color:'#fff',fontSize:20,fontWeight:'900'},
+  chatHeroSub:{color:'#8f99aa',fontSize:12,marginTop:4},
+  chatCount:{minWidth:58,backgroundColor:'#263858',borderRadius:14,paddingVertical:8,alignItems:'center',marginLeft:10},
+  chatCountValue:{color:'#fff',fontSize:18,fontWeight:'900'},
+  chatCountLabel:{color:'#aebee0',fontSize:9,fontWeight:'800'},
+  settingsHero:{backgroundColor:'#1a2537',borderRadius:20,padding:18,marginBottom:14,borderWidth:1,borderColor:'#334b72'},
+  settingsEyebrow:{color:'#8fb0ff',fontSize:11,fontWeight:'900',letterSpacing:1},
+  settingsTitle:{color:'#fff',fontSize:25,fontWeight:'900',marginTop:4},
+  settingsSub:{color:'#aebbd0',fontSize:13,marginTop:5,lineHeight:19},
   day:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:18,padding:13,marginBottom:12,borderWidth:1,borderColor:'#303a4a'},
   dayToday:{borderColor:'#467ff1',shadowColor:'#467ff1',shadowOpacity:0.18,shadowRadius:10,elevation:4},
   dayTitleRow:{flexDirection:'row',alignItems:'center',gap:8},
