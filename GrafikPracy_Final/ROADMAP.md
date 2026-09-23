@@ -31,3 +31,11 @@
 ## Nowy ustalony element
 - Dodano możliwość wyczyszczenia wszystkich obsad osobno dla I zmiany albo II zmiany w całym aktualnie wyświetlanym tygodniu.
 - Funkcja nie zmienia godzin ani magazynów, usuwa tylko przypisania pracowników dla wybranej zmiany.
+
+
+## Etap UX/UI - rozpoczęty
+- Ulepszono ekran Grafiku: szybkie podsumowanie obsadzenia tygodnia, liczba wolnych zmian i system godzin.
+- Dodano wyraźne oznaczenie dnia bieżącego oraz szybki przycisk powrotu do bieżącego tygodnia.
+- Przeniesiono szybkie czyszczenie I/II zmiany i całego tygodnia do ustawień, w bardziej logiczne miejsce.
+- Dodano pierwszą warstwę responsywnego dopracowania weba: focus, większa spójność kontrolek, touch targets, scrollbar i ograniczenie animacji dla użytkowników z preferencją reduced motion.
+- Kolejny etap UX powinien objąć kolejno: ekran Teraz, Auto/GPS, Podsumowanie, Czat, Ustawienia, formularze i modale, a następnie test końcowy Android + web.
