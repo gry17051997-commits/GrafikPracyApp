@@ -8,6 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "test": "node --test tests/stage3-regression.test.js",
+    "check": "npm test",
     "postinstall": "node scripts/fix-app-build.js && node scripts/fix-chat-build.js"
   },
   "dependencies": {
