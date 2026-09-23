@@ -26,7 +26,7 @@ function distanceMeters(a,b) {
   return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
 
-async function waitForAuthenticatedUser(timeoutMs=10000) {
+async function waitForAuthenticatedUser(timeoutMs=20000) {
   if (auth?.currentUser?.uid) return auth.currentUser.uid;
   const started=Date.now();
   while (Date.now()-started < timeoutMs) {
@@ -39,9 +39,9 @@ async function waitForAuthenticatedUser(timeoutMs=10000) {
 const LOCATION_OPTIONS={
   accuracy:Location.Accuracy.High,
   timeInterval:15000,
-  distanceInterval:50,
-  deferredUpdatesInterval:15000,
-  deferredUpdatesDistance:50,
+  distanceInterval:25,
+  // Nie używamy deferredUpdates w nadajniku auta. W tle Android może wtedy
+  // grupować lokalizacje, co pogarsza podgląd "na żywo".
   pausesUpdatesAutomatically:false,
   showsBackgroundLocationIndicator:true,
   foregroundService:{
@@ -62,7 +62,7 @@ async function saveLocation(location) {
   // W zadaniu tła Firebase Auth może potrzebować chwili na odtworzenie sesji
   // z AsyncStorage po zablokowaniu telefonu lub ubiciu procesu aplikacji.
   // Nie rezygnujemy z zapisu tylko dlatego, że currentUser nie jest jeszcze gotowy.
-  const ownerUid=await waitForAuthenticatedUser(15000);
+  const ownerUid=await waitForAuthenticatedUser(20000);
   if(!ownerUid) return;
   const payload={
     vehicleId,
