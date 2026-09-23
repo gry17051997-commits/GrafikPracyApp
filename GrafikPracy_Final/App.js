@@ -27,6 +27,7 @@ import LiveLocationDashboard from './LiveLocationDashboard';
 import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, LOCATION_CONFIG_KEY} from './LocationService';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
+import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
 
@@ -163,6 +164,7 @@ export default function App() {
   const [weekConfigs,setWeekConfigs] = useState({});
   const [autoGenerateWeeks,setAutoGenerateWeeks] = useState(false);
   const [weekSetup,setWeekSetup] = useState(null);
+  const [dismissedWeekSetupKey,setDismissedWeekSetupKey] = useState('');
   const [weekSetupHours,setWeekSetupHours] = useState(10);
   const [weekSetupRotation,setWeekSetupRotation] = useState('P');
   const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');
@@ -191,7 +193,7 @@ export default function App() {
   const [authPassword,setAuthPassword] = useState('');
   const [authBusy,setAuthBusy] = useState(false);
   const [cloudError,setCloudError] = useState('');
-  const [rememberLogin,setRememberLogin] = useState(false);
+  const [rememberLogin,setRememberLogin] = useState(true);
   const [reportsEnabled,setReportsEnabled] = useState(true);
   const [vehicleRegistration,setVehicleRegistration] = useState('');
   const [reportGroupLink,setReportGroupLink] = useState('');
@@ -404,15 +406,9 @@ export default function App() {
     let roleUnsub = null;
 
     const authUnsub = onAuthStateChanged(auth, async user => {
-      const remember = (await AsyncStorage.getItem(REMEMBER_LOGIN_KEY)) === '1';
+      const storedRemember = await AsyncStorage.getItem(REMEMBER_LOGIN_KEY);
+      const remember = storedRemember === null ? true : storedRemember !== '0';
       setRememberLogin(remember);
-      if (user && !remember) {
-        try { await signOut(auth); } catch (e) {}
-        setCloudUser(null);
-        setCloudRole('employee');
-        setCloudReady(true);
-        return;
-      }
 
       setCloudUser(user || null);
       if (user) setGuestMode(false);
@@ -801,7 +797,8 @@ export default function App() {
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
     try {
-      await AsyncStorage.setItem(REMEMBER_LOGIN_KEY, rememberLogin ? '1' : '0');
+      await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'1');
+      setRememberLogin(true);
       await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword);
       setAuthPassword('');
     }
@@ -838,14 +835,14 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!ready) return;
-    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup) {
+    if (!ready || cloudRole !== 'admin' || readOnly) return;
+    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup && dismissedWeekSetupKey !== wkKey) {
       setWeekSetup(weekStart);
       setWeekSetupHours(hours);
       setWeekSetupRotation(rotation);
       setWeekSetupWarehouse(warehouse);
     }
-  },[ready,wkKey,weeks,weekConfigs]);
+  },[ready,cloudRole,readOnly,wkKey,weeks,weekConfigs,weekSetup,dismissedWeekSetupKey,hours,rotation,warehouse]);
 
   const setWeek = updater => {
     setWeeks(prev => ({
@@ -1094,6 +1091,7 @@ export default function App() {
     setTimes(DEFAULT_TIMES[weekSetupHours]);
     setWeeks(prev=>({...prev,[key]:prev[key]||generateWeek(weekSetupRotation,weekSetupWarehouse)}));
     setWeekStart(weekSetup);
+    setDismissedWeekSetupKey(key);
     setWeekSetup(null);
   };
   const moveWeek = n => { const next=addDays(weekStart,n*7); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };
@@ -1548,13 +1546,14 @@ export default function App() {
   );
 
   const weekSetupDialog = (
-    <Modal visible={!!weekSetup} transparent animationType='fade' onRequestClose={()=>{}}><View style={S.overlay}><View style={S.modal}>
+    <Modal visible={!!weekSetup && cloudRole==='admin'} transparent animationType='fade' onRequestClose={()=>{if(weekSetup){setDismissedWeekSetupKey(iso(weekSetup));setWeekSetup(null);}}}><View style={S.overlay}><View style={S.modal}>
       <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
       <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>
       <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>
       <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
       <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
       <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{if(weekSetup){setDismissedWeekSetupKey(iso(weekSetup));setWeekSetup(null);}}}><Text style={S.btnText}>ZAMKNIJ BEZ TWORZENIA</Text></TouchableOpacity>
     </View></View></Modal>
   );
 
@@ -1567,6 +1566,7 @@ export default function App() {
         <Text style={S.settingsTitle}>Centrum sterowania</Text>
         <Text style={S.settingsSub}>GPS, raporty, grafik i dane aplikacji w jednym miejscu.</Text>
       </View>
+      {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' && <AdminUsersPanel cloudUser={cloudUser}/>} 
       <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
       <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta. Samo przypisanie nie wymaga jeszcze uruchomienia GPS. Dopiero potem włącz nadajnik lokalizacji.</Text>
       <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
@@ -2152,10 +2152,10 @@ const S = StyleSheet.create({
   generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
   danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
   nav:{height:78,width:'98%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:24,flexDirection:'row',alignItems:'center',paddingHorizontal:3,paddingTop:4,paddingBottom:Platform.OS==='android'?14:8,marginBottom:Platform.OS==='android'?18:10,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
-  navBtn:{flex:1,minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:7,paddingHorizontal:1,marginHorizontal:1,borderRadius:16,minHeight:60},
+  navBtn:{flexGrow:1,flexShrink:1,flexBasis:0,width:'16.6667%',minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:7,paddingHorizontal:0,marginHorizontal:0,borderRadius:16,minHeight:60},
   navActive:{backgroundColor:'#293c62',borderWidth:1,borderColor:'#5b82c4',shadowColor:'#467ff1',shadowOpacity:0.12,shadowRadius:6,elevation:2},
   navIcon:{fontSize:18},
-  navText:{color:'#aab3c2',marginTop:3,fontSize:9,fontWeight:'800',textAlign:'center'},
+  navText:{color:'#aab3c2',marginTop:3,fontSize:8,fontWeight:'800',textAlign:'center',includeFontPadding:false},
   chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#303a4a'},
   chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
   chatBox:{backgroundColor:'rgba(13,18,27,0.98)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#303a4a',minHeight:280,maxHeight:520},
