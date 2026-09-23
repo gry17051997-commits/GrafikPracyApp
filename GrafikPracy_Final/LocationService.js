@@ -36,6 +36,22 @@ async function waitForAuthenticatedUser(timeoutMs=10000) {
   return null;
 }
 
+const LOCATION_OPTIONS={
+  accuracy:Location.Accuracy.High,
+  timeInterval:15000,
+  distanceInterval:50,
+  deferredUpdatesInterval:15000,
+  deferredUpdatesDistance:50,
+  pausesUpdatesAutomatically:false,
+  showsBackgroundLocationIndicator:true,
+  foregroundService:{
+    notificationTitle:'Grafik Pracy • lokalizacja auta',
+    notificationBody:'Udostępnianie lokalizacji służbowego telefonu jest aktywne.',
+    notificationColor:'#467ff1',
+    killServiceOnDestroy:false
+  }
+};
+
 async function saveLocation(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
   const cfg=await getConfig();
@@ -136,21 +152,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
 
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
-    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,{
-      accuracy:Location.Accuracy.High,
-      timeInterval:15000,
-      distanceInterval:50,
-      deferredUpdatesInterval:15000,
-      deferredUpdatesDistance:50,
-      pausesUpdatesAutomatically:false,
-      showsBackgroundLocationIndicator:true,
-      foregroundService:{
-        notificationTitle:'Grafik Pracy • lokalizacja auta',
-        notificationBody:'Udostępnianie lokalizacji służbowego telefonu jest aktywne.',
-        notificationColor:'#467ff1',
-        killServiceOnDestroy:false
-      }
-    });
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
   }
   try {
     const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
@@ -169,6 +171,28 @@ export async function stopVehicleLocationTracking() {
   } catch(e) {}
   const old=await getConfig();
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:false}));
+}
+
+export async function ensureVehicleLocationTracking() {
+  if (Platform.OS==='web' || !FIREBASE_ENABLED || !db) return {ok:false,reason:'unsupported'};
+  const cfg=await getConfig();
+  if (cfg.enabled!==true || !(cfg.vehicleId||cfg.registration)) return {ok:false,reason:'disabled'};
+  if (!(auth?.currentUser?.uid)) return {ok:false,reason:'auth'};
+  const fg=await Location.getForegroundPermissionsAsync();
+  const bg=await Location.getBackgroundPermissionsAsync();
+  if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};
+  const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+  if (!running) {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
+    try {
+      const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+      await saveLocation(first);
+    } catch(e) {
+      console.log('LOCATION_WATCHDOG_FIX_ERROR',e);
+    }
+    return {ok:true,restarted:true,vehicleId:safeVehicleId(cfg.vehicleId||cfg.registration)};
+  }
+  return {ok:true,restarted:false,vehicleId:safeVehicleId(cfg.vehicleId||cfg.registration)};
 }
 
 export async function getVehicleLocationConfig() {
