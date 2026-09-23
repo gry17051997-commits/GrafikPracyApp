@@ -28,7 +28,7 @@ function validateDisplayName(value) {
 }
 
 function validatePersonKey(value) {
-  return VALID_PERSON_KEYS.has(value);
+  return value === '' || VALID_PERSON_KEYS.has(value);
 }
 
 function validateRole(value) {
