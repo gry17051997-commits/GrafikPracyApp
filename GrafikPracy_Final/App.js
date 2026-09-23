@@ -295,6 +295,9 @@ export default function App() {
   };
   const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
+  const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
+  const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
+  const freeShifts = Math.max(0,14 - occupiedShifts);
 
   useEffect(() => {
     (async() => {
@@ -1329,9 +1332,17 @@ export default function App() {
         <TouchableOpacity style={S.generate} onPress={()=>setExportModal(true)}><Text style={S.btnText}>📤 UDOSTĘPNIJ GRAFIK</Text></TouchableOpacity>
       </View>
 
+      <View style={S.weekSummary}>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{occupiedShifts}/14</Text><Text style={S.weekSummaryLabel}>obsadzone</Text></View>
+        <View style={S.weekSummaryDivider}/>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{freeShifts}</Text><Text style={S.weekSummaryLabel}>wolne</Text></View>
+        <View style={S.weekSummaryDivider}/>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{hours} h</Text><Text style={S.weekSummaryLabel}>system</Text></View>
+        <TouchableOpacity style={S.todayMini} onPress={todayWeek}><Text style={S.todayMiniText}>📍 DZIŚ</Text></TouchableOpacity>
+      </View>
+
       <View style={S.row}>
         <TouchableOpacity style={S.weekBtn} onPress={()=>moveWeek(-1)}><Text style={S.btnText}>‹ Poprzedni</Text></TouchableOpacity>
-        <TouchableOpacity style={S.weekBtn} onPress={todayWeek}><Text style={S.btnText}>Dziś</Text></TouchableOpacity>
         <TouchableOpacity style={S.weekBtn} onPress={()=>moveWeek(1)}><Text style={S.btnText}>Następny ›</Text></TouchableOpacity>
       </View>
 
@@ -1342,10 +1353,10 @@ export default function App() {
       {viewMode==='table' ? compactTable(false) : currentWeek.map((d,di) => {
         const dateObj = addDays(weekStart,di);
         return (
-          <View style={S.day} key={d.dayIndex}>
+          <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
             <View style={S.between}>
               <View>
-                <Text style={S.dayTitle}>{DAYS[di]} {dayHasPassed(di)?'🔒':'🔓'}</Text>
+                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]} {dayHasPassed(di)?'🔒':'🔓'}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
                 <Text style={S.muted}>{shortDate(dateObj)} · {d.warehouse || warehouse}</Text>
               </View>
               <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
@@ -1516,9 +1527,6 @@ export default function App() {
       <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
       <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
       <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
-      <TouchableOpacity style={[S.btn,{marginTop:10,borderWidth:1,borderColor:'#ef4444'}]} onPress={()=>clearWholeWeekShift(1)}><Text style={S.btnText}>🧹 WYCZYŚĆ I ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
-      <TouchableOpacity style={[S.btn,{marginTop:8,borderWidth:1,borderColor:'#ef4444'}]} onPress={()=>clearWholeWeekShift(2)}><Text style={S.btnText}>🧹 WYCZYŚĆ II ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
-      <TouchableOpacity style={[S.btn,{marginTop:8,borderWidth:1,borderColor:'#ef4444'}]} onPress={clearCurrentWeek}><Text style={S.btnText}>🗑️ WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
     </View></View></Modal>
   );
 
@@ -1564,6 +1572,12 @@ export default function App() {
       <TouchableOpacity style={S.generateFull} onPress={()=>setReportModal(true)}>
         <Text style={S.btnText}>📝 TEST / UTWÓRZ RAPORT</Text>
       </TouchableOpacity>
+
+      <Text style={S.section}>🧹 Szybkie czyszczenie grafiku</Text>
+      <Text style={S.helpLine}>Możesz usunąć obsadę tylko jednej zmiany w całym tygodniu albo wyczyścić cały tydzień. Godziny i magazyny pozostają bez zmian.</Text>
+      <TouchableOpacity style={[S.danger,{marginTop:0}]} onPress={()=>clearWholeWeekShift(1)}><Text style={S.btnText}>WYCZYŚĆ I ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.danger,{marginTop:8}]} onPress={()=>clearWholeWeekShift(2)}><Text style={S.btnText}>WYCZYŚĆ II ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.danger,{marginTop:8}]} onPress={clearCurrentWeek}><Text style={S.btnText}>WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
 
       <Text style={S.section}>Rotacja</Text>
       <View style={S.row}>
@@ -2038,8 +2052,18 @@ const S = StyleSheet.create({
   btnText:{color:'#fff',fontWeight:'800',textAlign:'center'},
   generate:{flex:1,minWidth:125,backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',justifyContent:'center',shadowColor:'#3f78ed',shadowOpacity:0.22,shadowRadius:8,elevation:3},
   weekBtn:{flex:1,minWidth:95,backgroundColor:'#2a303b',borderRadius:12,padding:12,alignItems:'center'},
+  weekSummary:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:10,marginBottom:9,borderWidth:1,borderColor:'#303a4a',flexDirection:'row',alignItems:'center'},
+  weekSummaryItem:{flex:1,alignItems:'center'},
+  weekSummaryValue:{color:'#fff',fontSize:17,fontWeight:'900'},
+  weekSummaryLabel:{color:'#8f98a8',fontSize:10,fontWeight:'800',marginTop:2},
+  weekSummaryDivider:{width:1,height:30,backgroundColor:'#303a4a'},
+  todayMini:{backgroundColor:'#263858',borderRadius:11,paddingVertical:9,paddingHorizontal:10,marginLeft:7},
+  todayMiniText:{color:'#dbe7ff',fontSize:11,fontWeight:'900'},
   swapBtn:{backgroundColor:'#2a303b',borderRadius:12,padding:13,alignItems:'center',marginBottom:12},
   day:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:18,padding:13,marginBottom:12,borderWidth:1,borderColor:'#303a4a'},
+  dayToday:{borderColor:'#467ff1',shadowColor:'#467ff1',shadowOpacity:0.18,shadowRadius:10,elevation:4},
+  dayTitleRow:{flexDirection:'row',alignItems:'center',gap:8},
+  todayBadge:{color:'#fff',backgroundColor:'#467ff1',fontSize:10,fontWeight:'900',paddingHorizontal:8,paddingVertical:4,borderRadius:9},
   between:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
   dayTitle:{color:'#fff',fontSize:21,fontWeight:'900'},
   dayBadge:{color:'#b9c9ff',fontWeight:'900',backgroundColor:'#26324d',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
