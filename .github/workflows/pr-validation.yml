@@ -84,4 +84,6 @@ jobs:
         working-directory: GrafikPracy_Final
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/.*(bundle|hbc)"
+          unzip -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "lib/|META-INF/" | head -5
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
