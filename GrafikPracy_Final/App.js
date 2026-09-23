@@ -326,7 +326,7 @@ export default function App() {
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo]);
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
@@ -444,6 +444,7 @@ export default function App() {
       if (data.warehouse) setWarehouse(data.warehouse);
       if (data.weeks) setWeeks(data.weeks);
       if (data.weekConfigs) setWeekConfigs(data.weekConfigs);
+      if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (data.personColors) setPersonColors(data.personColors);
       if (data.conditions) setConditions(data.conditions);
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
