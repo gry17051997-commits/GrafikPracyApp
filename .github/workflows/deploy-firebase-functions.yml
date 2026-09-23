@@ -1,0 +1,44 @@
+name: Deploy Firebase Functions
+
+on:
+  push:
+    branches: ['main']
+    paths:
+      - 'GrafikPracy_Final/functions/**'
+      - 'GrafikPracy_Final/firebase.json'
+      - '.github/workflows/deploy-firebase-functions.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy_functions:
+    name: Deploy Firebase Functions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pobierz repozytorium
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Zainstaluj zależności Functions
+        working-directory: GrafikPracy_Final/functions
+        run: npm install --omit=dev
+
+      - name: Zainstaluj Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Przygotuj konto serwisowe
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          test -n "$FIREBASE_SERVICE_ACCOUNT" || { echo "Brak sekretu FIREBASE_SERVICE_ACCOUNT"; exit 1; }
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
+          node -e "JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP + '/firebase-service-account.json','utf8')); console.log('JSON konta serwisowego: OK')"
+
+      - name: Wdróż Functions
+        working-directory: GrafikPracy_Final
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: firebase deploy --only functions --project grafik-pracy-c9006 --non-interactive
