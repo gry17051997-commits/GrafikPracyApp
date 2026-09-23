@@ -1094,8 +1094,8 @@ export default function App() {
     setDismissedWeekSetupKey(key);
     setWeekSetup(null);
   };
-  const moveWeek = n => { const next=addDays(weekStart,n*7); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };
-  const todayWeek = () => { const next=monday(new Date()); if(weeks[iso(next)]||weekConfigs[iso(next)]) setWeekStart(next); else openWeekSetup(next); };
+  const moveWeek = n => { const next=addDays(weekStart,n*7); const key=iso(next); if(weeks[key]||weekConfigs[key]) { setWeekStart(next); return; } const currentKey=iso(monday(new Date())); const nextKey=iso(addDays(monday(new Date()),7)); if(cloudRole==='admin' && !readOnly && (key===currentKey || key===nextKey)) openWeekSetup(next); else setWeekStart(next); };
+  const todayWeek = () => { const next=monday(new Date()); const key=iso(next); if(weeks[key]||weekConfigs[key]) setWeekStart(next); else if(cloudRole==='admin' && !readOnly) openWeekSetup(next); else setWeekStart(next); };
 
   const totals = useMemo(() => {
     const result = {
