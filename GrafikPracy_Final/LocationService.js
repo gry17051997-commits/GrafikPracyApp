@@ -59,7 +59,10 @@ async function saveLocation(location) {
   const vehicleId=safeVehicleId(cfg.vehicleId||cfg.registration);
   const c=location.coords;
   const now=Date.now();
-  const ownerUid=auth?.currentUser?.uid||null;
+  // W zadaniu tła Firebase Auth może potrzebować chwili na odtworzenie sesji
+  // z AsyncStorage po zablokowaniu telefonu lub ubiciu procesu aplikacji.
+  // Nie rezygnujemy z zapisu tylko dlatego, że currentUser nie jest jeszcze gotowy.
+  const ownerUid=await waitForAuthenticatedUser(15000);
   if(!ownerUid) return;
   const payload={
     vehicleId,
