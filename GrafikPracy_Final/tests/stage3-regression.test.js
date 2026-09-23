@@ -31,8 +31,8 @@ test('logout and auth loss stop background GPS tracking', () => {
 test('GPS service rechecks authenticated owner before every cloud write', () => {
   const service = read('LocationService.js');
   assert.match(service, /waitForAuthenticatedUser\(20000\)/);
-  assert.match(service, /auth\?\.currentUser\?\.uid !== ownerUid/);
-  assert.match(service, /expectedUid && ownerUid!==expectedUid/);
+  assert.match(service, /auth\?\.currentUser\?\.uid\s*!==\s*ownerUid/);
+  assert.match(service, /expectedUid\s*&&\s*ownerUid\s*!==\s*expectedUid/);
 });
 
 test('GPS tracker guards against duplicate background tasks', () => {
