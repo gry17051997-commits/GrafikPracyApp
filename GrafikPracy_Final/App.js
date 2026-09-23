@@ -160,6 +160,7 @@ export default function App() {
   const [warehouse,setWarehouse] = useState('PNT B');
   const [weekStart,setWeekStart] = useState(monday(new Date()));
   const [weekConfigs,setWeekConfigs] = useState({});
+  const [autoGenerateWeeks,setAutoGenerateWeeks] = useState(false);
   const [weekSetup,setWeekSetup] = useState(null);
   const [weekSetupHours,setWeekSetupHours] = useState(10);
   const [weekSetupRotation,setWeekSetupRotation] = useState('P');
@@ -234,6 +235,24 @@ export default function App() {
 
   const wkKey = iso(weekStart);
   const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
+  useEffect(()=>{
+    if(!ready || !autoGenerateWeeks || cloudRole!=='admin' || readOnly) return;
+    const base=monday(weekStart);
+    const baseKey=iso(base);
+    const baseCfg=weekConfigs[baseKey]||{hours,rotation,warehouse,times};
+    const additions={};
+    for(let i=1;i<=4;i++){
+      const d=addDays(base,i*7),key=iso(d);
+      if(!weeks[key]){
+        additions[key]=generateWeek(baseCfg.rotation||rotation,baseCfg.warehouse||warehouse).map(day=>({...day,shifts:day.shifts.map(s=>({...s,warehouse:s.warehouse||baseCfg.warehouse||warehouse}))}));
+      }
+    }
+    if(Object.keys(additions).length){
+      setWeeks(prev=>{const next={...prev};Object.keys(additions).forEach(k=>{if(!next[k])next[k]=additions[k];});return next;});
+      setWeekConfigs(prev=>{const next={...prev};Object.keys(additions).forEach(k=>{if(!next[k])next[k]={hours:baseCfg.hours||hours,rotation:baseCfg.rotation||rotation,warehouse:baseCfg.warehouse||warehouse,times:DEFAULT_TIMES[baseCfg.hours||hours]};});return next;});
+    }
+  },[ready,autoGenerateWeeks,cloudRole,readOnly,weekStart,weeks,weekConfigs,hours,rotation,warehouse,times]);
+
   const clearCurrentWeek = () => {
     if (readOnly) return;
     Alert.alert('Wyczyść tydzień','Usunąć wszystkich pracowników z całego aktualnie wyświetlanego tygodnia?', [
@@ -258,6 +277,7 @@ export default function App() {
           setWarehouse(data.warehouse || 'PNT B');
           setWeeks(data.weeks || {});
           setWeekConfigs(data.weekConfigs || {});
+          setAutoGenerateWeeks(!!data.autoGenerateWeeks);
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
@@ -300,7 +320,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -459,9 +479,9 @@ export default function App() {
       cloudApplying.current = false;
       return;
     }
-    const payload = {hours,rotation,warehouse,weeks,weekConfigs,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+    const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
     setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,times,personColors,conditions,cloudUser,cloudRole]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,cloudUser,cloudRole]);
 
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
@@ -1085,6 +1105,7 @@ export default function App() {
         setTimes(DEFAULT_TIMES[10]);
         setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
         setConditions([]);
+        setAutoGenerateWeeks(false);
       }}
     ]);
   };
@@ -1559,6 +1580,12 @@ export default function App() {
       <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={()=>setConditionModal(true)}><Text style={S.btnText}>⚙️ ZARZĄDZAJ WARUNKAMI ({conditions.length})</Text></TouchableOpacity>
 
       {FIREBASE_ENABLED && cloudRole==='admin' && <>
+        <Text style={S.section}>⚙️ Automatyczne generowanie tygodni</Text>
+        <Text style={S.helpLine}>Opcja administratora. Po włączeniu aplikacja przygotowuje kolejne 4 tygodnie na podstawie ustawień bieżącego tygodnia. Pracownicy mają tylko podgląd.</Text>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Generuj kolejne tygodnie automatycznie</Text><Text style={S.muted}>{autoGenerateWeeks?'🟢 WŁĄCZONE':'🔴 WYŁĄCZONE'}</Text></View>
+          <TouchableOpacity style={[S.btn,autoGenerateWeeks&&S.active]} onPress={()=>setAutoGenerateWeeks(v=>!v)}><Text style={S.btnText}>{autoGenerateWeeks?'WŁĄCZONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
         <Text style={S.section}>🔔 Propozycje zamian {proposals.filter(p=>p.status==='pending').length ? `(${proposals.filter(p=>p.status==='pending').length})` : ''}</Text>
         {proposals.filter(p=>p.status==='pending').slice(0,10).map(p=><View key={p.id} style={S.proposalCard}>
           <Text style={S.optionText}>{PEOPLE[p.fromPerson]?.name || p.fromEmail} ↔ {PEOPLE[p.toPerson]?.name || 'pracownik'}</Text>
@@ -1935,7 +1962,7 @@ export default function App() {
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
-          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
           {editModal}
           {colorModal}
           {helpModal}
