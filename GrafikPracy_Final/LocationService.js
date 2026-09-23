@@ -57,7 +57,18 @@ async function saveLocation(location) {
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
     updatedAt:now
   };
-  await setDoc(doc(db,'vehicleTracking',vehicleId),payload,{merge:true});
+  let saved=false;
+  let lastError=null;
+  for(let attempt=0;attempt<3 && !saved;attempt++){
+    try {
+      await setDoc(doc(db,'vehicleTracking',vehicleId),payload,{merge:true});
+      saved=true;
+    } catch(e) {
+      lastError=e;
+      if(attempt<2) await new Promise(resolve=>setTimeout(resolve,800*(attempt+1)));
+    }
+  }
+  if(!saved) throw lastError || new Error('Nie udało się zapisać pozycji GPS.');
   let last=null;
   try {
     const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);
@@ -136,7 +147,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
       foregroundService:{
         notificationTitle:'Grafik Pracy • lokalizacja auta',
         notificationBody:'Udostępnianie lokalizacji służbowego telefonu jest aktywne.',
-        notificationColor:'#467ff1'
+        notificationColor:'#467ff1',
+        killServiceOnDestroy:false
       }
     });
   }
