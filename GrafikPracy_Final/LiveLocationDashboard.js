@@ -22,6 +22,28 @@ const ageText=ts=>{
 };
 const idFor=v=>String(v||'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_')||'SLUZBOWY';
 
+const geocodeAddress=async(point)=>{
+  const lat=Number(point?.latitude), lon=Number(point?.longitude);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
+  const url='https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon);
+  try{
+    const res=await fetch(url,{headers:{Accept:'application/json'}});
+    if(!res.ok) return null;
+    const data=await res.json();
+    const a=data?.address||{};
+    const locality=a.city||a.town||a.village||a.municipality||a.hamlet||a.suburb||'';
+    const road=a.road||'';
+    const ref=a.ref||a.road_ref||'';
+    const house=a.house_number||'';
+    let street='';
+    if(road && ref && !road.toUpperCase().includes(String(ref).toUpperCase())) street=String(ref)+' '+road;
+    else street=road||ref;
+    if(street && house) street+=' '+house;
+    if(locality && street) return locality+', '+street;
+    return street||locality||data?.display_name||null;
+  }catch(e){ return null; }
+};
+
 const mapHtml=(loc,warehouses)=>{
   const points=JSON.stringify({loc:loc||null,warehouses:warehouses||[]});
   return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-popup-content{font:14px Arial}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const data='+points+';const p=data.loc||{latitude:51.05,longitude:16.65};const map=L.map("map").setView([p.latitude,p.longitude],13);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if(data.loc){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("🚚 AUTO").openPopup()}(data.warehouses||[]).filter(x=>x.latitude&&x.longitude).forEach(w=>L.circleMarker([w.latitude,w.longitude],{radius:7}).addTo(map).bindPopup(w.name));</script></body></html>';
@@ -34,6 +56,8 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const [history,setHistory]=useState([]);
   const [locationError,setLocationError]=useState('');
   const [isAdmin,setIsAdmin]=useState(false);
+  const [historyAddresses,setHistoryAddresses]=useState({});
+  const geocodeCache=React.useRef({});
 
   useEffect(()=>{
     if(!db || !cloudUser?.uid) {
@@ -42,6 +66,23 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
     }
     return onSnapshot(doc(db,'users',cloudUser.uid), snap=>setIsAdmin(snap.exists() && snap.data()?.role==='admin'), ()=>setIsAdmin(false));
   },[cloudUser?.uid]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    const points=(history||[]).slice(0,6);
+    (async()=>{
+      const next={...historyAddresses};
+      for(const p of points){
+        const key=Number(p.latitude).toFixed(5)+','+Number(p.longitude).toFixed(5);
+        if(next[key] || geocodeCache.current[key]) { next[key]=next[key]||geocodeCache.current[key]; continue; }
+        const address=await geocodeAddress(p);
+        if(address) { geocodeCache.current[key]=address; next[key]=address; }
+        if(!cancelled) setHistoryAddresses({...next});
+        await new Promise(resolve=>setTimeout(resolve,1100));
+      }
+    })();
+    return()=>{cancelled=true;};
+  },[history]);
 
   useEffect(()=>{
     let historyUnsub;
@@ -140,7 +181,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
         <View style={styles.card}>
       <Text style={styles.section}>🧭 HISTORIA TRASY · 7 DNI</Text>
       <Text style={styles.sub}>Punkty starsze niż 7 dni są automatycznie usuwane. Pokazuję ostatnie {history.length} zapisanych punktów.</Text>
-      {history.slice(0,6).map((p,i)=><Text key={String(p.updatedAt)+'-'+i} style={styles.history}>{new Date(Number(p.updatedAt)).toLocaleString('pl-PL')} · {Number(p.latitude).toFixed(5)}, {Number(p.longitude).toFixed(5)} · {Number(p.speed||0)>0?Math.round(Number(p.speed)*3.6)+' km/h':'postój'}</Text>)}
+      {history.slice(0,6).map((p,i)=>{const key=Number(p.latitude).toFixed(5)+','+Number(p.longitude).toFixed(5); const address=historyAddresses[key]; return <Text key={String(p.updatedAt)+'-'+i} style={styles.history}>{new Date(Number(p.updatedAt)).toLocaleString('pl-PL')} · {address||'Ustalanie adresu…'} · {Number(p.speed||0)>0?Math.round(Number(p.speed)*3.6)+' km/h':'postój'}</Text>;})}
     </View>
     <View style={styles.mapWrap}>{location?(Platform.OS==='web'?webMap:nativeMap):<Text style={styles.sub}>Mapa pojawi się po odebraniu lokalizacji.</Text>}</View>
   </ScrollView>;
