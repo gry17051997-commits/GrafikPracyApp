@@ -45,3 +45,9 @@
 - Teraz: większy nacisk na najważniejsze informacje, status lokalizacji i szybki dostęp do mapy.
 - Auto/GPS: uporządkowanie informacji na zasadzie status → sugestia → najbliższy magazyn → historia → mapa.
 - Dalsze prace obejmują uspójnienie kart, nagłówków, przycisków i stanów pustych na wszystkich ekranach.
+
+
+### UX/UI etap 3
+- Podsumowanie: dodano czytelny hero tygodnia z kluczowymi statystykami.
+- Czat: uproszczono nagłówek i wyróżniono licznik wiadomości.
+- Ustawienia: dodano wyraźny nagłówek centrum sterowania.
