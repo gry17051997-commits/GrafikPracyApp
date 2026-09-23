@@ -5,76 +5,133 @@ const {getFirestore} = require('firebase-admin/firestore');
 
 initializeApp();
 
-exports.deleteUserAccount = onCall(async request => {
-  const caller = request.auth;
-  if (!caller) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
+const VALID_ROLES = new Set(['admin','employee']);
+const VALID_PERSON_KEYS = new Set(['P','M','L']);
 
-  const db = getFirestore();
-  const callerSnap = await db.collection('users').doc(caller.uid).get();
+function requireAdmin(request, callerSnap) {
+  if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
   if (!callerSnap.exists || callerSnap.data()?.role !== 'admin') {
-    throw new HttpsError('permission-denied','Tylko administrator może usuwać konta.');
+    throw new HttpsError('permission-denied','Tylko administrator może wykonywać tę operację.');
   }
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function validateEmail(email) {
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function validateDisplayName(value) {
+  return value.length >= 2 && value.length <= 100;
+}
+
+function validatePersonKey(value) {
+  return VALID_PERSON_KEYS.has(value);
+}
+
+function validateRole(value) {
+  return VALID_ROLES.has(value);
+}
+
+exports.deleteUserAccount = onCall(async request => {
+  const db = getFirestore();
+  const auth = getAuth();
+  if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
+
+  const callerSnap = await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request, callerSnap);
 
   const uid = String(request.data?.uid || '').trim();
   if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
-  if (uid === caller.uid) throw new HttpsError('failed-precondition','Administrator nie może usunąć własnego konta.');
+  if (uid === request.auth.uid) {
+    throw new HttpsError('failed-precondition','Administrator nie może usunąć własnego konta.');
+  }
+
+  const targetRef = db.collection('users').doc(uid);
+  const targetSnap = await targetRef.get();
 
   try {
-    await getAuth().deleteUser(uid);
+    await auth.deleteUser(uid);
   } catch (error) {
     if (error?.code !== 'auth/user-not-found') {
-      console.error('deleteUserAccount auth error',error);
+      console.error('deleteUserAccount auth error', error);
       throw new HttpsError('internal','Nie udało się usunąć konta logowania.');
     }
   }
 
-  await db.collection('users').doc(uid).delete();
+  try {
+    if (targetSnap.exists) await targetRef.delete();
+  } catch (error) {
+    console.error('deleteUserAccount firestore cleanup error', error);
+    throw new HttpsError(
+      'internal',
+      'Konto logowania zostało usunięte, ale nie udało się usunąć profilu. Powtórz operację lub usuń profil ręcznie.'
+    );
+  }
 
-  await db.collection('audit').add({
-    action:'delete-user',
-    targetUid:uid,
-    actorUid:caller.uid,
-    createdAt:new Date()
-  });
+  try {
+    await db.collection('audit').add({
+      action:'delete-user',
+      targetUid:uid,
+      actorUid:request.auth.uid,
+      createdAt:new Date()
+    });
+  } catch (auditError) {
+    console.error('deleteUserAccount audit error', auditError);
+    throw new HttpsError('internal','Konto zostało usunięte, ale nie udało się zapisać audytu.');
+  }
 
   return {ok:true,uid};
 });
 
-
 exports.createUserAccount = onCall(async request => {
-  const caller = request.auth;
-  if (!caller) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
-
   const db = getFirestore();
-  const callerSnap = await db.collection('users').doc(caller.uid).get();
-  if (!callerSnap.exists || callerSnap.data()?.role !== 'admin') {
-    throw new HttpsError('permission-denied','Tylko administrator może dodawać pracowników.');
-  }
+  const auth = getAuth();
+  if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
 
-  const data = request.data || {};
-  const email = String(data.email || '').trim().toLowerCase();
+  const callerSnap = await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request, callerSnap);
+
+  const data = request.data && typeof request.data === 'object' ? request.data : {};
+  const email = normalizeEmail(data.email);
   const password = String(data.password || '');
   const displayName = String(data.displayName || '').trim();
   const personKey = String(data.personKey || '').trim();
-  const role = data.role === 'admin' ? 'admin' : 'employee';
+  const role = String(data.role || '').trim();
 
-  if (!email || !email.includes('@')) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
-  if (password.length < 6) throw new HttpsError('invalid-argument','Hasło musi mieć co najmniej 6 znaków.');
-  if (!displayName) throw new HttpsError('invalid-argument','Podaj imię i nazwisko pracownika.');
+  if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
+  if (password.length < 6 || password.length > 128) {
+    throw new HttpsError('invalid-argument','Hasło musi mieć od 6 do 128 znaków.');
+  }
+  if (!validateDisplayName(displayName)) {
+    throw new HttpsError('invalid-argument','Imię i nazwisko musi mieć od 2 do 100 znaków.');
+  }
+  if (!validatePersonKey(personKey)) {
+    throw new HttpsError('invalid-argument','Nieprawidłowy identyfikator pracownika.');
+  }
+  if (!validateRole(role)) {
+    throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  }
 
   let user;
   try {
-    user = await getAuth().createUser({email,password,displayName});
+    user = await auth.createUser({email,password,displayName});
   } catch (error) {
     if (error?.code === 'auth/email-already-exists') {
       throw new HttpsError('already-exists','Konto z tym adresem e-mail już istnieje.');
+    }
+    if (error?.code === 'auth/invalid-password') {
+      throw new HttpsError('invalid-argument','Hasło nie spełnia wymagań Firebase Authentication.');
     }
     console.error('createUserAccount auth error', error);
     throw new HttpsError('internal','Nie udało się utworzyć konta pracownika.');
   }
 
+  const userRef = db.collection('users').doc(user.uid);
   try {
-    await db.collection('users').doc(user.uid).set({
+    await userRef.set({
       uid:user.uid,
       email:user.email,
       displayName,
@@ -82,76 +139,118 @@ exports.createUserAccount = onCall(async request => {
       role,
       createdAt:new Date(),
       updatedAt:new Date(),
-      createdBy:caller.uid
+      createdBy:request.auth.uid
     });
+  } catch (error) {
+    try { await auth.deleteUser(user.uid); } catch (rollbackError) {
+      console.error('createUserAccount auth rollback error', rollbackError);
+    }
+    console.error('createUserAccount firestore error', error);
+    throw new HttpsError('internal','Nie udało się utworzyć profilu pracownika. Konto logowania zostało wycofane.');
+  }
+
+  try {
     await db.collection('audit').add({
       action:'create-user',
       targetUid:user.uid,
-      actorUid:caller.uid,
+      actorUid:request.auth.uid,
       createdAt:new Date()
     });
-  } catch (error) {
-    try { await getAuth().deleteUser(user.uid); } catch (_) {}
-    console.error('createUserAccount firestore error', error);
-    throw new HttpsError('internal','Konto utworzono częściowo, ale nie udało się zapisać profilu.');
+  } catch (auditError) {
+    console.error('createUserAccount audit error', auditError);
+    throw new HttpsError('internal','Konto zostało utworzone, ale nie udało się zapisać audytu.');
   }
 
   return {ok:true,uid:user.uid,email:user.email};
 });
 
 exports.updateUserProfile = onCall(async request => {
-  const caller = request.auth;
-  if (!caller) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
-
   const db = getFirestore();
-  const callerSnap = await db.collection('users').doc(caller.uid).get();
-  if (!callerSnap.exists || callerSnap.data()?.role !== 'admin') {
-    throw new HttpsError('permission-denied','Tylko administrator może zarządzać użytkownikami.');
-  }
+  const auth = getAuth();
+  if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
 
-  const data = request.data || {};
+  const callerSnap = await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request, callerSnap);
+
+  const data = request.data && typeof request.data === 'object' ? request.data : {};
   const uid = String(data.uid || '').trim();
   if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
 
-  const targetSnap = await db.collection('users').doc(uid).get();
+  const targetRef = db.collection('users').doc(uid);
+  const targetSnap = await targetRef.get();
   if (!targetSnap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
 
   const current = targetSnap.data() || {};
-  const role = data.role === 'admin' ? 'admin' : 'employee';
-  if (uid === caller.uid && role !== 'admin') {
+  const role = String(data.role ?? current.role ?? '').trim();
+  const displayName = String(data.displayName ?? current.displayName ?? '').trim();
+  const personKey = String(data.personKey ?? current.personKey ?? '').trim();
+  const email = normalizeEmail(data.email ?? current.email);
+  const newPassword = String(data.password || '');
+
+  if (!validateRole(role)) throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  if (!validateDisplayName(displayName)) {
+    throw new HttpsError('invalid-argument','Imię i nazwisko musi mieć od 2 do 100 znaków.');
+  }
+  if (!validatePersonKey(personKey)) {
+    throw new HttpsError('invalid-argument','Nieprawidłowy identyfikator pracownika.');
+  }
+  if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
+  if (newPassword && (newPassword.length < 6 || newPassword.length > 128)) {
+    throw new HttpsError('invalid-argument','Nowe hasło musi mieć od 6 do 128 znaków.');
+  }
+  if (uid === request.auth.uid && role !== 'admin') {
     throw new HttpsError('failed-precondition','Nie możesz odebrać sobie roli administratora.');
   }
 
-  const displayName = String(data.displayName ?? current.displayName ?? '').trim();
-  const personKey = String(data.personKey ?? current.personKey ?? '').trim();
-  const email = String(data.email ?? current.email ?? '').trim().toLowerCase();
-  const newPassword = String(data.password || '');
+  const update = {
+    uid,
+    displayName,
+    personKey,
+    role,
+    email,
+    updatedAt:new Date(),
+    updatedBy:request.auth.uid
+  };
 
-  if (!displayName) throw new HttpsError('invalid-argument','Podaj imię i nazwisko pracownika.');
-  if (newPassword && newPassword.length < 6) throw new HttpsError('invalid-argument','Nowe hasło musi mieć co najmniej 6 znaków.');
-
-  const update = {displayName,personKey,role,email,updatedAt:new Date(),updatedBy:caller.uid};
+  try {
+    await targetRef.set(update,{merge:true});
+  } catch (error) {
+    console.error('updateUserProfile firestore error', error);
+    throw new HttpsError('internal','Nie udało się zapisać profilu użytkownika.');
+  }
 
   try {
     const authUpdate = {displayName};
-    if (email && email !== current.email) authUpdate.email = email;
+    if (email !== normalizeEmail(current.email)) authUpdate.email = email;
     if (newPassword) authUpdate.password = newPassword;
-    await getAuth().updateUser(uid,authUpdate);
-    await db.collection('users').doc(uid).set(update,{merge:true});
+    await auth.updateUser(uid,authUpdate);
   } catch (error) {
+    try {
+      await targetRef.set(current);
+    } catch (rollbackError) {
+      console.error('updateUserProfile firestore rollback error', rollbackError);
+    }
     if (error?.code === 'auth/email-already-exists') {
       throw new HttpsError('already-exists','Ten adres e-mail jest już używany.');
     }
-    console.error('updateUserProfile error', error);
-    throw new HttpsError('internal','Nie udało się zaktualizować użytkownika.');
+    if (error?.code === 'auth/user-not-found') {
+      throw new HttpsError('not-found','Konto logowania użytkownika nie istnieje.');
+    }
+    console.error('updateUserProfile auth error', error);
+    throw new HttpsError('internal','Nie udało się zaktualizować konta logowania. Zmiany profilu zostały wycofane.');
   }
 
-  await db.collection('audit').add({
-    action:'update-user',
-    targetUid:uid,
-    actorUid:caller.uid,
-    createdAt:new Date()
-  });
+  try {
+    await db.collection('audit').add({
+      action:'update-user',
+      targetUid:uid,
+      actorUid:request.auth.uid,
+      createdAt:new Date()
+    });
+  } catch (auditError) {
+    console.error('updateUserProfile audit error', auditError);
+    throw new HttpsError('internal','Użytkownik został zaktualizowany, ale nie udało się zapisać audytu.');
+  }
 
   return {ok:true,uid};
 });
