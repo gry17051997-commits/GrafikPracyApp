@@ -7,3 +7,40 @@ body { overflow-x:hidden; overflow-y:auto; -webkit-text-size-adjust:100%; text-s
 @media (min-width:701px) { #root > div { max-width:900px !important; margin:0 auto; } }
 @media (max-width:700px) { html,body,#root { width:100vw; max-width:100vw; min-width:0; } input,textarea,select,button { max-width:100%; font-size:16px !important; } button { min-height:44px; } a { -webkit-tap-highlight-color:transparent; } }
 @media (max-width:430px) { body { font-size:15px; } #root { min-height:100dvh; } }
+
+/* UX polish: consistent touch targets, focus states, readable desktop layout */
+:root {
+  color-scheme: dark;
+  --gp-bg:#090c12;
+  --gp-surface:#141922;
+  --gp-border:#303a4a;
+  --gp-text:#f8fafc;
+  --gp-muted:#9299a8;
+}
+html { background:var(--gp-bg); scrollbar-gutter:stable; }
+body {
+  background:var(--gp-bg);
+  color:var(--gp-text);
+  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+button, input, textarea, select { font-family:inherit; }
+button { cursor:pointer; transition:transform .12s ease, filter .12s ease, background-color .12s ease; }
+button:active { transform:scale(.98); }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline:2px solid #5d8ff5;
+  outline-offset:2px;
+}
+input::placeholder, textarea::placeholder { color:#6f7888; opacity:1; }
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#354155; border-radius:99px; }
+@media (min-width:701px) {
+  #root > div { max-width:960px !important; }
+}
+@media (max-width:700px) {
+  body { overscroll-behavior-y:none; }
+  button { touch-action:manipulation; }
+}
+@media (prefers-reduced-motion:reduce) {
+  *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; }
+}
