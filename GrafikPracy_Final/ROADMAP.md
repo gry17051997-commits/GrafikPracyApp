@@ -26,3 +26,8 @@
 - Administrator otrzymał opcję automatycznego generowania kolejnych 4 tygodni.
 - Ustawienie automatycznego generowania jest synchronizowane we wspólnym grafiku Firebase.
 - Pracownik nie może samodzielnie włączyć tej funkcji.
+
+
+## Nowy ustalony element
+- Dodano możliwość wyczyszczenia wszystkich obsad osobno dla I zmiany albo II zmiany w całym aktualnie wyświetlanym tygodniu.
+- Funkcja nie zmienia godzin ani magazynów, usuwa tylko przypisania pracowników dla wybranej zmiany.
