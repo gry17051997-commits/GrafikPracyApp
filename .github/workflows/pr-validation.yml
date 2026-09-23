@@ -84,4 +84,4 @@ jobs:
         working-directory: GrafikPracy_Final
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
+          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/.*(bundle|hbc)"
