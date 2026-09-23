@@ -12,13 +12,45 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function validRole(value) {
+      return value == 'admin' || value == 'employee';
+    }
+
+    function validPersonKey(value) {
+      return value == 'P' || value == 'M' || value == 'L';
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.role == 'employee';
-      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid
-        && request.resource.data.role == resource.data.role);
-      allow delete: if isAdmin();
+
+      // Public registration creates only a minimal employee profile.
+      // Role escalation is impossible through this path.
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email','role','createdAt'])
+        && request.resource.data.role == 'employee'
+        && request.resource.data.email is string;
+
+      // A normal user may change only the person assignment used by the app.
+      // System-managed fields and Authentication data remain protected.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && !isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['personKey'])
+        && validPersonKey(request.resource.data.personKey)
+        && request.resource.data.role == resource.data.role;
+
+      // Administrators use Cloud Functions for profile management. They may not
+      // directly modify their own profile, which prevents bypassing the role guard.
+      allow update: if isAdmin()
+        && uid != request.auth.uid
+        && request.resource.data.uid == uid
+        && validRole(request.resource.data.role)
+        && validPersonKey(request.resource.data.personKey);
+
+      // Direct client deletion is never allowed. Account deletion goes through
+      // the trusted Cloud Function, which also blocks deleting the caller.
+      allow delete: if false;
     }
 
     // Public read is intentional: guest mode shows the current and next week.
@@ -64,27 +96,65 @@ service cloud.firestore {
 
     match /vehicleTracking/{vehicleId} {
       allow read: if signedIn();
-      allow create: if isAdmin() || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
-      allow update: if isAdmin() || (signedIn()
-        && resource.data.ownerUid == request.auth.uid
-        && request.resource.data.ownerUid == resource.data.ownerUid);
+
+      // Employees may create only a document that explicitly belongs to them.
+      // The document id remains a business-level vehicle identifier; assignment
+      // to a vehicle must still be enforced by the application/business layer.
+      allow create: if isAdmin()
+        || (signedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.latitude is number
+          && request.resource.data.longitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180);
+
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.latitude is number
+          && request.resource.data.longitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180);
+
       allow delete: if isAdmin();
+
       match /locations/{locationId} {
         allow read: if signedIn();
-        allow create: if isAdmin() || (signedIn() && request.resource.data.ownerUid == request.auth.uid);
-        allow update: if isAdmin() || (signedIn()
-          && resource.data.ownerUid == request.auth.uid
-          && request.resource.data.ownerUid == resource.data.ownerUid);
+
+        allow create: if isAdmin()
+          || (signedIn()
+            && request.resource.data.ownerUid == request.auth.uid
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180);
+
+        allow update: if isAdmin()
+          || (signedIn()
+            && resource.data.ownerUid == request.auth.uid
+            && request.resource.data.ownerUid == resource.data.ownerUid
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180);
+
         allow delete: if isAdmin();
       }
     }
 
     match /audit/{entryId} {
+      // Audit records are trusted records. Clients cannot forge them.
       allow read: if isAdmin();
-      allow create: if isAdmin();
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
   }
 }
-
-// CI trigger refresh
