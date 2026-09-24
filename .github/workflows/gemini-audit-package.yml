@@ -1,0 +1,49 @@
+name: Build Gemini audit package
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare audit package
+        run: |
+          mkdir -p audit-package
+          cp -r GrafikPracy_Final audit-package/
+          cp -r .github audit-package/.github
+          cp AUDIT_GEMINI.md audit-package/
+          cp .gitignore audit-package/
+          rm -rf audit-package/GrafikPracy_Final/node_modules
+          rm -rf audit-package/GrafikPracy_Final/.expo
+          find audit-package -type f \( -name '*.env' -o -name '*.env.*' -o -name '*service-account*.json' -o -name '*firebase-adminsdk*.json' \) -delete
+
+      - name: Add manifest
+        run: |
+          {
+            echo "# Audit package"
+            echo
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Commit: $GITHUB_SHA"
+            echo "Generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo
+            echo "The package contains source, tests, Firebase rules/configuration, build workflows and audit instructions."
+          } > audit-package/MANIFEST.md
+
+      - name: Create ZIP
+        run: |
+          cd audit-package
+          zip -r ../GrafikPracy-Gemini-Audit.zip .
+
+      - name: Upload audit package
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrafikPracy-Gemini-Audit
+          path: GrafikPracy-Gemini-Audit.zip
+          if-no-files-found: error
+          retention-days: 14
