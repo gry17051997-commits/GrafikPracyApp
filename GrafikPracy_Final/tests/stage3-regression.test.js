@@ -14,6 +14,8 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(rules, /request\.resource\.data\.locatorUid == request\.auth\.uid/);
   assert.match(rules, /data\.locatorUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
+  assert.match(read('LocationService.js'), /remoteConfig\.locatorUid!==ownerUid/);
+  assert.match(read('App.js'), /role === 'locator'/);
 });
 
 test('Firestore rules keep role escalation and self-delete blocked', () => {
