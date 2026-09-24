@@ -5,7 +5,7 @@ const {getFirestore} = require('firebase-admin/firestore');
 
 initializeApp();
 
-const VALID_ROLES = new Set(['admin','employee']);
+const VALID_ROLES = new Set(['admin','employee','locator']);
 const VALID_PERSON_KEYS = new Set(['P','M','L']);
 
 function requireAdmin(request, callerSnap) {
@@ -100,6 +100,7 @@ exports.createUserAccount = onCall(async request => {
   const displayName = String(data.displayName || '').trim();
   const personKey = String(data.personKey || '').trim();
   const role = String(data.role || '').trim();
+  const registration = String(data.registration || '').trim();
 
   if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
   if (password.length < 6 || password.length > 128) {
@@ -113,6 +114,12 @@ exports.createUserAccount = onCall(async request => {
   }
   if (!validateRole(role)) {
     throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  }
+  if (role === 'locator' && !registration) {
+    throw new HttpsError('invalid-argument','Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+  }
+  if (role === 'locator' && personKey) {
+    throw new HttpsError('invalid-argument','Lokalizator nie może być przypisany do pracownika grafiku.');
   }
 
   let user;
@@ -164,6 +171,53 @@ exports.createUserAccount = onCall(async request => {
   return {ok:true,uid:user.uid,email:user.email};
 });
 
+exports.configureVehicleLocator = onCall(async request => {
+  const db = getFirestore();
+  if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
+
+  const callerSnap = await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request, callerSnap);
+
+  const uid = String(request.data?.uid || '').trim();
+  const registration = String(request.data?.registration || '').trim().toUpperCase();
+  const enabled = request.data?.enabled !== false;
+
+  if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora lokalizatora.');
+  if (enabled && !registration) throw new HttpsError('invalid-argument','Podaj numer rejestracyjny pojazdu.');
+
+  const targetSnap = await db.collection('users').doc(uid).get();
+  if (enabled && (!targetSnap.exists || targetSnap.data()?.role !== 'locator')) {
+    throw new HttpsError('failed-precondition','Wybrany użytkownik musi mieć rolę lokalizatora.');
+  }
+
+  const vehicleId = registration
+    ? registration.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)
+    : String(request.data?.vehicleId || '').trim();
+
+  await db.collection('locationConfig').doc('main').set({
+    enabled,
+    vehicleId: enabled ? vehicleId : '',
+    registration: enabled ? registration : '',
+    locatorUid: enabled ? uid : '',
+    updatedAt: new Date(),
+    updatedBy: request.auth.uid
+  }, {merge:true});
+
+  try {
+    await db.collection('audit').add({
+      action: enabled ? 'configure-vehicle-locator' : 'disable-vehicle-locator',
+      targetUid: uid,
+      vehicleId: enabled ? vehicleId : '',
+      actorUid: request.auth.uid,
+      createdAt: new Date()
+    });
+  } catch (auditError) {
+    console.error('configureVehicleLocator audit error', auditError);
+  }
+
+  return {ok:true,uid,vehicleId,registration,enabled};
+});
+
 exports.updateUserProfile = onCall(async request => {
   const db = getFirestore();
   const auth = getAuth();
@@ -186,6 +240,7 @@ exports.updateUserProfile = onCall(async request => {
   const personKey = String(data.personKey ?? current.personKey ?? '').trim();
   const email = normalizeEmail(data.email ?? current.email);
   const newPassword = String(data.password || '');
+  const registration = String(data.registration || '').trim();
 
   if (!validateRole(role)) throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
   if (!validateDisplayName(displayName)) {
@@ -195,6 +250,12 @@ exports.updateUserProfile = onCall(async request => {
     throw new HttpsError('invalid-argument','Nieprawidłowy identyfikator pracownika.');
   }
   if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
+  if (role === 'locator' && !registration) {
+    throw new HttpsError('invalid-argument','Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+  }
+  if (role === 'locator' && personKey) {
+    throw new HttpsError('invalid-argument','Lokalizator nie może być przypisany do pracownika grafiku.');
+  }
   if (newPassword && (newPassword.length < 6 || newPassword.length > 128)) {
     throw new HttpsError('invalid-argument','Nowe hasło musi mieć od 6 do 128 znaków.');
   }

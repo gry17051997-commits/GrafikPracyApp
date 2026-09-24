@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, deleteDoc, doc, getDocs, limit, query, where, setDoc} from 'firebase/firestore';
+import {collection, deleteDoc, doc, getDoc, getDocs, limit, query, where, setDoc} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
@@ -69,9 +69,13 @@ async function saveLocation(location) {
   if(currentConfig.enabled!==true) return;
   if(expectedUid && ownerUid!==expectedUid) return;
   if(auth?.currentUser?.uid!==ownerUid) return;
+  const remoteSnap=await getDoc(doc(db,'locationConfig','main'));
+  const remoteConfig=remoteSnap.exists()?remoteSnap.data():{};
+  if(remoteConfig.enabled!==true || remoteConfig.vehicleId!==vehicleId || remoteConfig.locatorUid!==ownerUid) return;
   const payload={
     vehicleId,
     ownerUid,
+    locatorUid:ownerUid,
     registration:cfg.registration||vehicleId,
     latitude:Number(c.latitude),
     longitude:Number(c.longitude),
@@ -144,22 +148,12 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
   const ownerUid=await waitForAuthenticatedUser();
   if (!ownerUid) return {ok:false,reason:'auth'};
+  const remoteSnap=await getDoc(doc(db,'locationConfig','main'));
+  const remoteConfig=remoteSnap.exists()?remoteSnap.data():{};
+  if(remoteConfig.enabled!==true || remoteConfig.vehicleId!==vehicle || remoteConfig.locatorUid!==ownerUid) return {ok:false,reason:'not-assigned'};
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:registration||vehicle}));
-  // Jeżeli ten telefon jest zalogowany jako administrator, zapisz też globalne przypisanie
-  // pojazdu. WWW może wtedy wskazać dokładnie ten nadajnik mimo osobnego AsyncStorage.
-  try {
-    if (auth?.currentUser?.uid) {
-      await setDoc(doc(db,'locationConfig','main'),{
-        vehicleId:vehicle,
-        registration:registration||vehicle,
-        updatedAt:Date.now(),
-        updatedBy:auth.currentUser.uid
-      },{merge:true});
-    }
-  } catch(e) {}
-
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
@@ -186,8 +180,27 @@ export async function stopVehicleLocationTracking() {
 export async function ensureVehicleLocationTracking() {
   if (Platform.OS==='web' || !FIREBASE_ENABLED || !db) return {ok:false,reason:'unsupported'};
   const cfg=await getConfig();
-  if (cfg.enabled!==true || !(cfg.vehicleId||cfg.registration)) return {ok:false,reason:'disabled'};
-  if (!(auth?.currentUser?.uid)) return {ok:false,reason:'auth'};
+  const currentUid=auth?.currentUser?.uid;
+  if (!currentUid) return {ok:false,reason:'auth'};
+
+  // Dla dedykowanego konta locator źródłem prawdy jest globalna konfiguracja
+  // administratora. Dzięki temu telefon nie musi mieć ręcznie ustawionego pojazdu.
+  const remoteSnap=await getDoc(doc(db,'locationConfig','main'));
+  const remoteConfig=remoteSnap.exists()?remoteSnap.data():{};
+  if (remoteConfig.enabled!==true || remoteConfig.locatorUid!==currentUid || !remoteConfig.vehicleId) {
+    return {ok:false,reason:'not-assigned'};
+  }
+
+  const vehicleId=safeVehicleId(remoteConfig.vehicleId);
+  const registration=String(remoteConfig.registration||vehicleId);
+  if (cfg.vehicleId!==vehicleId || cfg.registration!==registration || cfg.enabled!==true) {
+    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({
+      ...cfg,
+      enabled:true,
+      vehicleId,
+      registration
+    }));
+  }
   const fg=await Location.getForegroundPermissionsAsync();
   const bg=await Location.getBackgroundPermissionsAsync();
   if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};

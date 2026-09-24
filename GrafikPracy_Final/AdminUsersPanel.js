@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
-import {collection, onSnapshot} from 'firebase/firestore';
+import {collection, doc, onSnapshot} from 'firebase/firestore';
 import {getFunctions, httpsCallable} from 'firebase/functions';
 import {db, firebaseApp, FIREBASE_ENABLED} from './firebaseConfig';
 
@@ -11,7 +11,8 @@ export default function AdminUsersPanel({cloudUser}) {
   const [busy,setBusy]=useState('');
   const [error,setError]=useState('');
   const [modal,setModal]=useState(null);
-  const [form,setForm]=useState({email:'',password:'',displayName:'',personKey:'',role:'employee'});
+  const [form,setForm]=useState({email:'',password:'',displayName:'',personKey:'',role:'employee',registration:''});
+  const [vehicleConfig,setVehicleConfig]=useState(null);
 
   useEffect(()=>{
     if(!FIREBASE_ENABLED||!db||!cloudUser)return;
@@ -22,16 +23,36 @@ export default function AdminUsersPanel({cloudUser}) {
     },e=>setError('Nie udało się pobrać użytkowników. Kod: '+(e?.code||'unknown')));
   },[cloudUser?.uid]);
 
-  const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee'});setModal({mode:'create'});};
-  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:u.role==='admin'?'admin':'employee'});setModal({mode:'edit',user:u});};
+  useEffect(()=>{
+    if(!FIREBASE_ENABLED||!db||!cloudUser)return;
+    return onSnapshot(
+      doc(db,'locationConfig','main'),
+      snap=>setVehicleConfig(snap.exists()?snap.data():null),
+      ()=>setVehicleConfig(null)
+    );
+  },[cloudUser?.uid]);
+
+  const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee',registration:''});setModal({mode:'create'});};
+  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:u.role==='admin'?'admin':(u.role==='locator'?'locator':'employee'),registration:u.role==='locator' ? (vehicleConfig?.locatorUid===u.uid ? (vehicleConfig?.registration||'') : '') : ''});setModal({mode:'edit',user:u});};
   const close=()=>{if(!busy)setModal(null);};
 
   const save=async()=>{
     if(!modal)return;
-    setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
+    setError('');
+    if(form.role==='locator' && !String(form.registration||'').trim()){
+      setError('Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+      return;
+    }
+    setBusy(modal.mode==='create'?'create':modal.user.uid);
     try{
       const fn=httpsCallable(getFunctions(firebaseApp),modal.mode==='create'?'createUserAccount':'updateUserProfile');
-      await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
+      const result=await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
+      const uid=result?.data?.uid || modal.user?.uid;
+      if(form.role==='locator'){
+        await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid,registration:String(form.registration).trim(),enabled:true});
+      } else if(modal.mode==='edit' && modal.user?.role==='locator'){
+        await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid:modal.user.uid,enabled:false});
+      }
       setModal(null);
       Alert.alert('Gotowe',modal.mode==='create'?'Pracownik został dodany.':'Dane pracownika zapisane.');
     }catch(e){setError((e?.message||'Operacja nie powiodła się.')+' ('+(e?.code||'unknown')+')');}
@@ -42,7 +63,13 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!u?.uid||u.uid===cloudUser?.uid)return;
     Alert.alert('Usuń konto','Usunąć '+(u.displayName||u.email||u.uid)+'?',[{text:'Anuluj',style:'cancel'},{text:'USUŃ',style:'destructive',onPress:async()=>{
       setBusy(u.uid);setError('');
-      try{await httpsCallable(getFunctions(firebaseApp),'deleteUserAccount')({uid:u.uid});Alert.alert('Gotowe','Konto zostało usunięte.');}
+      try{
+        if (u.role==='locator') {
+          await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid:u.uid,enabled:false});
+        }
+        await httpsCallable(getFunctions(firebaseApp),'deleteUserAccount')({uid:u.uid});
+        Alert.alert('Gotowe','Konto zostało usunięte.');
+      }
       catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
       finally{setBusy('');}
     }}]);
@@ -63,7 +90,7 @@ export default function AdminUsersPanel({cloudUser}) {
       const self=u.uid===cloudUser?.uid;
       return <View key={u.uid} style={{backgroundColor:'#1c2029',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d'}}>
         <View style={{flexDirection:'row',alignItems:'center'}}>
-          <View style={{flex:1}}><Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text><Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text><Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':'👤 Pracownik'}{u.personKey?' · '+u.personKey:''}</Text></View>
+          <View style={{flex:1}}><Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text><Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text><Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':(u.role==='locator'?'📍 Lokalizator':'👤 Pracownik')}{u.personKey?' · '+u.personKey:''}</Text></View>
           {self?<Text style={{color:'#75a1ff',fontSize:12,fontWeight:'900'}}>TO TY</Text>:<View style={{flexDirection:'row',gap:6}}>
             <TouchableOpacity disabled={!!busy} onPress={()=>edit(u)} style={{backgroundColor:'#293c62',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>✏️</Text></TouchableOpacity>
             <TouchableOpacity disabled={!!busy} onPress={()=>remove(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy===u.uid?'…':'🗑️'}</Text></TouchableOpacity>
@@ -84,8 +111,10 @@ export default function AdminUsersPanel({cloudUser}) {
             {input(modal?.mode==='create'?'Hasło, min. 6 znaków':'Nowe hasło, opcjonalnie','password',{placeholder:'Hasło',secureTextEntry:true})}
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
+            {form.role==='locator'&&input('Numer rejestracyjny pojazdu','registration',{placeholder:'np. DW 12345',autoCapitalize:'characters'})}
+            {form.role==='locator'&&<Text style={{color:'#9299a8',fontSize:12,lineHeight:17,marginBottom:9}}>Ten użytkownik nie jest pracownikiem grafiku. Jego konto służy wyłącznie jako dedykowany telefon służbowy i nadajnik GPS dla wspólnego pojazdu.</Text>}
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
-            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['employee','admin'].map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':'👤 PRACOWNIK'}</Text></TouchableOpacity>)}</View>
+            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['employee','locator','admin'].map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':(role==='locator'?'📍 LOKALIZATOR':'👤 PRACOWNIK')}</Text></TouchableOpacity>)}</View>
             {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>{error}</Text>}
             <View style={{flexDirection:'row',gap:8}}><TouchableOpacity onPress={close} disabled={!!busy} style={{flex:1,backgroundColor:'#303744',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>ANULUJ</Text></TouchableOpacity><TouchableOpacity onPress={save} disabled={!!busy} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy?'ZAPISUJĘ…':'ZAPISZ'}</Text></TouchableOpacity></View>
           </ScrollView>

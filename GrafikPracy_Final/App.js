@@ -432,8 +432,19 @@ export default function App() {
         doc(db, 'users', user.uid),
         snap => {
           const role = snap.exists() ? snap.data()?.role : null;
-          setCloudRole(role === 'admin' ? 'admin' : 'employee');
+          setCloudRole(role === 'admin' ? 'admin' : (role === 'locator' ? 'locator' : 'employee'));
+          if (role === 'locator') setMyPerson('');
           setCloudReady(true);
+          if (role === 'locator') {
+            ensureVehicleLocationTracking()
+              .then(result => {
+                if (result?.ok) setLocationTracking(true);
+              })
+              .catch(() => {});
+          } else {
+            stopVehicleLocationTracking().catch(() => {});
+            setLocationTracking(false);
+          }
         },
         error => {
           console.error('Błąd odczytu roli:', error);
@@ -686,7 +697,7 @@ export default function App() {
     const body = chatText.trim();
     if (!body || chatBusy) return;
     setChatBusy(true);
-    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:myPerson,createdAt:new Date().toISOString()};
     try {
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
       else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
@@ -735,15 +746,15 @@ export default function App() {
     const today = new Date();
     const startDay = monday(today);
 
-    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
-      const date = addDays(startDay,dayOffset);
-      const key = iso(date);
+    for (let weekOffset = 0; weekOffset < 2; weekOffset++) {
+      const weekStart = addDays(startDay,weekOffset * 7);
+      const key = iso(weekStart);
       const week = weeks[key] || null;
       if (!week) continue;
 
       for (let di = 0; di < week.length; di++) {
         const day = week[di];
-        const shiftDate = addDays(startDay,dayOffset + di);
+        const shiftDate = addDays(weekStart,di);
         for (let si = 0; si < (day.shifts || []).length; si++) {
           const shift = day.shifts[si];
           if (shift.person !== myPerson) continue;
@@ -2156,11 +2167,11 @@ const S = StyleSheet.create({
   sep:{color:'#aaa',fontSize:18},
   generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
   danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
-  nav:{height:78,width:'98%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:24,flexDirection:'row',alignItems:'center',paddingHorizontal:3,paddingTop:4,paddingBottom:Platform.OS==='android'?14:8,marginBottom:Platform.OS==='android'?18:10,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
-  navBtn:{flexGrow:1,flexShrink:1,flexBasis:0,width:'16.6667%',minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:7,paddingHorizontal:0,marginHorizontal:0,borderRadius:16,minHeight:60},
+  nav:{height:72,width:'100%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:20,flexDirection:'row',alignItems:'center',paddingHorizontal:4,paddingTop:3,paddingBottom:Platform.OS==='android'?10:5,marginBottom:Platform.OS==='android'?14:8,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
+  navBtn:{flexGrow:1,flexShrink:1,flexBasis:0,width:'16.6667%',minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:5,paddingHorizontal:1,marginHorizontal:1,borderRadius:14,minHeight:58},
   navActive:{backgroundColor:'#293c62',borderWidth:1,borderColor:'#5b82c4',shadowColor:'#467ff1',shadowOpacity:0.12,shadowRadius:6,elevation:2},
-  navIcon:{fontSize:18},
-  navText:{color:'#aab3c2',marginTop:3,fontSize:8,fontWeight:'800',textAlign:'center',includeFontPadding:false},
+  navIcon:{fontSize:17},
+  navText:{color:'#aab3c2',marginTop:2,fontSize:9,fontWeight:'800',textAlign:'center',includeFontPadding:false,lineHeight:11},
   chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#303a4a'},
   chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
   chatBox:{backgroundColor:'rgba(13,18,27,0.98)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#303a4a',minHeight:280,maxHeight:520},

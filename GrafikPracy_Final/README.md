@@ -22,6 +22,23 @@ Projekt używa Expo SDK 54. Produkcyjny build APK jest wykonywany przez GitHub A
 
 Nie przechowujemy w repozytorium wygenerowanego katalogu `android/`, paczek ZIP ani lokalnych plików EAS. Dzięki temu źródła pozostają jednoznaczne i build jest powtarzalny.
 
+## Etap 4 - audit i przygotowanie wydania
+
+Etap 4 obejmuje audit bezpieczeństwa i UX, poprawki regresji oraz walidację Web/Android.
+
+### Model lokalizacji pojazdu
+
+Aplikacja obsługuje jeden wspólny model floty: **3 pracowników, 1 pojazd i 1 dedykowany telefon służbowy jako nadajnik GPS**.
+
+- konto `employee` jest używane przez pracownika i nie może zapisywać lokalizacji pojazdu,
+- konto `locator` jest przypisane przez administratora do konkretnego pojazdu,
+- administrator ustala numer rejestracyjny i konto lokalizatora w `locationConfig/main`,
+- telefon lokalizatora pobiera tę konfigurację po zalogowaniu i może uruchomić tracking bez ręcznego przypisywania pojazdu,
+- `vehicleId` i `locatorUid` są ponownie sprawdzane przed każdym zapisem GPS po stronie aplikacji i Firestore,
+- wylogowanie lub utrata sesji zatrzymuje lokalne śledzenie.
+
+Konto `locator` nie jest pracownikiem grafiku i nie powinno być używane do obsady zmian.
+
 ## Etap 3 - regresja i bezpieczeństwo
 
 Automatyczny zestaw regresyjny znajduje się w `tests/stage3-regression.test.js` i uruchamia się przez:

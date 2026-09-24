@@ -13,11 +13,11 @@ service cloud.firestore {
     }
 
     function validRole(value) {
-      return value == 'admin' || value == 'employee';
+      return value == 'admin' || value == 'employee' || value == 'locator';
     }
 
     function validPersonKey(value) {
-      return value == 'P' || value == 'M' || value == 'L';
+      return value == '' || value == 'P' || value == 'M' || value == 'L';
     }
 
     match /users/{uid} {
@@ -34,13 +34,15 @@ service cloud.firestore {
         && !isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['personKey'])
         && validPersonKey(request.resource.data.personKey)
-        && request.resource.data.role == resource.data.role;
+        && request.resource.data.role == resource.data.role
+        && (resource.data.role != 'locator' || request.resource.data.personKey == '');
 
       allow update: if isAdmin()
         && uid != request.auth.uid
         && request.resource.data.uid == uid
         && validRole(request.resource.data.role)
-        && validPersonKey(request.resource.data.personKey);
+        && validPersonKey(request.resource.data.personKey)
+        && (request.resource.data.role != 'locator' || request.resource.data.personKey == '');
 
       allow delete: if false;
     }
@@ -63,6 +65,8 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
+        && request.resource.data.person == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personKey
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
         && request.resource.data.text.size() <= 500;
@@ -73,6 +77,8 @@ service cloud.firestore {
       allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
+        && request.resource.data.person == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personKey
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
         && request.resource.data.text.size() <= 500;
@@ -94,7 +100,9 @@ service cloud.firestore {
       allow create: if isAdmin()
         || (signedIn()
           && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && get(/databases/$(database)/documents/locationConfig/main).data.locatorUid == request.auth.uid
           && request.resource.data.vehicleId == vehicleId
+          && request.resource.data.locatorUid == request.auth.uid
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.latitude is number
           && request.resource.data.longitude is number
@@ -106,8 +114,10 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (signedIn()
           && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && get(/databases/$(database)/documents/locationConfig/main).data.locatorUid == request.auth.uid
           && resource.data.ownerUid == request.auth.uid
           && request.resource.data.vehicleId == vehicleId
+          && request.resource.data.locatorUid == request.auth.uid
           && request.resource.data.ownerUid == resource.data.ownerUid
           && request.resource.data.latitude is number
           && request.resource.data.longitude is number
@@ -124,7 +134,9 @@ service cloud.firestore {
         allow create: if isAdmin()
           || (signedIn()
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && get(/databases/$(database)/documents/locationConfig/main).data.locatorUid == request.auth.uid
             && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.locatorUid == request.auth.uid
             && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.latitude is number
             && request.resource.data.longitude is number
@@ -136,8 +148,10 @@ service cloud.firestore {
         allow update: if isAdmin()
           || (signedIn()
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && get(/databases/$(database)/documents/locationConfig/main).data.locatorUid == request.auth.uid
             && resource.data.ownerUid == request.auth.uid
             && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.locatorUid == request.auth.uid
             && request.resource.data.ownerUid == resource.data.ownerUid
             && request.resource.data.latitude is number
             && request.resource.data.longitude is number
