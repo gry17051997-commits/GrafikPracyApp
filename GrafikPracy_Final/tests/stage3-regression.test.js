@@ -71,9 +71,11 @@ test('Web deployment uses the lockfile for deterministic dependency installation
 
 test('bottom navigation stays usable on narrow screens', () => {
   const app = read('../App.js');
-  assert.match(app, /<ScrollView\s+horizontal[\s\S]*?contentContainerStyle=\{S\.navScroll\}/);
-  assert.match(app, /navBtn:\{width:54,minWidth:54/);
-  assert.match(app, /navText:\{color:'#aab3c2'.*fontSize:9/);
+  assert.match(app, /navDock:\{flex:1,flexDirection:'row'/);
+  assert.match(app, /navBtn:\{flex:1,minWidth:0/);
+  assert.match(app, /navText:\{color:'#8f99aa'.*fontSize:10/);
+  assert.match(app, /\['summary','📊','Suma'\]/);
+  assert.match(app, /\['ustawienia','⚙️','Ustaw\.'\]/);
 });
 
 test('weekly totals use the configured hours for the displayed week', () => {
