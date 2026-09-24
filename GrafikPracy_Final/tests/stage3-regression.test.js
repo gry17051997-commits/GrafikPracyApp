@@ -48,11 +48,13 @@ test('schedule notification date calculation uses stored Monday weeks without sh
   assert.match(app, /const shiftDate = addDays\(weekStart,di\);/);
 });
 
-test('schedule generator preserves the two-person weekday rotation and Sunday Łukasz slot', () => {
+test('schedule generator keeps weekday rotation while Sunday Łukasz is supplied by editable MUST defaults', () => {
   const app = read('App.js');
   assert.match(app, /const pairs = \[/);
-  assert.match(app, /w\[6\]\.shifts\[0\]\.person = 'L'/);
-  assert.match(app, /w\[6\]\.shifts\[1\]\.person = 'L'/);
+  assert.doesNotMatch(app, /w\[6\]\.shifts\[0\]\.person = 'L'/);
+  assert.doesNotMatch(app, /w\[6\]\.shifts\[1\]\.person = 'L'/);
+  assert.match(app, /id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1/);
+  assert.match(app, /id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2/);
 });
 
 test('GPS dashboards never silently switch to another vehicle when an assigned transmitter is stale', () => {
@@ -149,4 +151,25 @@ test('Changing hours in the schedule view does not mutate global hours or times'
   assert.doesNotMatch(block, /setHours\(h\)/);
   assert.doesNotMatch(block, /setTimes\(DEFAULT_TIMES\[h\]\)/);
   assert.match(block, /setWeekConfigs/);
+});
+
+
+test('advanced generator never overwrites manual or locked assignments', () => {
+  const app = read('App.js');
+  assert.match(app, /if \(dayHasPassed\(di\) \|\| s\.locked \|\| s\.manual\) return;/);
+  assert.match(app, /if \(dayHasPassed\(di\) \|\| s\.locked \|\| s\.manual\) return;/);
+  assert.match(app, /MUST dla \$\{PEOPLE\[c\.person\]\.name\} koliduje z istniejącą blokadą/);
+});
+
+test('advanced generator validates existing assignments against hard OFF and FORBID rules', () => {
+  const app = read('App.js');
+  assert.match(app, /jest obsadzony mimo globalnego OFF/);
+  assert.match(app, /ma OFF przy istniejącej obsadzie/);
+  assert.match(app, /łamie NIE MOŻE/);
+});
+
+test('weekly totals read the displayed week hours instead of global hours', () => {
+  const app = read('App.js');
+  assert.match(app, /result\.all\.hours \+= currentWeekHours/);
+  assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
 });
