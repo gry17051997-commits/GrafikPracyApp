@@ -916,9 +916,13 @@ export default function App() {
 
     const slots=[];
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
-      if (dayHasPassed(di) || s.locked || s.manual) return;
+      if (dayHasPassed(di) || s.locked) return;
+      // A manually marked OFF vacancy is intentionally reopenable for the
+      // generator. A manual replacement remains immutable.
+      const autoFillOff = s.off === true && s.person === null && s.manual === true;
+      if (s.manual && !autoFillOff) return;
       const forcedOff = conditions.some(c=>c.type==='off' && !c.person && conditionApplies(c,'',di,si));
-      if (!forcedOff) slots.push({di,si});
+      if (!forcedOff) slots.push({di,si,offOriginalPerson:s.offOriginalPerson || s.recoverPerson || null});
     }));
 
     const counts={P:0,M:0,L:0};
@@ -991,6 +995,8 @@ export default function App() {
       const candidates=PERSON_KEYS.filter(person=>{
         if(conditions.some(c=>c.type==='off' && conditionApplies(c,person,slot.di,slot.si))) return false;
         if(conditions.some(c=>c.type==='forbid' && conditionApplies(c,person,slot.di,slot.si))) return false;
+        // Never send the employee back onto the exact OFF vacancy they created.
+        if(slot.offOriginalPerson && person === slot.offOriginalPerson) return false;
         if(targets[person]!==null && counts[person]>=targets[person]) return false;
         // Don't put the same person twice in a day unless explicitly forced.
         if(result[slot.di].shifts.some(x=>x.person===person)) return false;
@@ -1002,7 +1008,13 @@ export default function App() {
         const pb=conditions.some(c=>c.type==='prefer' && conditionApplies(c,b,slot.di,slot.si))?1:0;
         return (pb-pa) || ((counts[a]/Math.max(1,ta))-(counts[b]/Math.max(1,tb)));
       });
-      if(candidates.length){s.person=candidates[0];counts[candidates[0]]++;}
+      if(candidates.length){
+        s.person=candidates[0];
+        s.manual=false;
+        // Keep the OFF metadata so the administrator can see why this slot
+        // was reopened, but the assigned replacement becomes the active person.
+        counts[candidates[0]]++;
+      }
     }
     const unmet=[];
     Object.entries(targets).forEach(([p,target])=>{if(target!==null && counts[p]!==target) unmet.push(`${PEOPLE[p].name}: ${counts[p]}/${target} zmian`);});
@@ -1071,7 +1083,12 @@ export default function App() {
       const sh=w[dayIndex].shifts[shiftIndex];
       const originalPerson=sh.person;
       sh.person=offReplacement || null;
-      sh.off=true; sh.offMode=offMode; sh.replacement=offReplacement||null; sh.recoverPerson=offMode==='recover'?originalPerson:null; sh.manual=true;
+      sh.off=true;
+      sh.offMode=offMode;
+      sh.replacement=offReplacement||null;
+      sh.offOriginalPerson=originalPerson || null;
+      sh.recoverPerson=offMode==='recover'?originalPerson:null;
+      sh.manual=true;
       return w;
     });
     if(offReplacement){
