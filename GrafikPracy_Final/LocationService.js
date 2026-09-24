@@ -52,7 +52,9 @@ const LOCATION_OPTIONS={
   }
 };
 
-async function saveLocation(location) {
+let locationSaveQueue = Promise.resolve();
+
+async function saveLocationInternal(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
   const cfg=await getConfig();
   if (cfg.enabled===false) return;
@@ -114,6 +116,15 @@ async function saveLocation(location) {
       await Promise.all(old.docs.map(d=>deleteDoc(d.ref)));
     } catch(e) {}
   }
+}
+
+
+// Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
+// odczytały tego samego LOCATION_CURRENT_KEY i nie ominęły progu historii.
+function saveLocation(location) {
+  const run = locationSaveQueue.then(() => saveLocationInternal(location));
+  locationSaveQueue = run.catch(() => {});
+  return run;
 }
 
 if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
