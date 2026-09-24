@@ -365,3 +365,19 @@ test('PDF export headers use the displayed week time configuration', () => {
   assert.match(app, /II · \$\{escapeHtml\(currentWeekTimes\.s2\)/);
   assert.doesNotMatch(app, /I · \$\{escapeHtml\(times\.s1\)/);
 });
+
+
+test('default Sunday Łukasz MUST conditions survive backup restore and full reset', () => {
+  const app = read('../App.js');
+  const restoreStart = app.indexOf('const restoreBackup = () => {');
+  const restoreEnd = app.indexOf('  const shareFile =', restoreStart);
+  const restoreBlock = app.slice(restoreStart, restoreEnd);
+  assert.match(restoreBlock, /const restoredConditions = Array\.isArray\(data\.conditions\)/);
+  assert.match(restoreBlock, /DEFAULT_BUSINESS_CONDITIONS\[0\]/);
+  assert.match(restoreBlock, /DEFAULT_BUSINESS_CONDITIONS\[1\]/);
+
+  const resetStart = app.indexOf('const resetAll = () => {');
+  const resetEnd = app.indexOf('  const buildBackupPayload =', resetStart);
+  const resetBlock = app.slice(resetStart, resetEnd);
+  assert.match(resetBlock, /setConditions\(\[\.\.\.DEFAULT_BUSINESS_CONDITIONS\]\)/);
+});
