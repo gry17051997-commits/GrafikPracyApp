@@ -109,7 +109,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
         const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
         const exactFresh=exact && (now-Number(exact.updatedAt||0)<=180000);
         const freshRows=rows.filter(x=>now-Number(x.updatedAt||0)<=180000);
-        const selected=exactFresh ? exact : freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0];
+        const selected=requestedId ? (exactFresh ? exact : exact || null) : (freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0]);
         setLocation(selected);
         setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
         setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
