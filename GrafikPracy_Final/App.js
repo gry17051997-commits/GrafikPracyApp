@@ -210,6 +210,7 @@ export default function App() {
   const [warehouseGeo,setWarehouseGeo] = useState({});
   const [locationTracking,setLocationTracking] = useState(false);
   const [locationBusy,setLocationBusy] = useState(false);
+  const [locationStatus,setLocationStatus] = useState('unknown');
   const locationConfigLoaded = useRef(false);
   const [chatMessages,setChatMessages] = useState([]);
   const [chatText,setChatText] = useState('');
@@ -235,6 +236,19 @@ export default function App() {
   const [myPerson,setMyPerson] = useState('P');
   const [guestMode,setGuestMode] = useState(false);
   const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
+
+  const locationStatusText = {
+    running:'🟢 GPS aktywny, lokalizacja auta jest wysyłana.',
+    restarted:'🟢 GPS uruchomiony ponownie po wznowieniu aplikacji.',
+    foreground-permission:'🟠 Brak zgody na dokładną lokalizację. Nadaj ją w ustawieniach Androida.',
+    background-permission:'🟠 Brak zgody na lokalizację w tle. Dla nadajnika wybierz „Zawsze zezwalaj”.',
+    'location-services-disabled':'🔴 Usługi lokalizacji są wyłączone w telefonie.',
+    'not-assigned':'🔴 To konto nie jest przypisane do aktywnego pojazdu przez administratora.',
+    auth:'🔴 Brak aktywnej sesji użytkownika.',
+    firebase:'🔴 Połączenie z usługą Firebase jest niedostępne.',
+    unsupported:'⚪ Nadajnik GPS działa tylko na Androidzie.',
+    unknown:'⚪ Sprawdzanie nadajnika GPS…'
+  };
 
   const wkKey = iso(weekStart);
   const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
@@ -374,7 +388,10 @@ export default function App() {
         setLocationTracking(c.enabled === true && !!c.vehicleId);
         if (c.enabled === true && c.vehicleId && auth?.currentUser?.uid) {
           const result=await ensureVehicleLocationTracking();
-          if (mounted && result.restarted) setLocationTracking(true);
+          if (mounted) {
+            setLocationStatus(result?.ok ? (result.restarted ? 'restarted' : 'running') : (result?.reason || 'unknown'));
+            if (result.restarted) setLocationTracking(true);
+          }
         }
       } catch(e) {}
     };
@@ -423,6 +440,7 @@ export default function App() {
       if (!user) {
         try { await stopVehicleLocationTracking(); } catch(e) {}
         setLocationTracking(false);
+        setLocationStatus('auth');
         setCloudRole('employee');
         setCloudReady(true);
         return;
@@ -436,14 +454,21 @@ export default function App() {
           if (role === 'locator') setMyPerson('');
           setCloudReady(true);
           if (role === 'locator') {
+            setLocationStatus('unknown');
             ensureVehicleLocationTracking()
               .then(result => {
+                setLocationStatus(result?.ok ? (result.restarted ? 'restarted' : 'running') : (result?.reason || 'unknown'));
                 if (result?.ok) setLocationTracking(true);
+                else setLocationTracking(false);
               })
-              .catch(() => {});
+              .catch(() => {
+                setLocationStatus('unknown');
+                setLocationTracking(false);
+              });
           } else {
             stopVehicleLocationTracking().catch(() => {});
             setLocationTracking(false);
+            setLocationStatus('unknown');
           }
         },
         error => {
@@ -2056,6 +2081,7 @@ export default function App() {
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
+          {FIREBASE_ENABLED && cloudUser && cloudRole==='locator' && <View style={[S.cloudStatus,{borderColor:locationStatus==='running'||locationStatus==='restarted'?'#2f9e63':locationStatus==='unknown'?'#536174':'#b66a24'}]}><Text style={S.cloudStatusText}>{locationStatusText[locationStatus] || locationStatusText.unknown}</Text></View>}
           {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
