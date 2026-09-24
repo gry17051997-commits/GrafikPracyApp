@@ -63,6 +63,8 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
+        && request.resource.data.person == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personKey
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
         && request.resource.data.text.size() <= 500;
@@ -73,6 +75,8 @@ service cloud.firestore {
       allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.email
+        && request.resource.data.person == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.personKey
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
         && request.resource.data.text.size() <= 500;
