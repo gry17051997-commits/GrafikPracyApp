@@ -61,6 +61,11 @@ test('GPS dashboards never silently switch to another vehicle when an assigned t
   assert.match(now, /const selected=requested \? \(\(exact&&Date\.now\(\)-Number\(exact\.updatedAt\)<=180000\)\?exact:exact\|\|null\)/);
 });
 
+test('Web deployment uses the lockfile for deterministic dependency installation', () => {
+  const workflow = read('../.github/workflows/web.yml');
+  assert.match(workflow, /run: npm ci --ignore-scripts/);
+});
+
 test('web and Android acceptance surfaces remain wired', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.dependencies.expo, '~54.0.0');
