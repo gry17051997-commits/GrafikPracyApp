@@ -208,3 +208,25 @@ test('recover target is based on the clean weekly template plus one recovery deb
   assert.match(app, /const baseTarget = targets\[p\]===null\?baseTargetCounts\[p\]:targets\[p\]/);
   assert.match(app, /targets\[p\]=baseTarget\+recoverNeeds\[p\]/);
 });
+
+
+test('generator uses a soft capacity limit instead of cancelling a valid partial schedule', () => {
+  const app = read('App.js');
+  assert.match(app, /const capacityWarnings=\[\];/);
+  assert.match(app, /const maxAvailable=counts\[p\]\+availableDays\.size/);
+  assert.match(app, /Math\.min\(requestedTarget,maxAvailable\)/);
+  assert.match(app, /Nie udało się zaplanować wszystkich wymaganych zmian/);
+  assert.match(app, /return result;/);
+});
+
+test('automatic capacity respects one-shift-per-day when calculating max available', () => {
+  const app = read('App.js');
+  assert.match(app, /const availableDays=new Set\(\);/);
+  assert.match(app, /availableDays\.add\(slot\.di\)/);
+  assert.match(app, /result\[slot\.di\]\.shifts\.some\(x=>x\.person===p\)/);
+});
+
+test('soft target clipping never lowers target below already realized assignments', () => {
+  const app = read('App.js');
+  assert.match(app, /Math\.max\(counts\[p\],Math\.min\(requestedTarget,maxAvailable\)\)/);
+});
