@@ -31,7 +31,14 @@ export default function AdminUsersPanel({cloudUser}) {
     setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
     try{
       const fn=httpsCallable(getFunctions(firebaseApp),modal.mode==='create'?'createUserAccount':'updateUserProfile');
-      await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
+      const result=await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
+      const uid=result?.data?.uid || modal.user?.uid;
+      if(form.role==='locator'){
+        if(!String(form.registration||'').trim()) throw new Error('Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+        await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid,registration:String(form.registration).trim(),enabled:true});
+      } else if(modal.mode==='edit' && modal.user?.role==='locator'){
+        await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid:modal.user.uid,enabled:false});
+      }
       setModal(null);
       Alert.alert('Gotowe',modal.mode==='create'?'Pracownik został dodany.':'Dane pracownika zapisane.');
     }catch(e){setError((e?.message||'Operacja nie powiodła się.')+' ('+(e?.code||'unknown')+')');}
@@ -84,6 +91,8 @@ export default function AdminUsersPanel({cloudUser}) {
             {input(modal?.mode==='create'?'Hasło, min. 6 znaków':'Nowe hasło, opcjonalnie','password',{placeholder:'Hasło',secureTextEntry:true})}
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
+            {form.role==='locator'&&input('Numer rejestracyjny pojazdu','registration',{placeholder:'np. DW 12345',autoCapitalize:'characters'})}
+            {form.role==='locator'&&<Text style={{color:'#9299a8',fontSize:12,lineHeight:17,marginBottom:9}}>Ten użytkownik nie jest pracownikiem grafiku. Jego konto służy wyłącznie jako dedykowany telefon służbowy i nadajnik GPS dla wspólnego pojazdu.</Text>}
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['employee','locator','admin'].map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':(role==='locator'?'📍 LOKALIZATOR':'👤 PRACOWNIK')}</Text></TouchableOpacity>)}</View>
             {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>{error}</Text>}
