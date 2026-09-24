@@ -225,6 +225,9 @@ export default function App() {
   const [offModal,setOffModal] = useState(null);
   const [offMode,setOffMode] = useState('plain');
   const [offReplacement,setOffReplacement] = useState('');
+  const [recoveryCorrection,setRecoveryCorrection] = useState(null);
+  const [recoveryCorrectionValue,setRecoveryCorrectionValue] = useState('1');
+  const [recoveryCorrectionReason,setRecoveryCorrectionReason] = useState('');
   const [swapModal,setSwapModal] = useState(null);
   const [swapTarget,setSwapTarget] = useState('');
   const [swapTargetDay,setSwapTargetDay] = useState(0);
@@ -1144,12 +1147,12 @@ export default function App() {
     appendRecoveryLedger(person,-1,'recovery-confirmed');
   };
 
-  const adjustRecoveryBalance = (person, delta) => {
+  const adjustRecoveryBalance = (person, delta, reasonText='') => {
     if (readOnly || !PERSON_KEYS.includes(person)) return;
     const change = Number(delta);
     if (!Number.isFinite(change) || change === 0) return;
     setRecoveryBalances(prev => ({...prev,[person]:Math.max(0,(Number(prev[person])||0)+change)}));
-    appendRecoveryLedger(person,change,'manual-correction');
+    appendRecoveryLedger(person,change,'manual-correction',{metaReason:reasonText});
   };
 
   const saveOff = () => {
@@ -1658,16 +1661,18 @@ export default function App() {
         </View>
       </View>
       <Text style={S.section}>Podsumowanie dla</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
-        <TouchableOpacity style={[S.chip,summaryPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
-          <Text style={S.btnText}>Wszyscy</Text>
-        </TouchableOpacity>
-        {PERSON_KEYS.map(k => (
-          <TouchableOpacity key={k} style={[S.chip,summaryPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSummaryPerson(k)}>
-            <Text style={[S.btnText,{color:summaryPerson===k?contrastText(personColor(k)):'#fff'}]}>{PEOPLE[k].name}</Text>
+      {cloudRole==='admin' ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+          <TouchableOpacity style={[S.chip,summaryPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
+            <Text style={S.btnText}>Wszyscy</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          {PERSON_KEYS.map(k => (
+            <TouchableOpacity key={k} style={[S.chip,summaryPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSummaryPerson(k)}>
+              <Text style={[S.btnText,{color:summaryPerson===k?contrastText(personColor(k)):'#fff'}]}>{PEOPLE[k].name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      ) : null}
 
       {summaryPerson === 'all' ? (
         <>
@@ -1683,9 +1688,17 @@ export default function App() {
                 <Text style={S.employeeName}>{PEOPLE[k].name}</Text>
                 <Text style={[S.dot,{color:personColor(k)}]}>●</Text>
               </View>
-              <Text style={S.stat}>Zmiany: <Text style={S.white}>{totals[k].shifts}</Text></Text>
+              <Text style={S.stat}>Zmiany wykonane: <Text style={S.white}>{totals[k].shifts}</Text></Text>
+              <Text style={S.stat}>Target bazowy: <Text style={S.white}>{baseTargetCountsForSummary(k)}</Text></Text>
+              <Text style={S.stat}>Dług z poprzednich okresów: <Text style={recoveryBalances[k]>0?S.debtPositive:S.white}>+{Number(recoveryBalances[k])||0}</Text></Text>
+              <Text style={S.stat}>Łączny target: <Text style={S.white}>{baseTargetCountsForSummary(k)+(Number(recoveryBalances[k])||0)}</Text></Text>
               <Text style={S.stat}>Godziny: <Text style={S.white}>{totals[k].hours} h</Text></Text>
               <Text style={S.stat}>Zarobek: <Text style={S.money}>{totals[k].money} zł</Text></Text>
+              {cloudRole==='admin' && (Number(recoveryBalances[k])||0)>0 ? (
+                <TouchableOpacity style={S.recoveryApprove} onPress={()=>confirmRecovery(k)}>
+                  <Text style={S.recoveryApproveText}>✅ ZATWIERDŹ SPŁATĘ {Number(recoveryBalances[k])} {Number(recoveryBalances[k])===1?'ZMIANY':'ZMIAN'}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ))}
         </>
@@ -1696,6 +1709,18 @@ export default function App() {
             <Text style={[S.totalBig,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].shifts} zmian</Text>
             <Text style={[S.totalInfo,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].hours} godzin</Text>
             <Text style={[S.totalMoney,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].money} zł</Text>
+          </View>
+          <View style={S.debtCard}>
+            <Text style={S.debtTitle}>📒 Rozliczenie długu</Text>
+            <Text style={S.stat}>Zmiany wykonane: <Text style={S.white}>{totals[summaryPerson].shifts}</Text></Text>
+            <Text style={S.stat}>Target bazowy: <Text style={S.white}>{baseTargetCountsForSummary(summaryPerson)}</Text></Text>
+            <Text style={S.stat}>Dług z poprzednich okresów: <Text style={recoveryBalances[summaryPerson]>0?S.debtPositive:S.white}>+{Number(recoveryBalances[summaryPerson])||0}</Text></Text>
+            <Text style={S.stat}>Łączny target: <Text style={S.white}>{baseTargetCountsForSummary(summaryPerson)+(Number(recoveryBalances[summaryPerson])||0)}</Text></Text>
+            {cloudRole==='admin' && (Number(recoveryBalances[summaryPerson])||0)>0 ? (
+              <TouchableOpacity style={S.recoveryApprove} onPress={()=>confirmRecovery(summaryPerson)}>
+                <Text style={S.recoveryApproveText}>✅ ZATWIERDŹ SPŁATĘ {Number(recoveryBalances[summaryPerson])} {Number(recoveryBalances[summaryPerson])===1?'ZMIANY':'ZMIAN'}</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           <Text style={S.section}>Dni pracujące</Text>
           {selectedWorkDays.length ? selectedWorkDays.map(item => (
@@ -1721,6 +1746,41 @@ export default function App() {
     </ScrollView>
   );
 
+  const baseTargetCountsForSummary = person => {
+    const base = generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
+    return base.reduce((count,day)=>count + (day.shifts || []).filter(s=>s.person===person).length,0);
+  };
+
+  const recoveryLedgerDialog = (
+    <Modal visible={!!recoveryCorrection} transparent animationType="fade" onRequestClose={()=>setRecoveryCorrection(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>✏️ Ręczna korekta salda</Text>
+        <Text style={S.helpLine}>{recoveryCorrection ? PEOPLE[recoveryCorrection].name : ''}</Text>
+        <Text style={S.section}>Zmiana salda</Text>
+        <View style={S.row}>
+          {['1','-1','2','-2'].map(v=><TouchableOpacity key={v} style={[S.btn,recoveryCorrectionValue===v&&S.active]} onPress={()=>setRecoveryCorrectionValue(v)}><Text style={S.btnText}>{Number(v)>0?'+':''}{v}</Text></TouchableOpacity>)}
+        </View>
+        <Text style={S.section}>Powód</Text>
+        <TextInput value={recoveryCorrectionReason} onChangeText={setRecoveryCorrectionReason} placeholder="Np. korekta administracyjna" placeholderTextColor="#777" style={S.input} />
+        <TouchableOpacity style={S.generateFull} onPress={()=>{
+          const delta=Number(recoveryCorrectionValue);
+          if(!Number.isFinite(delta) || delta===0) return;
+          if(delta<0 && (Number(recoveryBalances[recoveryCorrection])||0)+delta<0) {
+            Alert.alert('Korekta','Saldo nie może spaść poniżej zera.');
+            return;
+          }
+          if(!recoveryCorrectionReason.trim()) {
+            Alert.alert('Korekta','Podaj powód korekty.');
+            return;
+          }
+          adjustRecoveryBalance(recoveryCorrection,delta,recoveryCorrectionReason.trim());
+          setRecoveryCorrection(null); setRecoveryCorrectionReason(''); setRecoveryCorrectionValue('1');
+        }}><Text style={S.btnText}>ZAPISZ KOREKTĘ</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>setRecoveryCorrection(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
   const weekSetupDialog = (
     <Modal visible={!!weekSetup && cloudRole==='admin'} transparent animationType='fade' onRequestClose={()=>{if(weekSetup){setDismissedWeekSetupKey(iso(weekSetup));setWeekSetup(null);}}}><View style={S.overlay}><View style={S.modal}>
       <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
@@ -1743,7 +1803,34 @@ export default function App() {
         <Text style={S.settingsSub}>GPS, raporty, grafik i dane aplikacji w jednym miejscu.</Text>
       </View>
       {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' && <AdminUsersPanel cloudUser={cloudUser}/>} 
-      <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
+      {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' ? (
+        <>
+          <Text style={S.section}>📒 Zarządzanie długiem (Ledger)</Text>
+          <Text style={S.helpLine}>Saldo jest niezależne od tygodnia. Generator tylko je odczytuje. Każda zmiana salda trafia do historii audytowej.</Text>
+          {PERSON_KEYS.map(k=>(
+            <View key={k} style={[S.option,{borderLeftWidth:4,borderLeftColor:personColor(k)}]}>
+              <View style={{flex:1}}>
+                <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+                <Text style={S.muted}>Saldo: <Text style={S.white}>+{Number(recoveryBalances[k])||0}</Text></Text>
+              </View>
+              <TouchableOpacity style={S.btn} onPress={()=>{setRecoveryCorrection(k);setRecoveryCorrectionValue('1');setRecoveryCorrectionReason('');}}>
+                <Text style={S.btnText}>KOREKTA</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <Text style={S.section}>Ostatnie operacje</Text>
+          {recoveryLedger.slice(0,15).length ? recoveryLedger.slice(0,15).map((entry,i)=>(
+            <View key={entry.id || i} style={S.option}>
+              <View style={{flex:1}}>
+                <Text style={S.optionText}>{PEOPLE[entry.person]?.name || entry.person} · {Number(entry.delta)>0?'+':''}{entry.delta}</Text>
+                <Text style={S.muted}>{entry.reason === 'off-recover' ? 'OFF - odrobienie zmiany' : entry.reason === 'recovery-confirmed' ? 'Spłata zatwierdzona' : entry.reason === 'manual-correction' ? 'Korekta administracyjna' : entry.reason || 'Operacja'}</Text>
+                <Text style={S.muted}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString('pl-PL') : ''}{entry.reason === 'manual-correction' && entry.metaReason ? ' · '+entry.metaReason : ''}</Text>
+              </View>
+            </View>
+          )) : <View style={S.option}><Text style={S.muted}>Brak operacji w historii.</Text></View>}
+        </>
+      ) : null}
+            <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
       <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta. Samo przypisanie nie wymaga jeszcze uruchomienia GPS. Dopiero potem włącz nadajnik lokalizacji.</Text>
       <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
       <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || locationTracking} style={[S.generateFull,{marginTop:0,opacity:(!vehicleRegistration.trim()||locationBusy||locationTracking)?0.45:1}]} onPress={async()=>{
@@ -2229,6 +2316,7 @@ export default function App() {
           {pinDialog}
           {backupDialog}
           {reportModalDialog}
+          {recoveryLedgerDialog}
           {weekSetupDialog}
 
           <View style={S.nav}>
@@ -2424,4 +2512,9 @@ const S = StyleSheet.create({
   rememberBox:{width:24,height:24,borderRadius:6,borderWidth:2,borderColor:'#667085',alignItems:'center',justifyContent:'center'},
   rememberBoxActive:{backgroundColor:'#467ff1',borderColor:'#467ff1'},
   rememberCheck:{color:'#fff',fontSize:18,fontWeight:'900'},
+  debtCard:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:14,marginBottom:12,borderWidth:1,borderColor:'#465674'},
+  debtTitle:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},
+  debtPositive:{color:'#ffbd66',fontWeight:'900'},
+  recoveryApprove:{backgroundColor:'#2e7d5b',borderRadius:12,padding:13,marginTop:10,alignItems:'center',borderWidth:1,borderColor:'#49a878'},
+  recoveryApproveText:{color:'#fff',fontWeight:'900',fontSize:12,textAlign:'center'},
 });
