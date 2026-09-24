@@ -40,11 +40,12 @@ test('GPS tracker guards against duplicate background tasks', () => {
   assert.match(service, /hasStartedLocationUpdatesAsync\(LOCATION_TASK_NAME\)/);
 });
 
-test('schedule notification date calculation covers each stored week without double-shifting days', () => {
+test('schedule notification date calculation uses stored Monday weeks without shifting days twice', () => {
   const app = read('App.js');
-  assert.match(app, /const key = iso\(date\);/);
-  assert.match(app, /const shiftDate = addDays\(startDay,dayOffset \+ di\);/);
-  assert.match(app, /dayOffset < 14/);
+  assert.match(app, /for \(let weekOffset = 0; weekOffset < 2; weekOffset\+\+\)/);
+  assert.match(app, /const weekStart = addDays\(startDay,weekOffset \* 7\);/);
+  assert.match(app, /const key = iso\(weekStart\);/);
+  assert.match(app, /const shiftDate = addDays\(weekStart,di\);/);
 });
 
 test('schedule generator preserves the two-person weekday rotation and Sunday Łukasz slot', () => {
@@ -90,4 +91,15 @@ test('web and Android acceptance surfaces remain wired', () => {
   assert.equal(pkg.dependencies['react-native'], '0.81.5');
   assert.equal(pkg.scripts.web, 'expo start --web');
   assert.equal(pkg.scripts.android, 'expo start --android');
+});
+
+
+test('advanced generator treats person-specific OFF as a candidate restriction and detects conflicting MUST rules', () => {
+  const app = read('App.js');
+  assert.match(app, /c\.type==='off' && !c\.person && conditionApplies\(c,''/);
+  assert.match(app, /const mustErrors=\[\];/);
+  assert.match(app, /sprzeczne MUST/);
+  assert.match(app, /ma jednocześnie OFF i MUST/);
+  assert.match(app, /ma jednocześnie FORBID i MUST/);
+  assert.match(app, /if\(mustErrors\.length \|\| unmet\.length \|\| forbiddenBroken\.length\)/);
 });
