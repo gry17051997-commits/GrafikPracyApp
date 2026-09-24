@@ -73,6 +73,16 @@ test('bottom navigation stays usable on narrow screens', () => {
   assert.match(app, /navText:\{color:'#aab3c2'.*fontSize:11/);
 });
 
+test('weekly totals use the configured hours for the displayed week', () => {
+  const app = read('../App.js');
+  assert.match(app, /const currentWeekHours = currentWeekConfig\.hours \|\| hours/);
+  assert.match(app, /result\.all\.hours \+= currentWeekHours/);
+  assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
+  assert.match(app, /result\[s\.person\]\.hours \+= currentWeekHours/);
+  assert.match(app, /result\[s\.person\]\.money \+= RATES\[currentWeekHours\]/);
+  assert.match(app, /shiftTime\(currentWeekTimes,s\.shift\)/);
+});
+
 test('web and Android acceptance surfaces remain wired', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.dependencies.expo, '~54.0.0');
