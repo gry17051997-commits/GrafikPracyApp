@@ -22,6 +22,10 @@ Projekt używa Expo SDK 54. Produkcyjny build APK jest wykonywany przez GitHub A
 
 Nie przechowujemy w repozytorium wygenerowanego katalogu `android/`, paczek ZIP ani lokalnych plików EAS. Dzięki temu źródła pozostają jednoznaczne i build jest powtarzalny.
 
+## Etap 4 - audit i przygotowanie wydania
+
+Etap 4 obejmuje końcowy audit bezpieczeństwa i UX, poprawki regresji, walidację Web/Android oraz przygotowanie artefaktów wydania. Szczególną uwagę należy zwrócić na konfigurację `locationConfig/main`, ponieważ identyfikator pojazdu nadajnika jest ustalany po stronie administratora.
+
 ## Etap 3 - regresja i bezpieczeństwo
 
 Automatyczny zestaw regresyjny znajduje się w `tests/stage3-regression.test.js` i uruchamia się przez:
