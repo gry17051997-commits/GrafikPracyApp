@@ -1155,10 +1155,9 @@ export default function App() {
   const saveOff = () => {
     if(!offModal) return;
     const {dayIndex,shiftIndex}=offModal;
-    let originalPerson = null;
+    const originalPerson=currentWeek[dayIndex]?.shifts?.[shiftIndex]?.person || null;
     setWeek(w=>{
       const sh=w[dayIndex].shifts[shiftIndex];
-      originalPerson=sh.person;
       sh.person=offReplacement || null;
       sh.off=true;
       sh.offMode=offMode;
