@@ -180,8 +180,27 @@ export async function stopVehicleLocationTracking() {
 export async function ensureVehicleLocationTracking() {
   if (Platform.OS==='web' || !FIREBASE_ENABLED || !db) return {ok:false,reason:'unsupported'};
   const cfg=await getConfig();
-  if (cfg.enabled!==true || !(cfg.vehicleId||cfg.registration)) return {ok:false,reason:'disabled'};
-  if (!(auth?.currentUser?.uid)) return {ok:false,reason:'auth'};
+  const currentUid=auth?.currentUser?.uid;
+  if (!currentUid) return {ok:false,reason:'auth'};
+
+  // Dla dedykowanego konta locator źródłem prawdy jest globalna konfiguracja
+  // administratora. Dzięki temu telefon nie musi mieć ręcznie ustawionego pojazdu.
+  const remoteSnap=await getDoc(doc(db,'locationConfig','main'));
+  const remoteConfig=remoteSnap.exists()?remoteSnap.data():{};
+  if (remoteConfig.enabled!==true || remoteConfig.locatorUid!==currentUid || !remoteConfig.vehicleId) {
+    return {ok:false,reason:'not-assigned'};
+  }
+
+  const vehicleId=safeVehicleId(remoteConfig.vehicleId);
+  const registration=String(remoteConfig.registration||vehicleId);
+  if (cfg.vehicleId!==vehicleId || cfg.registration!==registration || cfg.enabled!==true) {
+    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({
+      ...cfg,
+      enabled:true,
+      vehicleId,
+      registration
+    }));
+  }
   const fg=await Location.getForegroundPermissionsAsync();
   const bg=await Location.getBackgroundPermissionsAsync();
   if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};
