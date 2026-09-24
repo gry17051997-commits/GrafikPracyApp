@@ -132,7 +132,9 @@ service cloud.firestore {
         allow create: if isAdmin()
           || (signedIn()
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && get(/databases/$(database)/documents/locationConfig/main).data.locatorUid == request.auth.uid
             && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.locatorUid == request.auth.uid
             && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.latitude is number
             && request.resource.data.longitude is number
@@ -144,8 +146,10 @@ service cloud.firestore {
         allow update: if isAdmin()
           || (signedIn()
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            && get(/databases/$(database)/documents/locationConfig/main).data.locatorUid == request.auth.uid
             && resource.data.ownerUid == request.auth.uid
             && request.resource.data.vehicleId == vehicleId
+            && request.resource.data.locatorUid == request.auth.uid
             && request.resource.data.ownerUid == resource.data.ownerUid
             && request.resource.data.latitude is number
             && request.resource.data.longitude is number
