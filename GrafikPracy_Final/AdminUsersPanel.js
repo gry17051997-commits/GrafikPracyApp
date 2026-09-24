@@ -38,13 +38,17 @@ export default function AdminUsersPanel({cloudUser}) {
 
   const save=async()=>{
     if(!modal)return;
-    setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
+    setError('');
+    if(form.role==='locator' && !String(form.registration||'').trim()){
+      setError('Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+      return;
+    }
+    setBusy(modal.mode==='create'?'create':modal.user.uid);
     try{
       const fn=httpsCallable(getFunctions(firebaseApp),modal.mode==='create'?'createUserAccount':'updateUserProfile');
       const result=await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
       const uid=result?.data?.uid || modal.user?.uid;
       if(form.role==='locator'){
-        if(!String(form.registration||'').trim()) throw new Error('Dla lokalizatora podaj numer rejestracyjny pojazdu.');
         await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid,registration:String(form.registration).trim(),enabled:true});
       } else if(modal.mode==='edit' && modal.user?.role==='locator'){
         await httpsCallable(getFunctions(firebaseApp),'configureVehicleLocator')({uid:modal.user.uid,enabled:false});
