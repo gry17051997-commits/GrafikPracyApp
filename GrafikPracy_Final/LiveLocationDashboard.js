@@ -110,7 +110,12 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
         const exactFresh=exact && (now-Number(exact.updatedAt||0)<=180000);
         const freshRows=rows.filter(x=>now-Number(x.updatedAt||0)<=180000);
         const selected=requestedId ? (exactFresh ? exact : exact || null) : (freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0]);
-        setLocation(selected);
+        setLocation(selected || null);
+        if(!selected){
+          setHistory([]);
+          setLocationError(requestedId ? 'Nie znaleziono przypisanego pojazdu w chmurze.' : 'Brak dostępnego nadajnika GPS.');
+          return;
+        }
         setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
         setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
@@ -185,5 +190,5 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   </ScrollView>;
 }
 
-const styles={headerTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},error:{color:'#ff9b9b',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#141922',borderRadius:20,padding:18,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#141922',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#303a4a',shadowColor:'#000',shadowOpacity:0.12,shadowRadius:8,shadowOffset:{width:0,height:3},elevation:2},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',marginTop:10,borderWidth:1,borderColor:'#5d8ff5'},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#303a4a',alignItems:'center',justifyContent:'center',padding:10}};
+const styles={headerTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},error:{color:'#f0b35a',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#141922',borderRadius:20,padding:18,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#141922',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#303a4a',shadowColor:'#000',shadowOpacity:0.12,shadowRadius:8,shadowOffset:{width:0,height:3},elevation:2},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',marginTop:10,borderWidth:1,borderColor:'#5d8ff5'},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#303a4a',alignItems:'center',justifyContent:'center',padding:10}};
 
