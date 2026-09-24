@@ -11,6 +11,8 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(rules, /get\(\/databases\/\$\(database\)\/documents\/locationConfig\/main\)\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
+  assert.match(rules, /request\.resource\.data\.locatorUid == request\.auth\.uid/);
+  assert.match(rules, /data\.locatorUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
 });
 
@@ -18,13 +20,15 @@ test('Firestore rules keep role escalation and self-delete blocked', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /uid != request\.auth\.uid/);
   assert.match(rules, /allow delete: if false;/);
-  assert.match(rules, /request\.resource\.data\.role == 'employee'/);
+  assert.match(rules, /validRole\(value\)/);
+  assert.match(rules, /value == 'locator'/);
 });
 
 test('chat and WhatsApp reports cannot spoof profile identity', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /request\.resource\.data\.email == get\(\/databases\/\$\(database\)\/documents\/users\/\$\(request\.auth\.uid\)\)\.data\.email/);
-  assert.match(rules, /request\.resource\.data\.person == get\(\/databases\/\$\(database\)\/documents\/users\/\$\(request\.auth\.uid\)\)\.data\.personKey/);\n  assert.match(read('App.js'), /person:myPerson/);
+  assert.match(rules, /request\.resource\.data\.person == get\(\/databases\/\$\(database\)\/documents\/users\/\$\(request\.auth\.uid\)\)\.data\.personKey/);
+  assert.match(read('App.js'), /person:myPerson/);
 });
 
 test('logout and auth loss stop background GPS tracking', () => {
@@ -48,9 +52,10 @@ test('GPS tracker guards against duplicate background tasks', () => {
 
 test('schedule notification date calculation covers each stored week without double-shifting days', () => {
   const app = read('App.js');
-  assert.match(app, /const key = iso\(date\);/);
-  assert.match(app, /const shiftDate = addDays\(startDay,dayOffset \+ di\);/);
-  assert.match(app, /dayOffset < 14/);
+  assert.match(app, /const weekStart = addDays\(startDay,weekOffset \* 7\);/);
+  assert.match(app, /const key = iso\(weekStart\);/);
+  assert.match(app, /const shiftDate = addDays\(weekStart,di\);/);
+  assert.match(app, /weekOffset < 2/);
 });
 
 test('schedule generator preserves the two-person weekday rotation and Sunday Łukasz slot', () => {
