@@ -130,3 +130,23 @@ test('report notifications use each stored week configuration', () => {
   assert.match(app, /const weekTimes = weekConfigs\[key\]\?\.times/);
   assert.match(app, /DEFAULT_TIMES\[weekConfigs\[key\]\?\.hours \|\| hours\]/);
 });
+
+
+test('Sunday 24h for Łukasz is an editable default MUST rule, not hardcoded in generateWeek', () => {
+  const app = read('App.js');
+  assert.doesNotMatch(app, /w\[6\]\.shifts\[0\]\.person\s*=\s*'L'/);
+  assert.doesNotMatch(app, /w\[6\]\.shifts\[1\]\.person\s*=\s*'L'/);
+  assert.match(app, /id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1/);
+  assert.match(app, /id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2/);
+  assert.match(app, /setConditions\(\[/);
+});
+
+test('Changing hours in the schedule view does not mutate global hours or times', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const changeHours = h => {');
+  const end = app.indexOf('\n  };', start);
+  const block = app.slice(start, end);
+  assert.doesNotMatch(block, /setHours\(h\)/);
+  assert.doesNotMatch(block, /setTimes\(DEFAULT_TIMES\[h\]\)/);
+  assert.match(block, /setWeekConfigs/);
+});
