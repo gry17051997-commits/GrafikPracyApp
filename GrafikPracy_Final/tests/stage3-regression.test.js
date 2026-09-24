@@ -291,3 +291,38 @@ test('manual negative recovery correction is clamped at zero and audited', () =>
   assert.match(app, /delta:\s*change/);
   assert.match(app, /reason:\s*['\"]manual-correction['\"]/);
 });
+
+
+test('swap proposals snapshot the week and expected assignments', () => {
+  const app = read('App.js');
+  assert.match(app, /weekKey:wkKey/);
+  assert.match(app, /fromExpectedPerson:swapModal\.person \|\| null/);
+  assert.match(app, /toExpectedPerson:swapTarget/);
+});
+
+test('swap approval uses the proposal week and rejects stale or locked shifts', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const approveProposal = async proposal => {');
+  const end = app.indexOf('  const rejectProposal = async id => {', start);
+  const block = app.slice(start, end);
+  assert.match(block, /const proposalWeekKey=proposal\.weekKey \|\| wkKey/);
+  assert.match(block, /const proposalWeek=weeks\[proposalWeekKey\]/);
+  assert.match(block, /expectedA=proposal\.fromExpectedPerson/);
+  assert.match(block, /expectedB=proposal\.toExpectedPerson/);
+  assert.match(block, /Propozycja nieaktualna/);
+  assert.match(block, /a\.locked \|\| b\.locked/);
+  assert.match(block, /\[proposalWeekKey\]:next/);
+});
+
+test('manual negative recovery correction records the actually applied delta', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const adjustRecoveryBalance =');
+  const end = app.indexOf('  const saveOff =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /const current = Number\(recoveryBalances\[person\]\) \|\| 0/);
+  assert.match(block, /const next = Math\.max\(0,current \+ change\)/);
+  assert.match(block, /const applied = next - current/);
+  assert.match(block, /if \(applied === 0\) return/);
+  assert.match(block, /appendRecoveryLedger\(person,applied,'manual-correction'/);
+  assert.doesNotMatch(block, /appendRecoveryLedger\(person,change,'manual-correction'/);
+});

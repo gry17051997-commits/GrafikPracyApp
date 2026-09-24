@@ -1157,8 +1157,12 @@ export default function App() {
     if (readOnly || !PERSON_KEYS.includes(person)) return;
     const change = Number(delta);
     if (!Number.isFinite(change) || change === 0) return;
-    setRecoveryBalances(prev => ({...prev,[person]:Math.max(0,(Number(prev[person])||0)+change)}));
-    appendRecoveryLedger(person,change,'manual-correction',{metaReason:reasonText});
+    const current = Number(recoveryBalances[person]) || 0;
+    const next = Math.max(0,current + change);
+    const applied = next - current;
+    if (applied === 0) return;
+    setRecoveryBalances(prev => ({...prev,[person]:next}));
+    appendRecoveryLedger(person,applied,'manual-correction',{metaReason:reasonText});
   };
 
   const saveOff = () => {
@@ -1204,12 +1208,15 @@ export default function App() {
     const proposal={
       fromUid:cloudUser.uid,
       fromEmail:cloudUser.email || '',
+      weekKey:wkKey,
       fromPerson:swapModal.person || null,
       fromDay:swapModal.dayIndex,
       fromShift:swapModal.shiftIndex+1,
+      fromExpectedPerson:swapModal.person || null,
       toPerson:swapTarget,
       toDay:swapTargetDay,
       toShift:swapTargetShift,
+      toExpectedPerson:swapTarget,
       status:'pending',
       createdAt:new Date().toISOString()
     };
@@ -1223,12 +1230,42 @@ export default function App() {
 
   const approveProposal = async proposal => {
     if(readOnly || proposal.status !== 'pending') return;
-    const a=currentWeek[proposal.fromDay]?.shifts?.[proposal.fromShift-1];
-    const b=currentWeek[proposal.toDay]?.shifts?.[proposal.toShift-1];
-    if(!a || !b || dayHasPassed(proposal.fromDay) || dayHasPassed(proposal.toDay)){Alert.alert('Nie można','Jedna ze zmian jest już zakończona.');return;}
-    setWeek(w=>{
-      const x=w[proposal.fromDay].shifts[proposal.fromShift-1], y=w[proposal.toDay].shifts[proposal.toShift-1];
-      const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true; return w;
+    const proposalWeekKey=proposal.weekKey || wkKey;
+    const proposalWeek=weeks[proposalWeekKey];
+    if(!proposalWeek){
+      Alert.alert('Nie można','Tydzień z propozycji zamiany nie jest już dostępny.');
+      return;
+    }
+    const fromDay=Number(proposal.fromDay), toDay=Number(proposal.toDay);
+    const fromShift=Number(proposal.fromShift), toShift=Number(proposal.toShift);
+    const parts=String(proposalWeekKey).split('-').map(Number);
+    const proposalWeekStart=new Date(parts[0],parts[1]-1,parts[2]);
+    const now=new Date();
+    const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const a=proposalWeek[fromDay]?.shifts?.[fromShift-1];
+    const b=proposalWeek[toDay]?.shifts?.[toShift-1];
+    const expectedA=proposal.fromExpectedPerson ?? proposal.fromPerson ?? null;
+    const expectedB=proposal.toExpectedPerson ?? proposal.toPerson ?? null;
+    const aMatches=a && a.person===expectedA;
+    const bMatches=b && b.person===expectedB;
+    const fromDate=new Date(proposalWeekStart); fromDate.setDate(fromDate.getDate()+fromDay);
+    const toDate=new Date(proposalWeekStart); toDate.setDate(toDate.getDate()+toDay);
+    if(!a || !b || !aMatches || !bMatches || fromDate < today || toDate < today){
+      Alert.alert('Propozycja nieaktualna','Grafik zmienił się od czasu wysłania propozycji. Zamiana nie została wykonana.');
+      return;
+    }
+    if(a.locked || b.locked){
+      Alert.alert('Nie można','Jedna ze zmian jest zablokowana.');
+      return;
+    }
+    setWeeks(prev=>{
+      const source=prev[proposalWeekKey];
+      if(!source) return prev;
+      const next=cloneWeek(source);
+      const x=next[fromDay].shifts[fromShift-1], y=next[toDay].shifts[toShift-1];
+      if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) return prev;
+      const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
+      return {...prev,[proposalWeekKey]:next};
     });
     try {
       if(FIREBASE_ENABLED && db) await updateDoc(doc(db,'proposals',proposal.id),{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
