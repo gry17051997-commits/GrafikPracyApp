@@ -230,3 +230,64 @@ test('soft target clipping never lowers target below already realized assignment
   const app = read('App.js');
   assert.match(app, /Math\.max\(counts\[p\],Math\.min\(requestedTarget,maxAvailable\)\)/);
 });
+
+
+test('recovery ledger contract: recover OFF adds exactly one debt entry', () => {
+  const app = read('App.js');
+  assert.match(app, /recoveryBalances/);
+  assert.match(app, /recoveryLedger/);
+  assert.match(app, /offMode==='recover'/);
+  assert.match(app, /delta:\s*1/);
+  assert.match(app, /reason:\s*['\"]off-recover['\"]/);
+});
+
+test('recovery ledger is read-only from the advanced generator', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const generateAdvancedWeek = () => {');
+  const end = app.indexOf('  const regenerate = () => {', start);
+  const block = app.slice(start, end);
+  assert.match(block, /recoveryBalances/);
+  assert.doesNotMatch(block, /setRecoveryBalances/);
+  assert.doesNotMatch(block, /setRecoveryLedger/);
+  assert.doesNotMatch(block, /recoveryBalances\s*\[[^\]]+\]\s*=/);
+});
+
+test('repeated generation cannot mutate recovery ledger state', () => {
+  const app = read('App.js');
+  assert.match(app, /const recoveryBalancesSnapshot/);
+  assert.match(app, /const recoveryTarget/);
+  assert.match(app, /baseTarget\+recoveryTarget/);
+  assert.doesNotMatch(app, /recoveryBalances\[[^\]]+\]\s*\+=/);
+});
+
+test('clearing the current week never clears or decrements recovery debt', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const clearCurrentWeek = () => {');
+  const end = app.indexOf('  const clearWholeWeekShift =', start);
+  const block = app.slice(start, end);
+  assert.doesNotMatch(block, /setRecoveryBalances|setRecoveryLedger/);
+  assert.match(block, /setWeeks/);
+});
+
+test('confirmRecovery decrements debt with an auditable ledger entry', () => {
+  const app = read('App.js');
+  assert.match(app, /const confirmRecovery\s*=\s*\(?person\)?\s*=>/);
+  assert.match(app, /Math\.max\(0,/);
+  assert.match(app, /delta:\s*-1/);
+  assert.match(app, /reason:\s*['\"]recovery-confirmed['\"]/);
+});
+
+test('recovery repayment at zero is idempotent and cannot create negative balance', () => {
+  const app = read('App.js');
+  assert.match(app, /if\s*\(current\s*<=\s*0\)/);
+  assert.match(app, /return\s*;/);
+  assert.match(app, /Math\.max\(0,current-1\)/);
+});
+
+test('manual negative recovery correction is clamped at zero and audited', () => {
+  const app = read('App.js');
+  assert.match(app, /adjustRecoveryBalance/);
+  assert.match(app, /Math\.max\(0,/);
+  assert.match(app, /delta:\s*change/);
+  assert.match(app, /reason:\s*['\"]manual-correction['\"]/);
+});
