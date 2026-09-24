@@ -54,6 +54,16 @@ test('GPS service rechecks authenticated owner before every cloud write', () => 
   assert.match(service, /expectedUid\s*&&\s*ownerUid\s*!==\s*expectedUid/);
 });
 
+test('GPS status distinguishes foreground and background permission failures', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /fg\.status!=='granted'.*foreground-permission/s);
+  assert.match(service, /bg\.status!=='granted'.*background-permission/s);
+  const app = read('App.js');
+  assert.match(app, /foreground-permission:'🟠 Brak zgody/);
+  assert.match(app, /background-permission:'🟠 Brak zgody/);
+  assert.match(app, /locationStatusText\[locationStatus\]/);
+});
+
 test('GPS tracker guards against duplicate background tasks', () => {
   const service = read('LocationService.js');
   assert.match(service, /hasStartedLocationUpdatesAsync\(LOCATION_TASK_NAME\)/);
