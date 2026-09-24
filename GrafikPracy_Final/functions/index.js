@@ -164,6 +164,53 @@ exports.createUserAccount = onCall(async request => {
   return {ok:true,uid:user.uid,email:user.email};
 });
 
+exports.configureVehicleLocator = onCall(async request => {
+  const db = getFirestore();
+  if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
+
+  const callerSnap = await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request, callerSnap);
+
+  const uid = String(request.data?.uid || '').trim();
+  const registration = String(request.data?.registration || '').trim().toUpperCase();
+  const enabled = request.data?.enabled !== false;
+
+  if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora lokalizatora.');
+  if (enabled && !registration) throw new HttpsError('invalid-argument','Podaj numer rejestracyjny pojazdu.');
+
+  const targetSnap = await db.collection('users').doc(uid).get();
+  if (enabled && (!targetSnap.exists || targetSnap.data()?.role !== 'locator')) {
+    throw new HttpsError('failed-precondition','Wybrany użytkownik musi mieć rolę lokalizatora.');
+  }
+
+  const vehicleId = registration
+    ? registration.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)
+    : String(request.data?.vehicleId || '').trim();
+
+  await db.collection('locationConfig').doc('main').set({
+    enabled,
+    vehicleId: enabled ? vehicleId : '',
+    registration: enabled ? registration : '',
+    locatorUid: enabled ? uid : '',
+    updatedAt: new Date(),
+    updatedBy: request.auth.uid
+  }, {merge:true});
+
+  try {
+    await db.collection('audit').add({
+      action: enabled ? 'configure-vehicle-locator' : 'disable-vehicle-locator',
+      targetUid: uid,
+      vehicleId: enabled ? vehicleId : '',
+      actorUid: request.auth.uid,
+      createdAt: new Date()
+    });
+  } catch (auditError) {
+    console.error('configureVehicleLocator audit error', auditError);
+  }
+
+  return {ok:true,uid,vehicleId,registration,enabled};
+});
+
 exports.updateUserProfile = onCall(async request => {
   const db = getFirestore();
   const auth = getAuth();
