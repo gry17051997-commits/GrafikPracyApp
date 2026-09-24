@@ -1370,41 +1370,63 @@ export default function App() {
     Alert.alert('Wyczyścić dane?','Usunie zapisane grafiki i ustawienia tej aplikacji.',[
       {text:'Anuluj',style:'cancel'},
       {text:'Wyczyść',style:'destructive',onPress:async()=>{
-        await AsyncStorage.removeItem(KEY);
+        await Promise.all([
+          AsyncStorage.removeItem(KEY),
+          AsyncStorage.removeItem(LEGACY_KEY),
+          AsyncStorage.removeItem(REPORT_PREFS_KEY),
+          AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY),
+          AsyncStorage.removeItem(CHAT_LOCAL_KEY),
+          AsyncStorage.removeItem(REPORT_HISTORY_KEY),
+          AsyncStorage.removeItem(REMEMBER_LOGIN_KEY),
+          AsyncStorage.removeItem(LOCATION_CONFIG_KEY)
+        ]);
         setWeeks({});
+        setWeekConfigs({});
+        setAutoGenerateWeeks(false);
         setPin('');
         setPinEnabled(false);
         setHours(10);
         setRotation('P');
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
+        setDark(true);
         setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
         setConditions([]);
-        setAutoGenerateWeeks(false);
+        setProposals([]);
+        setMyPerson('P');
+        setVehicleRegistration('');
+        setReportGroupLink('');
+        setReportsEnabled(true);
+        setReportHistory([]);
+        setWarehouseGeo({});
+        setRecoveryBalances({P:0,M:0,L:0});
+        setRecoveryLedger([]);
+        setChatMessages([]);
+        setRememberLogin(true);
+        setLocationTracking(false);
+        setLocationBusy(false);
       }}
     ]);
   };
 
+  const buildBackupPayload = () => ({
+    app:'Grafik Pracy',
+    version:5,
+    exportedAt:new Date().toISOString(),
+    hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,
+    times,personColors,conditions,proposals,myPerson,
+    vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
+    recoveryBalances,recoveryLedger,chatMessages
+  });
+
   const createBackup = () => {
-    const payload = {
-      app:'Grafik Pracy',
-      version:4,
-      exportedAt:new Date().toISOString(),
-      hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors
-    };
-    setBackupText(JSON.stringify(payload,null,2));
+    setBackupText(JSON.stringify(buildBackupPayload(),null,2));
     setBackupModal(true);
   };
 
   const shareBackup = async () => {
     try {
-      const payload = {
-        app:'Grafik Pracy',
-        version:4,
-        exportedAt:new Date().toISOString(),
-        hours,rotation,warehouse,weeks,pin,pinEnabled,dark,times,personColors
-      };
-      await Share.share({message:JSON.stringify(payload)});
+      await Share.share({message:JSON.stringify(buildBackupPayload())});
     } catch(e) {
       Alert.alert('Błąd','Nie udało się udostępnić kopii.');
     }
@@ -1418,13 +1440,23 @@ export default function App() {
       setRotation(data.rotation || 'P');
       setWarehouse(data.warehouse || 'PNT B');
       setWeeks(data.weeks || {});
+      setWeekConfigs(data.weekConfigs || {});
+      setAutoGenerateWeeks(!!data.autoGenerateWeeks);
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
       setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
-          setConditions(data.conditions || []);
-          setProposals(data.proposals || []);
-          setMyPerson(data.myPerson || 'P');
+      setConditions(Array.isArray(data.conditions) ? data.conditions : []);
+      setProposals(Array.isArray(data.proposals) ? data.proposals : []);
+      setMyPerson(PERSON_KEYS.includes(data.myPerson) ? data.myPerson : 'P');
+      setVehicleRegistration(data.vehicleRegistration || '');
+      setReportGroupLink(data.reportGroupLink || '');
+      setReportsEnabled(data.reportsEnabled !== false);
+      setReportHistory(Array.isArray(data.reportHistory) ? data.reportHistory : []);
+      setWarehouseGeo(data.warehouseGeo || {});
+      setRecoveryBalances({...{P:0,M:0,L:0},...(data.recoveryBalances || {})});
+      setRecoveryLedger(Array.isArray(data.recoveryLedger) ? data.recoveryLedger : []);
+      setChatMessages(Array.isArray(data.chatMessages) ? data.chatMessages : []);
       setTimes(data.times?.[data.hours || 10] || DEFAULT_TIMES[data.hours || 10]);
       setBackupModal(false);
       Alert.alert('Gotowe','Kopia została przywrócona.');
@@ -1479,7 +1511,7 @@ export default function App() {
         }).join('');
         body=`<div style="font-size:12px">${body}</div>`;
       } else {
-        body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(times.s1)}–${escapeHtml(times.e1)}</th><th>II · ${escapeHtml(times.s2)}–${escapeHtml(times.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
+        body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(currentWeekTimes.s1)}–${escapeHtml(currentWeekTimes.e1)}</th><th>II · ${escapeHtml(currentWeekTimes.s2)}–${escapeHtml(currentWeekTimes.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
       }
       const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
       const {uri}=await Print.printToFileAsync({html,width:842,height:595});
