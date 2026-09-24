@@ -35,7 +35,8 @@ Aplikacja obsługuje jeden wspólny model floty: **3 pracowników, 1 pojazd i 1 
 - administrator ustala numer rejestracyjny i konto lokalizatora w `locationConfig/main`,
 - telefon lokalizatora pobiera tę konfigurację po zalogowaniu i może uruchomić tracking bez ręcznego przypisywania pojazdu,
 - `vehicleId` i `locatorUid` są ponownie sprawdzane przed każdym zapisem GPS po stronie aplikacji i Firestore,
-- wylogowanie lub utrata sesji zatrzymuje lokalne śledzenie.
+- wylogowanie lub utrata sesji zatrzymuje lokalne śledzenie,
+- aplikacja rozróżnia brak zgody na lokalizację dokładną, brak zgody na lokalizację w tle, wyłączone usługi lokalizacji oraz brak przypisania pojazdu i pokazuje ten stan na koncie `locator`.
 
 Konto `locator` nie jest pracownikiem grafiku i nie powinno być używane do obsady zmian.
 
