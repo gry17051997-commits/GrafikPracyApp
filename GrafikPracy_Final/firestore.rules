@@ -46,7 +46,7 @@ service cloud.firestore {
     }
 
     match /schedules/main {
-      allow read: if true;
+      allow read: if signedIn();
       allow write: if isAdmin();
     }
 
