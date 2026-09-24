@@ -72,8 +72,8 @@ test('Web deployment uses the lockfile for deterministic dependency installation
 test('bottom navigation stays usable on narrow screens', () => {
   const app = read('../App.js');
   assert.match(app, /<ScrollView\s+horizontal[\s\S]*?contentContainerStyle=\{S\.navScroll\}/);
-  assert.match(app, /navBtn:\{width:82,minWidth:82/);
-  assert.match(app, /navText:\{color:'#aab3c2'.*fontSize:11/);
+  assert.match(app, /navBtn:\{width:54,minWidth:54/);
+  assert.match(app, /navText:\{color:'#aab3c2'.*fontSize:9/);
 });
 
 test('weekly totals use the configured hours for the displayed week', () => {
@@ -325,4 +325,41 @@ test('manual negative recovery correction records the actually applied delta', (
   assert.match(block, /if \(applied === 0\) return/);
   assert.match(block, /appendRecoveryLedger\(person,applied,'manual-correction'/);
   assert.doesNotMatch(block, /appendRecoveryLedger\(person,change,'manual-correction'/);
+});
+
+test('backup contains all locally persisted schedule and business state', () => {
+  const app = read('../App.js');
+  assert.match(app, /const buildBackupPayload = \(\) =>/);
+  assert.match(app, /weekConfigs,autoGenerateWeeks/);
+  assert.match(app, /conditions,proposals,myPerson/);
+  assert.match(app, /vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo/);
+  assert.match(app, /recoveryBalances,recoveryLedger,chatMessages/);
+});
+
+test('restore restores persisted state beyond the base schedule', () => {
+  const app = read('../App.js');
+  assert.match(app, /setWeekConfigs\(data\.weekConfigs \|\| \{\}\)/);
+  assert.match(app, /setAutoGenerateWeeks\(!!data\.autoGenerateWeeks\)/);
+  assert.match(app, /setRecoveryBalances/);
+  assert.match(app, /setRecoveryLedger/);
+  assert.match(app, /setReportHistory/);
+  assert.match(app, /setWarehouseGeo/);
+  assert.match(app, /setChatMessages/);
+});
+
+test('reset clears local auxiliary state as well as the main schedule', () => {
+  const app = read('../App.js');
+  assert.match(app, /AsyncStorage\.removeItem\(LEGACY_KEY\)/);
+  assert.match(app, /AsyncStorage\.removeItem\(REPORT_HISTORY_KEY\)/);
+  assert.match(app, /AsyncStorage\.removeItem\(LOCATION_CONFIG_KEY\)/);
+  assert.match(app, /setWeekConfigs\(\{\}\)/);
+  assert.match(app, /setRecoveryBalances\(\{P:0,M:0,L:0\}\)/);
+  assert.match(app, /setChatMessages\(\[\]\)/);
+});
+
+test('PDF export headers use the displayed week time configuration', () => {
+  const app = read('../App.js');
+  assert.match(app, /I · \$\{escapeHtml\(currentWeekTimes\.s1\)/);
+  assert.match(app, /II · \$\{escapeHtml\(currentWeekTimes\.s2\)/);
+  assert.doesNotMatch(app, /I · \$\{escapeHtml\(times\.s1\)/);
 });
