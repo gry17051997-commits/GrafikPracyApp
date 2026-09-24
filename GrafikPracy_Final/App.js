@@ -215,6 +215,8 @@ export default function App() {
   const [shareFormat,setShareFormat] = useState('table');
   const [conditionModal,setConditionModal] = useState(false);
   const [conditions,setConditions] = useState([]);
+  const [recoveryBalances,setRecoveryBalances] = useState({P:0,M:0,L:0});
+  const [recoveryLedger,setRecoveryLedger] = useState([]);
   const [conditionPerson,setConditionPerson] = useState('P');
   const [conditionType,setConditionType] = useState('must');
   const [conditionDay,setConditionDay] = useState(0);
@@ -330,6 +332,8 @@ export default function App() {
             ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
             ...savedConditions
           ]);
+          setRecoveryBalances({...{P:0,M:0,L:0},...(data.recoveryBalances || {})});
+          setRecoveryLedger(Array.isArray(data.recoveryLedger) ? data.recoveryLedger : []);
           setProposals(data.proposals || []);
           setMyPerson(data.myPerson || 'P');
           setVehicleRegistration(data.vehicleRegistration || '');
@@ -375,13 +379,13 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
@@ -514,6 +518,8 @@ export default function App() {
       if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (data.personColors) setPersonColors(data.personColors);
       if (data.conditions) setConditions(data.conditions);
+      if (data.recoveryBalances) setRecoveryBalances({...{P:0,M:0,L:0},...data.recoveryBalances});
+      if (Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       setCloudUpdated(true);
       setTimeout(() => setCloudUpdated(false), 2500);
@@ -547,7 +553,7 @@ export default function App() {
       cloudApplying.current = false;
       return;
     }
-    const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+    const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
     setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
   },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,cloudUser,cloudRole]);
 
@@ -937,11 +943,14 @@ export default function App() {
 
     const targets={P:null,M:null,L:null};
     conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
-    const recoverNeeds={P:0,M:0,L:0};
-    result.forEach(d=>d.shifts.forEach(s=>{if(s.offMode==='recover' && s.recoverPerson) recoverNeeds[s.recoverPerson]++;}));
+    // Recovery debt is an independent business ledger. The generator is strictly
+    // read-only: it may consume the balance when calculating targets, but never
+    // creates, settles, clears or edits ledger entries.
+    const recoveryBalancesSnapshot={P:0,M:0,L:0,...recoveryBalances};
     PERSON_KEYS.forEach(p=>{
       const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
-      targets[p]=baseTarget+recoverNeeds[p];
+      const recoveryTarget=Math.max(0,Number(recoveryBalancesSnapshot[p])||0);
+      targets[p]=baseTarget+recoveryTarget;
     });
 
     // Apply hard MUST assignments first. Conflicting MUST/OFF/FORBID rules are reported.
@@ -1122,12 +1131,34 @@ export default function App() {
     setOffMode('plain'); setOffReplacement(''); setOffModal({dayIndex,shiftIndex,person:sh?.person||null});
   };
 
+  const appendRecoveryLedger = (person, delta, reason, meta={}) => {
+    if (!person || !PERSON_KEYS.includes(person) || !Number.isFinite(Number(delta)) || Number(delta) === 0) return;
+    setRecoveryLedger(prev => [{id:String(Date.now()),person,delta:Number(delta),reason,...meta,createdAt:new Date().toISOString()},...prev].slice(0,500));
+  };
+
+  const confirmRecovery = person => {
+    if (readOnly || !PERSON_KEYS.includes(person)) return;
+    const current = Number(recoveryBalances[person]) || 0;
+    if (current <= 0) return;
+    setRecoveryBalances(prev => ({...prev,[person]:Math.max(0,(Number(prev[person])||0)-1)}));
+    appendRecoveryLedger(person,-1,'recovery-confirmed');
+  };
+
+  const adjustRecoveryBalance = (person, delta) => {
+    if (readOnly || !PERSON_KEYS.includes(person)) return;
+    const change = Number(delta);
+    if (!Number.isFinite(change) || change === 0) return;
+    setRecoveryBalances(prev => ({...prev,[person]:Math.max(0,(Number(prev[person])||0)+change)}));
+    appendRecoveryLedger(person,change,'manual-correction');
+  };
+
   const saveOff = () => {
     if(!offModal) return;
     const {dayIndex,shiftIndex}=offModal;
+    let originalPerson = null;
     setWeek(w=>{
       const sh=w[dayIndex].shifts[shiftIndex];
-      const originalPerson=sh.person;
+      originalPerson=sh.person;
       sh.person=offReplacement || null;
       sh.off=true;
       sh.offMode=offMode;
@@ -1137,6 +1168,10 @@ export default function App() {
       sh.manual=true;
       return w;
     });
+    if (offMode === 'recover' && originalPerson) {
+      setRecoveryBalances(prev => ({...prev,[originalPerson]:(Number(prev[originalPerson])||0)+1}));
+      appendRecoveryLedger(originalPerson,1,'off-recover',{dayIndex,shiftIndex});
+    }
     if(offReplacement){
       Alert.alert('Zastępstwo zapisane', `${PEOPLE[offReplacement].name} zastępuje na tej zmianie.`);
     }
