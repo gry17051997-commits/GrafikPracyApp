@@ -686,7 +686,7 @@ export default function App() {
     const body = chatText.trim();
     if (!body || chatBusy) return;
     setChatBusy(true);
-    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:myPerson,createdAt:new Date().toISOString()};
     try {
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
       else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
