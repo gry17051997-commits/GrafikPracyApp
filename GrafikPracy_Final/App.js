@@ -739,15 +739,15 @@ export default function App() {
     const today = new Date();
     const startDay = monday(today);
 
-    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
-      const date = addDays(startDay,dayOffset);
-      const key = iso(date);
+    for (let weekOffset = 0; weekOffset < 2; weekOffset++) {
+      const weekStart = addDays(startDay,weekOffset * 7);
+      const key = iso(weekStart);
       const week = weeks[key] || null;
       if (!week) continue;
 
       for (let di = 0; di < week.length; di++) {
         const day = week[di];
-        const shiftDate = addDays(startDay,dayOffset + di);
+        const shiftDate = addDays(weekStart,di);
         for (let si = 0; si < (day.shifts || []).length; si++) {
           const shift = day.shifts[si];
           if (shift.person !== myPerson) continue;
@@ -894,25 +894,45 @@ export default function App() {
     const slots=[];
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
       if (dayHasPassed(di) || s.locked) return;
-      const forcedOff = conditions.some(c=>c.type==='off' && conditionApplies(c,'',di,si));
+      const forcedOff = conditions.some(c=>c.type==='off' && !c.person && conditionApplies(c,'',di,si));
       if (!forcedOff) slots.push({di,si});
     }));
 
     const counts={P:0,M:0,L:0};
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
     const targets={P:null,M:null,L:null};
-    conditions.filter(c=>c.type==='count').forEach(c=>{targets[c.person]=Number(c.value)||0;});
+    conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
     const recoverNeeds={P:0,M:0,L:0};
     result.forEach(d=>d.shifts.forEach(s=>{if(s.offMode==='recover' && s.recoverPerson) recoverNeeds[s.recoverPerson]++;}));
     PERSON_KEYS.forEach(p=>{if(recoverNeeds[p]) targets[p]=Math.max(targets[p]===null?counts[p]:targets[p],counts[p]+recoverNeeds[p]);});
 
-    // Apply hard MUST assignments first where possible.
+    // Apply hard MUST assignments first. Conflicting MUST/OFF/FORBID rules are reported.
+    const mustErrors=[];
+    const mustSlots=new Map();
     conditions.filter(c=>c.type==='must').forEach(c=>{
       if(!c.person || c.dayIndex===undefined || !c.shift) return;
       const si=Number(c.shift)-1, di=Number(c.dayIndex), s=result[di]?.shifts?.[si];
       if(!s || dayHasPassed(di) || s.locked || s.manual) return;
-      s.person=c.person; counts[c.person]++;
+      const slotKey=di + '-' + si;
+      const previous=mustSlots.get(slotKey);
+      if(previous && previous !== c.person){
+        mustErrors.push(`${DAYS[di]} ${si+1}: sprzeczne MUST (${PEOPLE[previous].name} / ${PEOPLE[c.person].name})`);
+        return;
+      }
+      if(conditions.some(x=>x.type==='off' && conditionApplies(x,c.person,di,si))){
+        mustErrors.push(`${PEOPLE[c.person].name}: ${DAYS[di]} ${si+1} ma jednocześnie OFF i MUST`);
+        return;
+      }
+      if(conditions.some(x=>x.type==='forbid' && conditionApplies(x,c.person,di,si))){
+        mustErrors.push(`${PEOPLE[c.person].name}: ${DAYS[di]} ${si+1} ma jednocześnie FORBID i MUST`);
+        return;
+      }
+      mustSlots.set(slotKey,c.person);
+      s.person=c.person;
     });
+    // Rebuild counts after MUST assignments.
+    PERSON_KEYS.forEach(p=>{counts[p]=0;});
+    result.forEach(d=>d.shifts.forEach(s=>{if(s.person) counts[s.person]++;}));
 
     // Fill remaining slots using target counts, respecting hard prohibitions.
     for (const slot of slots) {
@@ -940,8 +960,8 @@ export default function App() {
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
       if(s.person && conditions.some(c=>c.type==='forbid' && conditionApplies(c,s.person,di,si))) forbiddenBroken.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1}`);
     }));
-    if(unmet.length || forbiddenBroken.length){
-      Alert.alert('Nie udało się spełnić wszystkich warunków', [...unmet,...forbiddenBroken].join('\n') || 'Spróbuj zmienić warunki.');
+    if(mustErrors.length || unmet.length || forbiddenBroken.length){
+      Alert.alert('Nie udało się spełnić wszystkich warunków', [...mustErrors,...unmet,...forbiddenBroken].join('\n') || 'Spróbuj zmienić warunki.');
       return null;
     }
     // Apply requested replacement for days off.
