@@ -66,6 +66,13 @@ test('Web deployment uses the lockfile for deterministic dependency installation
   assert.match(workflow, /run: npm ci --ignore-scripts/);
 });
 
+test('bottom navigation stays usable on narrow screens', () => {
+  const app = read('../App.js');
+  assert.match(app, /<ScrollView\s+horizontal[\s\S]*?contentContainerStyle=\{S\.navScroll\}/);
+  assert.match(app, /navBtn:\{width:82,minWidth:82/);
+  assert.match(app, /navText:\{color:'#aab3c2'.*fontSize:11/);
+});
+
 test('web and Android acceptance surfaces remain wired', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.dependencies.expo, '~54.0.0');
