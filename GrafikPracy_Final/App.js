@@ -296,7 +296,11 @@ export default function App() {
       ]
     );
   };
-  const currentWeek = weeks[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);
+  const currentWeekConfig = weekConfigs[wkKey] || {};
+  const currentWeekHours = currentWeekConfig.hours || hours;
+  const currentWeekTimes = currentWeekConfig.times || DEFAULT_TIMES[currentWeekHours] || times;
+  const currentWeekWarehouse = currentWeekConfig.warehouse || warehouse;
+  const currentWeek = weeks[wkKey] || emptyWeek(currentWeekWarehouse);
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
   const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
   const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
@@ -1119,7 +1123,7 @@ export default function App() {
       result[s.person].money += RATES[hours];
     }));
     return result;
-  },[currentWeek,hours]);
+  },[currentWeek,currentWeekHours]);
 
   const conflicts = useMemo(() => {
     const arr = [];
@@ -1244,7 +1248,7 @@ export default function App() {
         const cells=d.shifts.map((s,si)=>{
           const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
           const name=visible?PEOPLE[s.person].name:'WOLNA';
-          const wh=visible?(s.warehouse||d.warehouse||warehouse):'';
+          const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
           return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(times,si+1)):''}</span></td>`;
         }).join('');
         return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
@@ -1253,14 +1257,14 @@ export default function App() {
       if(shareFormat==='list'){
         body=currentWeek.map((d,i)=>{
           const date=addDays(weekStart,i);
-          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(times,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
+          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(currentWeekTimes,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
           return `<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>${DAYS[i]} ${shortDate(date)}</b><br>${items.length?items.map(escapeHtml).join('<br>'):'WOLNE'}</div>`;
         }).join('');
         body=`<div style="font-size:12px">${body}</div>`;
       } else {
         body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(times.s1)}–${escapeHtml(times.e1)}</th><th>II · ${escapeHtml(times.s2)}–${escapeHtml(times.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
       }
-      const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${hours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
+      const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
       const {uri}=await Print.printToFileAsync({html,width:842,height:595});
       await shareFile(uri,'application/pdf','Udostępnij grafik PDF');
     } catch(e){console.log(e);Alert.alert('Błąd','Nie udało się przygotować grafiku PDF.');}
@@ -1282,7 +1286,7 @@ export default function App() {
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
       <View style={S.tableTitleRow}>
         <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {hours} h</Text></View>
-        <Text style={S.tableWarehouse}>{warehouse}</Text>
+        <Text style={S.tableWarehouse}>{currentWeekWarehouse}</Text>
       </View>
       <View style={S.tableHeader}>
         <Text style={[S.tableCell,S.tableDayCell,S.tableHead]}>Dzień</Text>
@@ -1357,7 +1361,7 @@ export default function App() {
         <View style={S.weekSummaryDivider}/>
         <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{freeShifts}</Text><Text style={S.weekSummaryLabel}>wolne</Text></View>
         <View style={S.weekSummaryDivider}/>
-        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{hours} h</Text><Text style={S.weekSummaryLabel}>system</Text></View>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{currentWeekHours} h</Text><Text style={S.weekSummaryLabel}>system</Text></View>
         <TouchableOpacity style={S.todayMini} onPress={todayWeek}><Text style={S.todayMiniText}>📍 DZIŚ</Text></TouchableOpacity>
       </View>
 
