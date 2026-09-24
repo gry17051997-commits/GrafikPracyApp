@@ -118,6 +118,9 @@ exports.createUserAccount = onCall(async request => {
   if (role === 'locator' && !registration) {
     throw new HttpsError('invalid-argument','Dla lokalizatora podaj numer rejestracyjny pojazdu.');
   }
+  if (role === 'locator' && personKey) {
+    throw new HttpsError('invalid-argument','Lokalizator nie może być przypisany do pracownika grafiku.');
+  }
 
   let user;
   try {
@@ -249,6 +252,9 @@ exports.updateUserProfile = onCall(async request => {
   if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
   if (role === 'locator' && !registration) {
     throw new HttpsError('invalid-argument','Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+  }
+  if (role === 'locator' && personKey) {
+    throw new HttpsError('invalid-argument','Lokalizator nie może być przypisany do pracownika grafiku.');
   }
   if (newPassword && (newPassword.length < 6 || newPassword.length > 128)) {
     throw new HttpsError('invalid-argument','Nowe hasło musi mieć od 6 do 128 znaków.');
