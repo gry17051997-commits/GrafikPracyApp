@@ -103,3 +103,30 @@ test('advanced generator treats person-specific OFF as a candidate restriction a
   assert.match(app, /ma jednocześnie FORBID i MUST/);
   assert.match(app, /if\(mustErrors\.length \|\| unmet\.length \|\| forbiddenBroken\.length\)/);
 });
+
+
+test('main schedule requires authentication for reads', () => {
+  const rules = read('firestore.rules');
+  assert.match(rules, /match \/schedules\/main \{\s*allow read: if signedIn\(\);/);
+  assert.doesNotMatch(rules, /match \/schedules\/main \{\s*allow read: if true;/);
+});
+
+test('GPS history writes are serialized to prevent concurrent duplicate-history races', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /let locationSaveQueue = Promise\.resolve\(\);/);
+  assert.match(service, /const run = locationSaveQueue\.then\(\(\) => saveLocationInternal\(location\)\);/);
+  assert.match(service, /locationSaveQueue = run\.catch\(\(\) => \{\}\);/);
+});
+
+test('Android widget refreshes are debounced', () => {
+  const app = read('App.js');
+  assert.match(app, /const widgetUpdateTimerRef = useRef\(null\);/);
+  assert.match(app, /clearTimeout\(widgetUpdateTimerRef\.current\)/);
+  assert.match(app, /widgetUpdateTimerRef\.current = setTimeout\(async \(\) =>/);
+});
+
+test('report notifications use each stored week configuration', () => {
+  const app = read('App.js');
+  assert.match(app, /const weekTimes = weekConfigs\[key\]\?\.times/);
+  assert.match(app, /DEFAULT_TIMES\[weekConfigs\[key\]\?\.hours \|\| hours\]/);
+});
