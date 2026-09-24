@@ -2316,6 +2316,16 @@ export default function App() {
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
+          {Platform.OS==='web' && <View style={S.webNav}>
+            {[
+              ['teraz','🟢','Teraz'],['grafik','📅','Grafik'],['auto','📍','Auto / GPS'],
+              ['summary','📊','Podsumowanie'],['chat','💬','Czat'],['ustawienia','⚙️','Ustawienia']
+            ].map(([key,icon,label])=>
+              <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label} style={[S.webNavBtn,tab===key&&S.webNavActive]} onPress={()=>setTab(key)}>
+                <Text style={S.webNavIcon}>{icon}</Text><Text style={S.webNavText}>{label}</Text>
+              </TouchableOpacity>
+            )}
+          </View>}
           {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
           {editModal}
           {colorModal}
@@ -2330,7 +2340,7 @@ export default function App() {
           {recoveryLedgerDialog}
           {weekSetupDialog}
 
-          <View style={S.nav}>
+          {Platform.OS!=='web' && <View style={S.nav}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -2345,7 +2355,7 @@ export default function App() {
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Czat" style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
               <TouchableOpacity accessibilityRole="button" accessibilityLabel="Ustawienia" style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
             </ScrollView>
-          </View>
+          </View>}
         </SafeAreaView>
       </View>
     </ImageBackground>
@@ -2436,6 +2446,12 @@ const S = StyleSheet.create({
   generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
   danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
   nav:{height:70,width:'98%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:22,paddingHorizontal:4,paddingTop:3,paddingBottom:Platform.OS==='android'?8:5,marginBottom:Platform.OS==='android'?14:8,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
+  webNav:{width:'100%',maxWidth:1180,alignSelf:'center',flexDirection:'row',alignItems:'center',justifyContent:'center',flexWrap:'wrap',gap:8,padding:10,marginBottom:12,backgroundColor:'rgba(14,18,26,0.98)',borderWidth:1,borderColor:'#3b4659',borderRadius:18},
+  webNavBtn:{minWidth:120,height:46,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:7,paddingHorizontal:14,borderRadius:12,borderWidth:1,borderColor:'#303a4a',backgroundColor:'#171d27'},
+  webNavActive:{backgroundColor:'#293c62',borderColor:'#5b82c4'},
+  webNavIcon:{fontSize:18},
+  webNavText:{color:'#d7dce6',fontSize:13,fontWeight:'900'},
+
   navScroll:{alignItems:'center',justifyContent:'space-around',paddingHorizontal:1,gap:1,flexGrow:1},
   navBtn:{width:54,minWidth:54,alignItems:'center',justifyContent:'center',paddingVertical:4,paddingHorizontal:2,marginHorizontal:0,borderRadius:14,minHeight:56},
   navActive:{backgroundColor:'#293c62',borderWidth:1,borderColor:'#5b82c4',shadowColor:'#467ff1',shadowOpacity:0.12,shadowRadius:6,elevation:2},
