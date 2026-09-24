@@ -122,10 +122,6 @@ function generateWeek(rotation='P', warehouse='PNT B') {
     w[day].shifts[1].person = b;
   });
 
-  // Łukasz jako niedzielny skoczek: obie zmiany.
-  w[6].shifts[0].person = 'L';
-  w[6].shifts[1].person = 'L';
-
   return w;
 }
 
@@ -237,6 +233,20 @@ export default function App() {
   const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
 
   const wkKey = iso(weekStart);
+  const DEFAULT_BUSINESS_CONDITIONS = [
+    {id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1,locked:true,source:'business-default'},
+    {id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2,locked:true,source:'business-default'}
+  ];
+  const getEffectiveConditions = () => {
+    const custom = Array.isArray(conditions) ? conditions : [];
+    const hasSundayL1 = custom.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
+    const hasSundayL2 = custom.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
+    return [
+      ...(hasSundayL1 ? [] : [DEFAULT_BUSINESS_CONDITIONS[0]]),
+      ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
+      ...custom
+    ];
+  };
   const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
   useEffect(()=>{
     if(!ready || !autoGenerateWeeks || cloudRole!=='admin' || readOnly) return;
@@ -873,9 +883,13 @@ export default function App() {
 
   const changeHours = h => {
     if (readOnly) return;
-    setHours(h);
-    setTimes(DEFAULT_TIMES[h]);
-    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:h,times:DEFAULT_TIMES[h],rotation:prev[wkKey]?.rotation||rotation,warehouse:prev[wkKey]?.warehouse||warehouse}}));
+    setWeekConfigs(prev=>({...prev,[wkKey]:{
+      ...(prev[wkKey]||{}),
+      hours:h,
+      times:DEFAULT_TIMES[h],
+      rotation:prev[wkKey]?.rotation||rotation,
+      warehouse:prev[wkKey]?.warehouse||warehouse
+    }}));
   };
 
   const dayHasPassed = dayIndex => {
@@ -894,7 +908,7 @@ export default function App() {
   };
 
   const generateAdvancedWeek = () => {
-    const base = cloneWeek(currentWeek);
+    const effectiveConditions = getEffectiveConditions();
     const result = cloneWeek(currentWeek);
     // Preserve completed days and explicit manual/locked assignments.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
