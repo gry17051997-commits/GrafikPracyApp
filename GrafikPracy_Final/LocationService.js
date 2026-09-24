@@ -203,7 +203,8 @@ export async function ensureVehicleLocationTracking() {
   }
   const fg=await Location.getForegroundPermissionsAsync();
   const bg=await Location.getBackgroundPermissionsAsync();
-  if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};
+  if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
+  if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   const servicesEnabled=await Location.hasServicesEnabledAsync();
   if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
