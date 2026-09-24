@@ -35,6 +35,29 @@ jobs:
             echo "The package contains source, tests, Firebase rules/configuration, build workflows and audit instructions."
           } > audit-package/MANIFEST.md
 
+      - name: Create combined text dump
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("audit-package")
+          out = root / "GrafikPracy-Gemini-CodeDump.md"
+          exts = {".js",".jsx",".ts",".tsx",".json",".md",".css",".rules",".yml",".yaml",".html",".txt"}
+          skip = {"package-lock.json"}
+          files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix in exts and p.name not in skip)
+          with out.open("w", encoding="utf-8") as f:
+              f.write("# Grafik Pracy - combined source dump\n\n")
+              f.write("Generated automatically for external code audit.\n\n")
+              for p in files:
+                  rel = p.relative_to(root)
+                  f.write(f"\n\n---\n## FILE: {rel}\n\n")
+                  f.write("```text\n")
+                  try:
+                      f.write(p.read_text(encoding="utf-8"))
+                  except UnicodeDecodeError:
+                      f.write("[binary or non-UTF-8 file skipped]\n")
+                  f.write("\n```\n")
+          print(f"Dumped {len(files)} text files to {out}")
+          PY
       - name: Create ZIP
         run: |
           cd audit-package
@@ -45,5 +68,14 @@ jobs:
         with:
           name: GrafikPracy-Gemini-Audit
           path: GrafikPracy-Gemini-Audit.zip
+          if-no-files-found: error
+          retention-days: 14
+
+
+      - name: Upload combined text dump
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrafikPracy-Gemini-CodeDump
+          path: audit-package/GrafikPracy-Gemini-CodeDump.md
           if-no-files-found: error
           retention-days: 14
