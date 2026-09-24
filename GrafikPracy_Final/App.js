@@ -1391,7 +1391,7 @@ export default function App() {
         setTimes(DEFAULT_TIMES[10]);
         setDark(true);
         setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
-        setConditions([]);
+        setConditions([...DEFAULT_BUSINESS_CONDITIONS]);
         setProposals([]);
         setMyPerson('P');
         setVehicleRegistration('');
@@ -1446,7 +1446,14 @@ export default function App() {
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
       setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
-      setConditions(Array.isArray(data.conditions) ? data.conditions : []);
+      const restoredConditions = Array.isArray(data.conditions) ? data.conditions : [];
+      const hasSundayL1 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
+      const hasSundayL2 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
+      setConditions([
+        ...(hasSundayL1 ? [] : [DEFAULT_BUSINESS_CONDITIONS[0]]),
+        ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
+        ...restoredConditions
+      ]);
       setProposals(Array.isArray(data.proposals) ? data.proposals : []);
       setMyPerson(PERSON_KEYS.includes(data.myPerson) ? data.myPerson : 'P');
       setVehicleRegistration(data.vehicleRegistration || '');
