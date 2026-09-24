@@ -173,3 +173,24 @@ test('weekly totals read the displayed week hours instead of global hours', () =
   assert.match(app, /result\.all\.hours \+= currentWeekHours/);
   assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
 });
+
+
+test('OFF without replacement remains an auto-fillable vacancy and remembers its original owner', () => {
+  const app = read('App.js');
+  assert.match(app, /s\.off\s*===\s*true/);
+  assert.match(app, /s\.person\s*===\s*null/);
+  assert.match(app, /offOriginalPerson/);
+  assert.match(app, /recoverPerson/);
+});
+
+test('generator never assigns the original owner back into their own OFF vacancy', () => {
+  const app = read('App.js');
+  assert.match(app, /slot\.offOriginalPerson/);
+  assert.match(app, /person === slot\.offOriginalPerson/);
+});
+
+test('replacement on an OFF shift remains manual and is not overwritten by generation', () => {
+  const app = read('App.js');
+  assert.match(app, /sh\.person=offReplacement \|\| null/);
+  assert.match(app, /sh\.manual=true/);
+});
