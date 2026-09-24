@@ -927,11 +927,22 @@ export default function App() {
 
     const counts={P:0,M:0,L:0};
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
+
+    // Targets must describe the intended clean week, not the current mutable state.
+    // Otherwise a locked/historical recovery shift becomes part of the next target
+    // and the same recover debt gets added again on every regeneration.
+    const baseWeek=generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
+    const baseTargetCounts={P:0,M:0,L:0};
+    baseWeek.forEach(d=>d.shifts.forEach(s=>{if(s.person) baseTargetCounts[s.person]++;}));
+
     const targets={P:null,M:null,L:null};
     conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
     const recoverNeeds={P:0,M:0,L:0};
     result.forEach(d=>d.shifts.forEach(s=>{if(s.offMode==='recover' && s.recoverPerson) recoverNeeds[s.recoverPerson]++;}));
-    PERSON_KEYS.forEach(p=>{if(recoverNeeds[p]) targets[p]=Math.max(targets[p]===null?counts[p]:targets[p],counts[p]+recoverNeeds[p]);});
+    PERSON_KEYS.forEach(p=>{
+      const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
+      targets[p]=baseTarget+recoverNeeds[p];
+    });
 
     // Apply hard MUST assignments first. Conflicting MUST/OFF/FORBID rules are reported.
     const mustErrors=[];
