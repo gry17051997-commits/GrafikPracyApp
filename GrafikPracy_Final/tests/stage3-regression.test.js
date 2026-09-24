@@ -24,7 +24,7 @@ test('Firestore rules keep role escalation and self-delete blocked', () => {
 test('chat and WhatsApp reports cannot spoof profile identity', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /request\.resource\.data\.email == get\(\/databases\/\$\(database\)\/documents\/users\/\$\(request\.auth\.uid\)\)\.data\.email/);
-  assert.match(rules, /request\.resource\.data\.person == get\(\/databases\/\$\(database\)\/documents\/users\/\$\(request\.auth\.uid\)\)\.data\.personKey/);
+  assert.match(rules, /request\.resource\.data\.person == get\(\/databases\/\$\(database\)\/documents\/users\/\$\(request\.auth\.uid\)\)\.data\.personKey/);\n  assert.match(read('App.js'), /person:myPerson/);
 });
 
 test('logout and auth loss stop background GPS tracking', () => {
