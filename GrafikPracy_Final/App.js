@@ -342,9 +342,12 @@ export default function App() {
     })();
   },[]);
 
+  const widgetUpdateTimerRef = useRef(null);
   useEffect(() => {
     if (!ready || Platform.OS !== 'android') return;
-    const t = setTimeout(async () => {
+    if (widgetUpdateTimerRef.current) clearTimeout(widgetUpdateTimerRef.current);
+    widgetUpdateTimerRef.current = setTimeout(async () => {
+      widgetUpdateTimerRef.current = null;
       try {
         const {requestWidgetUpdate} = require('react-native-android-widget');
         const {buildWidgetData} = require('./widget-task-handler');
@@ -355,7 +358,12 @@ export default function App() {
         requestWidgetUpdate({widgetName:'GrafikRaport',renderWidget:() => <GrafikRaportWidget data={data.report}/>});
       } catch (e) {}
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      if (widgetUpdateTimerRef.current) {
+        clearTimeout(widgetUpdateTimerRef.current);
+        widgetUpdateTimerRef.current = null;
+      }
+    };
   }, [ready,weeks,times,reportHistory,vehicleRegistration,warehouseGeo]);
 
   useEffect(() => {
@@ -751,7 +759,10 @@ export default function App() {
         for (let si = 0; si < (day.shifts || []).length; si++) {
           const shift = day.shifts[si];
           if (shift.person !== myPerson) continue;
-          const shiftTimes = times;
+          const weekTimes = weekConfigs[key]?.times
+            || DEFAULT_TIMES[weekConfigs[key]?.hours || hours]
+            || times;
+          const shiftTimes = weekTimes;
           const startMin = parseHM(si === 0 ? shiftTimes.s1 : shiftTimes.s2);
           let endMin = parseHM(si === 0 ? shiftTimes.e1 : shiftTimes.e2);
           if (endMin <= startMin) endMin += 24 * 60;
