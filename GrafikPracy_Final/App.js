@@ -234,19 +234,9 @@ export default function App() {
 
   const wkKey = iso(weekStart);
   const DEFAULT_BUSINESS_CONDITIONS = [
-    {id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1,locked:true,source:'business-default'},
-    {id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2,locked:true,source:'business-default'}
+    {id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1,source:'business-default'},
+    {id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2,source:'business-default'}
   ];
-  const getEffectiveConditions = () => {
-    const custom = Array.isArray(conditions) ? conditions : [];
-    const hasSundayL1 = custom.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
-    const hasSundayL2 = custom.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
-    return [
-      ...(hasSundayL1 ? [] : [DEFAULT_BUSINESS_CONDITIONS[0]]),
-      ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
-      ...custom
-    ];
-  };
   const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
   useEffect(()=>{
     if(!ready || !autoGenerateWeeks || cloudRole!=='admin' || readOnly) return;
@@ -332,7 +322,14 @@ export default function App() {
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
           setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
-          setConditions(data.conditions || []);
+          const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
+          const hasSundayL1 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
+          const hasSundayL2 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
+          setConditions([
+            ...(hasSundayL1 ? [] : [DEFAULT_BUSINESS_CONDITIONS[0]]),
+            ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
+            ...savedConditions
+          ]);
           setProposals(data.proposals || []);
           setMyPerson(data.myPerson || 'P');
           setVehicleRegistration(data.vehicleRegistration || '');
@@ -908,7 +905,6 @@ export default function App() {
   };
 
   const generateAdvancedWeek = () => {
-    const effectiveConditions = getEffectiveConditions();
     const result = cloneWeek(currentWeek);
     // Preserve completed days and explicit manual/locked assignments.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
