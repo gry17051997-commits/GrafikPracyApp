@@ -906,15 +906,17 @@ export default function App() {
 
   const generateAdvancedWeek = () => {
     const result = cloneWeek(currentWeek);
-    // Preserve completed days and explicit manual/locked assignments.
+    // Preserve completed days, manual assignments and explicit locked assignments.
+    // These are facts, not generator suggestions. The generator may only report
+    // rule conflicts against them - it must never silently overwrite them.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
-      if (dayHasPassed(di) || s.locked) return;
+      if (dayHasPassed(di) || s.locked || s.manual) return;
       s.person = null;
     }));
 
     const slots=[];
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
-      if (dayHasPassed(di) || s.locked) return;
+      if (dayHasPassed(di) || s.locked || s.manual) return;
       const forcedOff = conditions.some(c=>c.type==='off' && !c.person && conditionApplies(c,'',di,si));
       if (!forcedOff) slots.push({di,si});
     }));
@@ -933,13 +935,23 @@ export default function App() {
     conditions.filter(c=>c.type==='must').forEach(c=>{
       if(!c.person || c.dayIndex===undefined || !c.shift) return;
       const si=Number(c.shift)-1, di=Number(c.dayIndex), s=result[di]?.shifts?.[si];
-      if(!s || dayHasPassed(di) || s.locked || s.manual) return;
+      if(!s) return;
       const slotKey=di + '-' + si;
       const previous=mustSlots.get(slotKey);
       if(previous && previous !== c.person){
         mustErrors.push(`${DAYS[di]} ${si+1}: sprzeczne MUST (${PEOPLE[previous].name} / ${PEOPLE[c.person].name})`);
         return;
       }
+
+      // A manual/locked assignment is immutable. If a MUST disagrees with it,
+      // surface the contradiction instead of overwriting the user's decision.
+      if(s.locked || s.manual || dayHasPassed(di)){
+        if(s.person !== c.person){
+          mustErrors.push(`${DAYS[di]} ${si+1}: MUST dla ${PEOPLE[c.person].name} koliduje z istniejącą blokadą (${s.person ? PEOPLE[s.person].name : 'wolna zmiana'})`);
+        }
+        return;
+      }
+
       if(conditions.some(x=>x.type==='off' && conditionApplies(x,c.person,di,si))){
         mustErrors.push(`${PEOPLE[c.person].name}: ${DAYS[di]} ${si+1} ma jednocześnie OFF i MUST`);
         return;
@@ -951,6 +963,23 @@ export default function App() {
       mustSlots.set(slotKey,c.person);
       s.person=c.person;
     });
+    // Validate immutable/manual facts against all hard OFF/FORBID rules.
+    // This is intentionally done after MUST processing so partially filled weeks
+    // cannot hide a contradiction behind a skipped slot.
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if(!s.person) return;
+      const globalOff = conditions.some(c=>c.type==='off' && !c.person && conditionApplies(c,'',di,si));
+      if(globalOff){
+        mustErrors.push(`${DAYS[di]} ${si+1}: ${PEOPLE[s.person].name} jest obsadzony mimo globalnego OFF`);
+      }
+      if(conditions.some(c=>c.type==='off' && conditionApplies(c,s.person,di,si))){
+        mustErrors.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1} ma OFF przy istniejącej obsadzie`);
+      }
+      if(conditions.some(c=>c.type==='forbid' && conditionApplies(c,s.person,di,si))){
+        mustErrors.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1} łamie NIE MOŻE`);
+      }
+    }));
+
     // Rebuild counts after MUST assignments.
     PERSON_KEYS.forEach(p=>{counts[p]=0;});
     result.forEach(d=>d.shifts.forEach(s=>{if(s.person) counts[s.person]++;}));
@@ -1157,11 +1186,11 @@ export default function App() {
     currentWeek.forEach(d => d.shifts.forEach(s => {
       if (!s.person) return;
       result.all.shifts++;
-      result.all.hours += hours;
-      result.all.money += RATES[hours];
+      result.all.hours += currentWeekHours;
+      result.all.money += RATES[currentWeekHours];
       result[s.person].shifts++;
-      result[s.person].hours += hours;
-      result[s.person].money += RATES[hours];
+      result[s.person].hours += currentWeekHours;
+      result[s.person].money += RATES[currentWeekHours];
     }));
     return result;
   },[currentWeek,currentWeekHours]);
