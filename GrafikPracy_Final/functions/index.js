@@ -100,6 +100,7 @@ exports.createUserAccount = onCall(async request => {
   const displayName = String(data.displayName || '').trim();
   const personKey = String(data.personKey || '').trim();
   const role = String(data.role || '').trim();
+  const registration = String(data.registration || '').trim();
 
   if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
   if (password.length < 6 || password.length > 128) {
@@ -113,6 +114,9 @@ exports.createUserAccount = onCall(async request => {
   }
   if (!validateRole(role)) {
     throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  }
+  if (role === 'locator' && !registration) {
+    throw new HttpsError('invalid-argument','Dla lokalizatora podaj numer rejestracyjny pojazdu.');
   }
 
   let user;
@@ -233,6 +237,7 @@ exports.updateUserProfile = onCall(async request => {
   const personKey = String(data.personKey ?? current.personKey ?? '').trim();
   const email = normalizeEmail(data.email ?? current.email);
   const newPassword = String(data.password || '');
+  const registration = String(data.registration || '').trim();
 
   if (!validateRole(role)) throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
   if (!validateDisplayName(displayName)) {
@@ -242,6 +247,9 @@ exports.updateUserProfile = onCall(async request => {
     throw new HttpsError('invalid-argument','Nieprawidłowy identyfikator pracownika.');
   }
   if (!validateEmail(email)) throw new HttpsError('invalid-argument','Podaj prawidłowy e-mail.');
+  if (role === 'locator' && !registration) {
+    throw new HttpsError('invalid-argument','Dla lokalizatora podaj numer rejestracyjny pojazdu.');
+  }
   if (newPassword && (newPassword.length < 6 || newPassword.length > 128)) {
     throw new HttpsError('invalid-argument','Nowe hasło musi mieć od 6 do 128 znaków.');
   }
