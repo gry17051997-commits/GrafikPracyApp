@@ -22,6 +22,7 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(read('firestore.rules'), /request\.resource\.data\.role != 'locator' \|\| request\.resource\.data\.personKey == ''/);
   assert.match(read('firestore.rules'), /resource\.data\.role != 'locator' \|\| request\.resource\.data\.personKey == ''/);
   assert.match(read('App.js'), /if \(role === 'locator'\) setMyPerson\(''\)/);
+  assert.match(read('App.js'), /cloudRole !== 'locator'/);
 });
 
 test('Firestore rules keep role escalation and self-delete blocked', () => {
