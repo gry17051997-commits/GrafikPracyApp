@@ -11,7 +11,7 @@ export default function AdminUsersPanel({cloudUser}) {
   const [busy,setBusy]=useState('');
   const [error,setError]=useState('');
   const [modal,setModal]=useState(null);
-  const [form,setForm]=useState({email:'',password:'',displayName:'',personKey:'',role:'employee'});
+  const [form,setForm]=useState({email:'',password:'',displayName:'',personKey:'',role:'employee',registration:''});
 
   useEffect(()=>{
     if(!FIREBASE_ENABLED||!db||!cloudUser)return;
@@ -22,8 +22,8 @@ export default function AdminUsersPanel({cloudUser}) {
     },e=>setError('Nie udało się pobrać użytkowników. Kod: '+(e?.code||'unknown')));
   },[cloudUser?.uid]);
 
-  const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee'});setModal({mode:'create'});};
-  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:u.role==='admin'?'admin':'employee'});setModal({mode:'edit',user:u});};
+  const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee',registration:''});setModal({mode:'create'});};
+  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:u.role==='admin'?'admin':(u.role==='locator'?'locator':'employee'),registration:u.registration||''});setModal({mode:'edit',user:u});};
   const close=()=>{if(!busy)setModal(null);};
 
   const save=async()=>{
@@ -85,7 +85,7 @@ export default function AdminUsersPanel({cloudUser}) {
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
-            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['employee','admin'].map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':'👤 PRACOWNIK'}</Text></TouchableOpacity>)}</View>
+            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['employee','locator','admin'].map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':(role==='locator'?'📍 LOKALIZATOR':'👤 PRACOWNIK')}</Text></TouchableOpacity>)}</View>
             {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>{error}</Text>}
             <View style={{flexDirection:'row',gap:8}}><TouchableOpacity onPress={close} disabled={!!busy} style={{flex:1,backgroundColor:'#303744',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>ANULUJ</Text></TouchableOpacity><TouchableOpacity onPress={save} disabled={!!busy} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy?'ZAPISUJĘ…':'ZAPISZ'}</Text></TouchableOpacity></View>
           </ScrollView>
