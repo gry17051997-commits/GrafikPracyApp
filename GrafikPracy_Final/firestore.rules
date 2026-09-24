@@ -40,7 +40,8 @@ service cloud.firestore {
         && uid != request.auth.uid
         && request.resource.data.uid == uid
         && validRole(request.resource.data.role)
-        && validPersonKey(request.resource.data.personKey);
+        && validPersonKey(request.resource.data.personKey)
+        && (request.resource.data.role != 'locator' || request.resource.data.personKey == '');
 
       allow delete: if false;
     }
