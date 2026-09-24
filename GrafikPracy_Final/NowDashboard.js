@@ -45,7 +45,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        if(!rows.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
        const exact=requested&&rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
        const fresh=rows.filter(x=>Date.now()-Number(x.updatedAt)<=180000).sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt));
-       const selected=exact&&(Date.now()-Number(exact.updatedAt)<=180000)?exact:fresh[0]||rows.sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt))[0];
+       const selected=requested ? ((exact&&Date.now()-Number(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||rows.sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt))[0]);
        setLocation(selected||null);
        setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
      },()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
