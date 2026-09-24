@@ -34,7 +34,8 @@ service cloud.firestore {
         && !isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['personKey'])
         && validPersonKey(request.resource.data.personKey)
-        && request.resource.data.role == resource.data.role;
+        && request.resource.data.role == resource.data.role
+        && (resource.data.role != 'locator' || request.resource.data.personKey == '');
 
       allow update: if isAdmin()
         && uid != request.auth.uid
