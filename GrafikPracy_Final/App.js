@@ -2061,11 +2061,20 @@ export default function App() {
           {weekSetupDialog}
 
           <View style={S.nav}>
-            <TouchableOpacity style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity><TouchableOpacity style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='auto'&&S.navActive]} onPress={()=>setTab('auto')}><Text style={S.navIcon}>📍</Text><Text style={S.navText}>Auto</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsumowanie</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={S.navScroll}
+              bounces={false}
+              overScrollMode="never"
+            >
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Teraz" style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Grafik" style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Auto" style={[S.navBtn,tab==='auto'&&S.navActive]} onPress={()=>setTab('auto')}><Text style={S.navIcon}>📍</Text><Text style={S.navText}>Auto</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Podsumowanie" style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsumowanie</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Czat" style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Ustawienia" style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
+            </ScrollView>
           </View>
         </SafeAreaView>
       </View>
@@ -2156,11 +2165,12 @@ const S = StyleSheet.create({
   sep:{color:'#aaa',fontSize:18},
   generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
   danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
-  nav:{height:78,width:'98%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:24,flexDirection:'row',alignItems:'center',paddingHorizontal:3,paddingTop:4,paddingBottom:Platform.OS==='android'?14:8,marginBottom:Platform.OS==='android'?18:10,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
-  navBtn:{flexGrow:1,flexShrink:1,flexBasis:0,width:'16.6667%',minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:7,paddingHorizontal:0,marginHorizontal:0,borderRadius:16,minHeight:60},
+  nav:{height:78,width:'98%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:24,paddingHorizontal:5,paddingTop:4,paddingBottom:Platform.OS==='android'?14:8,marginBottom:Platform.OS==='android'?18:10,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
+  navScroll:{alignItems:'center',paddingHorizontal:2,gap:4},
+  navBtn:{width:82,minWidth:82,alignItems:'center',justifyContent:'center',paddingVertical:6,paddingHorizontal:5,marginHorizontal:0,borderRadius:16,minHeight:60},
   navActive:{backgroundColor:'#293c62',borderWidth:1,borderColor:'#5b82c4',shadowColor:'#467ff1',shadowOpacity:0.12,shadowRadius:6,elevation:2},
-  navIcon:{fontSize:18},
-  navText:{color:'#aab3c2',marginTop:3,fontSize:8,fontWeight:'800',textAlign:'center',includeFontPadding:false},
+  navIcon:{fontSize:20},
+  navText:{color:'#aab3c2',marginTop:4,fontSize:11,fontWeight:'800',textAlign:'center',includeFontPadding:false},
   chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#303a4a'},
   chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
   chatBox:{backgroundColor:'rgba(13,18,27,0.98)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#303a4a',minHeight:280,maxHeight:520},
