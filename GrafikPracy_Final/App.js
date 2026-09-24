@@ -432,8 +432,18 @@ export default function App() {
         doc(db, 'users', user.uid),
         snap => {
           const role = snap.exists() ? snap.data()?.role : null;
-          setCloudRole(role === 'admin' ? 'admin' : 'employee');
+          setCloudRole(role === 'admin' ? 'admin' : (role === 'locator' ? 'locator' : 'employee'));
           setCloudReady(true);
+          if (role === 'locator') {
+            ensureVehicleLocationTracking()
+              .then(result => {
+                if (result?.ok) setLocationTracking(true);
+              })
+              .catch(() => {});
+          } else {
+            stopVehicleLocationTracking().catch(() => {});
+            setLocationTracking(false);
+          }
         },
         error => {
           console.error('Błąd odczytu roli:', error);
