@@ -54,6 +54,13 @@ test('schedule generator preserves the two-person weekday rotation and Sunday Ł
   assert.match(app, /w\[6\]\.shifts\[1\]\.person = 'L'/);
 });
 
+test('GPS dashboards never silently switch to another vehicle when an assigned transmitter is stale', () => {
+  const live = read('LiveLocationDashboard.js');
+  const now = read('NowDashboard.js');
+  assert.match(live, /const selected=requestedId \\? \\(exactFresh \\? exact : exact \\|\\| null\\)/);
+  assert.match(now, /const selected=requested \\? \\((\\(exact&&Date\\.now\\(\\)-Number\\(exact\\.updatedAt\\)<=180000\\)\\?exact:exact\\|\\|null)\\)/);
+});
+
 test('web and Android acceptance surfaces remain wired', () => {
   const pkg = JSON.parse(read('package.json'));
   assert.equal(pkg.dependencies.expo, '~54.0.0');
