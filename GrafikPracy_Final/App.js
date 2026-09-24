@@ -735,15 +735,15 @@ export default function App() {
     const today = new Date();
     const startDay = monday(today);
 
-    for (let dayOffset = 0; dayOffset < 14; dayOffset++) {
-      const date = addDays(startDay,dayOffset);
-      const key = iso(date);
+    for (let weekOffset = 0; weekOffset < 2; weekOffset++) {
+      const weekStart = addDays(startDay,weekOffset * 7);
+      const key = iso(weekStart);
       const week = weeks[key] || null;
       if (!week) continue;
 
       for (let di = 0; di < week.length; di++) {
         const day = week[di];
-        const shiftDate = addDays(startDay,dayOffset + di);
+        const shiftDate = addDays(weekStart,di);
         for (let si = 0; si < (day.shifts || []).length; si++) {
           const shift = day.shifts[si];
           if (shift.person !== myPerson) continue;
