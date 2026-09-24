@@ -433,6 +433,7 @@ export default function App() {
         snap => {
           const role = snap.exists() ? snap.data()?.role : null;
           setCloudRole(role === 'admin' ? 'admin' : (role === 'locator' ? 'locator' : 'employee'));
+          if (role === 'locator') setMyPerson('');
           setCloudReady(true);
           if (role === 'locator') {
             ensureVehicleLocationTracking()
