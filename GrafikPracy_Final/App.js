@@ -1665,11 +1665,13 @@ export default function App() {
         <Text style={S.btnText}>⚡ ZASTOSUJ I PRZELICZ GRAFIK</Text>
       </TouchableOpacity>
 
-      <Text style={S.section}>Mój profil</Text>
-      <Text style={S.helpLine}>Wybierz osobę przypisaną do tego konta. Dzięki temu pracownik może składać propozycje zamian ze swojej zmiany.</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
-        {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k); if(FIREBASE_ENABLED&&db&&cloudUser){try{await updateDoc(doc(db,'users',cloudUser.uid),{personKey:k})}catch(e){setCloudError('Nie udało się zapisać profilu.')}}}}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
-      </ScrollView>
+      {cloudRole !== 'locator' && <>
+        <Text style={S.section}>Mój profil</Text>
+        <Text style={S.helpLine}>Wybierz osobę przypisaną do tego konta. Dzięki temu pracownik może składać propozycje zamian ze swojej zmiany.</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+          {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k); if(FIREBASE_ENABLED&&db&&cloudUser){try{await updateDoc(doc(db,'users',cloudUser.uid),{personKey:k})}catch(e){setCloudError('Nie udało się zapisać profilu.')}}}}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+        </ScrollView>
+      </>}
 
       <Text style={S.section}>⚡ Warunki generatora</Text>
       <Text style={S.helpLine}>Ustaw reguły MUSI, NIE MOŻE, PREFERUJE oraz liczbę zmian dla pracownika.</Text>
