@@ -2410,20 +2410,22 @@ export default function App() {
           {weekSetupDialog}
 
           {Platform.OS!=='web' && <View style={S.nav}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={S.navScroll}
-              bounces={false}
-              overScrollMode="never"
-            >
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Teraz" style={[S.navBtn,tab==='teraz'&&S.navActive]} onPress={()=>setTab('teraz')}><Text style={S.navIcon}>🟢</Text><Text style={S.navText}>Teraz</Text></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Grafik" style={[S.navBtn,tab==='grafik'&&S.navActive]} onPress={()=>setTab('grafik')}><Text style={S.navIcon}>📅</Text><Text style={S.navText}>Grafik</Text></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Auto" style={[S.navBtn,tab==='auto'&&S.navActive]} onPress={()=>setTab('auto')}><Text style={S.navIcon}>📍</Text><Text style={S.navText}>Auto</Text></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Podsumowanie" style={[S.navBtn,tab==='summary'&&S.navActive]} onPress={()=>setTab('summary')}><Text style={S.navIcon}>📊</Text><Text style={S.navText}>Podsumowanie</Text></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Czat" style={[S.navBtn,tab==='chat'&&S.navActive]} onPress={()=>setTab('chat')}><Text style={S.navIcon}>💬</Text><Text style={S.navText}>Czat</Text></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Ustawienia" style={[S.navBtn,tab==='ustawienia'&&S.navActive]} onPress={()=>setTab('ustawienia')}><Text style={S.navIcon}>⚙️</Text><Text style={S.navText}>Ustawienia</Text></TouchableOpacity>
-            </ScrollView>
+            <View style={S.navDock}>
+              {[
+                ['teraz','🟢','Teraz'],
+                ['grafik','📅','Grafik'],
+                ['auto','📍','Auto'],
+                ['summary','📊','Suma'],
+                ['chat','💬','Czat'],
+                ['ustawienia','⚙️','Ustaw.']
+              ].map(([key,icon,label])=>(
+                <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label}
+                  style={[S.navBtn,tab===key&&S.navActive]} onPress={()=>setTab(key)} activeOpacity={0.78}>
+                  <Text style={S.navIcon}>{icon}</Text>
+                  <Text numberOfLines={1} style={[S.navText,tab===key&&S.navTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>}
         </SafeAreaView>
       </View>
@@ -2521,11 +2523,12 @@ const S = StyleSheet.create({
   webNavIcon:{fontSize:18},
   webNavText:{color:'#d7dce6',fontSize:13,fontWeight:'900'},
 
-  navScroll:{alignItems:'center',justifyContent:'space-around',paddingHorizontal:1,gap:1,flexGrow:1},
-  navBtn:{width:54,minWidth:54,alignItems:'center',justifyContent:'center',paddingVertical:4,paddingHorizontal:2,marginHorizontal:0,borderRadius:14,minHeight:56},
+  navDock:{flex:1,flexDirection:'row',alignItems:'stretch',justifyContent:'space-between',gap:5},
+  navBtn:{flex:1,minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:4,paddingHorizontal:2,marginHorizontal:0,borderRadius:15,minHeight:58},
   navActive:{backgroundColor:'#293c62',borderWidth:1,borderColor:'#5b82c4',shadowColor:'#467ff1',shadowOpacity:0.12,shadowRadius:6,elevation:2},
-  navIcon:{fontSize:18},
-  navText:{color:'#aab3c2',marginTop:2,fontSize:9,fontWeight:'800',textAlign:'center',includeFontPadding:false},
+  navIcon:{fontSize:19,lineHeight:22},
+  navText:{color:'#8f99aa',marginTop:2,fontSize:10,fontWeight:'800',textAlign:'center',includeFontPadding:false},
+  navTextActive:{color:'#ffffff'},
   chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#303a4a'},
   chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
   chatBox:{backgroundColor:'rgba(13,18,27,0.98)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#303a4a',minHeight:280,maxHeight:520},
