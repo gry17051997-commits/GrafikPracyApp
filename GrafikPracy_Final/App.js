@@ -217,6 +217,7 @@ export default function App() {
   const [conditions,setConditions] = useState([]);
   const [recoveryBalances,setRecoveryBalances] = useState({P:0,M:0,L:0});
   const [recoveryLedger,setRecoveryLedger] = useState([]);
+  const recoveryConfirmLockRef = useRef({});
   const [conditionPerson,setConditionPerson] = useState('P');
   const [conditionType,setConditionType] = useState('must');
   const [conditionDay,setConditionDay] = useState(0);
@@ -1141,10 +1142,15 @@ export default function App() {
 
   const confirmRecovery = person => {
     if (readOnly || !PERSON_KEYS.includes(person)) return;
+    if (recoveryConfirmLockRef.current[person]) return;
     const current = Number(recoveryBalances[person]) || 0;
     if (current <= 0) return;
+    recoveryConfirmLockRef.current[person] = true;
     setRecoveryBalances(prev => ({...prev,[person]:Math.max(0,(Number(prev[person])||0)-1)}));
     appendRecoveryLedger(person,-1,'recovery-confirmed');
+    setTimeout(() => {
+      recoveryConfirmLockRef.current[person] = false;
+    }, 0);
   };
 
   const adjustRecoveryBalance = (person, delta, reasonText='') => {
@@ -1158,7 +1164,11 @@ export default function App() {
   const saveOff = () => {
     if(!offModal) return;
     const {dayIndex,shiftIndex}=offModal;
-    const originalPerson=currentWeek[dayIndex]?.shifts?.[shiftIndex]?.person || null;
+    const previousShift=currentWeek[dayIndex]?.shifts?.[shiftIndex] || null;
+    const originalPerson=previousShift?.person || null;
+    const wasAlreadyRecoverOff=previousShift?.off === true
+      && previousShift?.offMode === 'recover'
+      && previousShift?.offOriginalPerson === originalPerson;
     setWeek(w=>{
       const sh=w[dayIndex].shifts[shiftIndex];
       sh.person=offReplacement || null;
@@ -1170,7 +1180,7 @@ export default function App() {
       sh.manual=true;
       return w;
     });
-    if (offMode === 'recover' && originalPerson) {
+    if (offMode === 'recover' && originalPerson && !wasAlreadyRecoverOff) {
       setRecoveryBalances(prev => ({...prev,[originalPerson]:(Number(prev[originalPerson])||0)+1}));
       appendRecoveryLedger(originalPerson,1,'off-recover',{dayIndex,shiftIndex});
     }
@@ -1598,9 +1608,15 @@ export default function App() {
     </ScrollView>
   );
 
-  const selectedSummaryKeys = summaryPerson === 'all' ? PERSON_KEYS : [summaryPerson];
-  const selectedWorkDays = summaryPerson === 'all' ? [] : currentWeek.map((d,i) => {
-    const shifts = d.shifts.filter(s => s.person === summaryPerson);
+  const baseTargetCountsForSummary = person => {
+    const base = generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
+    return base.reduce((count,day)=>count + (day.shifts || []).filter(s=>s.person===person).length,0);
+  };
+
+  const summaryViewPerson = cloudRole === 'admin' ? summaryPerson : myPerson;
+  const selectedSummaryKeys = summaryViewPerson === 'all' ? PERSON_KEYS : [summaryViewPerson];
+  const selectedWorkDays = summaryViewPerson === 'all' ? [] : currentWeek.map((d,i) => {
+    const shifts = d.shifts.filter(s => s.person === summaryViewPerson);
     return shifts.length ? {day:DAYS[i],date:shortDate(addDays(weekStart,i)),shifts} : null;
   }).filter(Boolean);
 
@@ -1663,18 +1679,18 @@ export default function App() {
       <Text style={S.section}>Podsumowanie dla</Text>
       {cloudRole==='admin' ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
-          <TouchableOpacity style={[S.chip,summaryPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
+          <TouchableOpacity style={[S.chip,summaryViewPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
             <Text style={S.btnText}>Wszyscy</Text>
           </TouchableOpacity>
           {PERSON_KEYS.map(k => (
-            <TouchableOpacity key={k} style={[S.chip,summaryPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSummaryPerson(k)}>
-              <Text style={[S.btnText,{color:summaryPerson===k?contrastText(personColor(k)):'#fff'}]}>{PEOPLE[k].name}</Text>
+            <TouchableOpacity key={k} style={[S.chip,summaryViewPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSummaryPerson(k)}>
+              <Text style={[S.btnText,{color:summaryViewPerson===k?contrastText(personColor(k)):'#fff'}]}>{PEOPLE[k].name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       ) : null}
 
-      {summaryPerson === 'all' ? (
+      {summaryViewPerson === 'all' ? (
         <>
           <View style={S.total}>
             <Text style={S.totalSmall}>PODSUMOWANIE TYGODNIA</Text>
@@ -1704,30 +1720,30 @@ export default function App() {
         </>
       ) : (
         <>
-          <View style={[S.total,{backgroundColor:personColor(summaryPerson)}]}>
-            <Text style={[S.totalSmall,{color:contrastText(personColor(summaryPerson))}]}>PODSUMOWANIE: {PEOPLE[summaryPerson].name.toUpperCase()}</Text>
-            <Text style={[S.totalBig,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].shifts} zmian</Text>
-            <Text style={[S.totalInfo,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].hours} godzin</Text>
-            <Text style={[S.totalMoney,{color:contrastText(personColor(summaryPerson))}]}>{totals[summaryPerson].money} zł</Text>
+          <View style={[S.total,{backgroundColor:personColor(summaryViewPerson)}]}>
+            <Text style={[S.totalSmall,{color:contrastText(personColor(summaryViewPerson))}]}>PODSUMOWANIE: {PEOPLE[summaryViewPerson].name.toUpperCase()}</Text>
+            <Text style={[S.totalBig,{color:contrastText(personColor(summaryViewPerson))}]}>{totals[summaryViewPerson].shifts} zmian</Text>
+            <Text style={[S.totalInfo,{color:contrastText(personColor(summaryViewPerson))}]}>{totals[summaryViewPerson].hours} godzin</Text>
+            <Text style={[S.totalMoney,{color:contrastText(personColor(summaryViewPerson))}]}>{totals[summaryViewPerson].money} zł</Text>
           </View>
           <View style={S.debtCard}>
             <Text style={S.debtTitle}>📒 Rozliczenie długu</Text>
-            <Text style={S.stat}>Zmiany wykonane: <Text style={S.white}>{totals[summaryPerson].shifts}</Text></Text>
-            <Text style={S.stat}>Target bazowy: <Text style={S.white}>{baseTargetCountsForSummary(summaryPerson)}</Text></Text>
-            <Text style={S.stat}>Dług z poprzednich okresów: <Text style={recoveryBalances[summaryPerson]>0?S.debtPositive:S.white}>+{Number(recoveryBalances[summaryPerson])||0}</Text></Text>
-            <Text style={S.stat}>Łączny target: <Text style={S.white}>{baseTargetCountsForSummary(summaryPerson)+(Number(recoveryBalances[summaryPerson])||0)}</Text></Text>
-            {cloudRole==='admin' && (Number(recoveryBalances[summaryPerson])||0)>0 ? (
-              <TouchableOpacity style={S.recoveryApprove} onPress={()=>confirmRecovery(summaryPerson)}>
-                <Text style={S.recoveryApproveText}>✅ ZATWIERDŹ SPŁATĘ {Number(recoveryBalances[summaryPerson])} {Number(recoveryBalances[summaryPerson])===1?'ZMIANY':'ZMIAN'}</Text>
+            <Text style={S.stat}>Zmiany wykonane: <Text style={S.white}>{totals[summaryViewPerson].shifts}</Text></Text>
+            <Text style={S.stat}>Target bazowy: <Text style={S.white}>{baseTargetCountsForSummary(summaryViewPerson)}</Text></Text>
+            <Text style={S.stat}>Dług z poprzednich okresów: <Text style={recoveryBalances[summaryViewPerson]>0?S.debtPositive:S.white}>+{Number(recoveryBalances[summaryViewPerson])||0}</Text></Text>
+            <Text style={S.stat}>Łączny target: <Text style={S.white}>{baseTargetCountsForSummary(summaryViewPerson)+(Number(recoveryBalances[summaryViewPerson])||0)}</Text></Text>
+            {cloudRole==='admin' && (Number(recoveryBalances[summaryViewPerson])||0)>0 ? (
+              <TouchableOpacity style={S.recoveryApprove} onPress={()=>confirmRecovery(summaryViewPerson)}>
+                <Text style={S.recoveryApproveText}>✅ ZATWIERDŹ SPŁATĘ {Number(recoveryBalances[summaryViewPerson])} {Number(recoveryBalances[summaryViewPerson])===1?'ZMIANY':'ZMIAN'}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
           <Text style={S.section}>Dni pracujące</Text>
           {selectedWorkDays.length ? selectedWorkDays.map(item => (
-            <View style={[S.employee,{borderLeftColor:personColor(summaryPerson),borderLeftWidth:5}]} key={item.date}>
+            <View style={[S.employee,{borderLeftColor:personColor(summaryViewPerson),borderLeftWidth:5}]} key={item.date}>
               <View style={S.between}>
                 <Text style={S.employeeName}>{item.day}</Text>
-                <Text style={[S.dot,{color:personColor(summaryPerson)}]}>●</Text>
+                <Text style={[S.dot,{color:personColor(summaryViewPerson)}]}>●</Text>
               </View>
               <Text style={S.stat}>{item.date} · {item.shifts.length} {item.shifts.length === 1 ? 'zmiana' : 'zmiany'}</Text>
               {item.shifts.map(s => <Text key={s.id} style={S.stat}>Zmiana {s.shift}: <Text style={S.white}>{shiftTime(times,s.shift)}</Text> · {s.warehouse || warehouse}</Text>)}
@@ -1745,11 +1761,6 @@ export default function App() {
       </View>
     </ScrollView>
   );
-
-  const baseTargetCountsForSummary = person => {
-    const base = generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
-    return base.reduce((count,day)=>count + (day.shifts || []).filter(s=>s.person===person).length,0);
-  };
 
   const recoveryLedgerDialog = (
     <Modal visible={!!recoveryCorrection} transparent animationType="fade" onRequestClose={()=>setRecoveryCorrection(null)}>
