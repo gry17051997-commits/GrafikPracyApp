@@ -999,6 +999,35 @@ export default function App() {
     PERSON_KEYS.forEach(p=>{counts[p]=0;});
     result.forEach(d=>d.shifts.forEach(s=>{if(s.person) counts[s.person]++;}));
 
+    // Determine the physical capacity for each person before filling.
+    // One employee can receive at most one automatically generated shift per day.
+    // Existing manual/locked/past assignments count toward the target, while only
+    // legal, still-open days contribute additional automatic capacity.
+    const capacityWarnings=[];
+    const effectiveTargets={...targets};
+    PERSON_KEYS.forEach(p=>{
+      const availableDays=new Set();
+      for (const slot of slots) {
+        const slotState=result[slot.di].shifts[slot.si];
+        if (slotState.person) continue;
+        if (result[slot.di].shifts.some(x=>x.person===p)) continue;
+        if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,slot.di,slot.si))) continue;
+        if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,slot.di,slot.si))) continue;
+        if (slot.offOriginalPerson && p===slot.offOriginalPerson) continue;
+        availableDays.add(slot.di);
+      }
+      const maxAvailable=counts[p]+availableDays.size;
+      const requestedTarget=targets[p];
+      if(requestedTarget!==null && requestedTarget>maxAvailable){
+        effectiveTargets[p]=Math.max(counts[p],Math.min(requestedTarget,maxAvailable));
+        capacityWarnings.push(
+          `${PEOPLE[p].name}: wymagane ${requestedTarget} zmian, możliwe maksymalnie ${maxAvailable}. Zaplanowano ${effectiveTargets[p]}.`
+        );
+      } else if(requestedTarget!==null){
+        effectiveTargets[p]=Math.max(counts[p],requestedTarget);
+      }
+    });
+
     // Fill remaining slots using target counts, respecting hard prohibitions.
     for (const slot of slots) {
       const s=result[slot.di].shifts[slot.si];
@@ -1028,7 +1057,7 @@ export default function App() {
       }
     }
     const unmet=[];
-    Object.entries(targets).forEach(([p,target])=>{if(target!==null && counts[p]!==target) unmet.push(`${PEOPLE[p].name}: ${counts[p]}/${target} zmian`);});
+    Object.entries(effectiveTargets).forEach(([p,target])=>{if(target!==null && counts[p]!==target) unmet.push(`${PEOPLE[p].name}: ${counts[p]}/${target} zmian`);});
     const forbiddenBroken=[];
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
       if(s.person && conditions.some(c=>c.type==='forbid' && conditionApplies(c,s.person,di,si))) forbiddenBroken.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1}`);
@@ -1036,6 +1065,12 @@ export default function App() {
     if(mustErrors.length || unmet.length || forbiddenBroken.length){
       Alert.alert('Nie udało się spełnić wszystkich warunków', [...mustErrors,...unmet,...forbiddenBroken].join('\n') || 'Spróbuj zmienić warunki.');
       return null;
+    }
+    if(capacityWarnings.length){
+      Alert.alert(
+        'Grafik wygenerowany z ostrzeżeniem',
+        ['Nie udało się zaplanować wszystkich wymaganych zmian.',...capacityWarnings].join('\n')
+      );
     }
     // Apply requested replacement for days off.
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
