@@ -6,12 +6,17 @@ on:
     paths:
       - 'GrafikPracy_Final/**'
       - '.github/workflows/**'
+  push:
+    branches: ['fix/security-auth-firestore']
+    paths:
+      - 'GrafikPracy_Final/**'
+      - '.github/workflows/**'
 
 permissions:
   contents: read
 
 concurrency:
-  group: grafik-pracy-pr-${{ github.event.pull_request.number }}
+  group: grafik-pracy-pr-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 env:
