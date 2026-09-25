@@ -1469,27 +1469,6 @@ export default function App() {
     return result;
   },[currentWeek,currentWeekHours]);
 
-  const conflicts = useMemo(() => {
-    const arr = [];
-    currentWeek.forEach((d,di) => {
-      const people = d.shifts.filter(s=>s.person).map(s=>s.person);
-      if (people.length === 2 && people[0] === people[1]) {
-        // 24 h is allowed, so this is informational only.
-      }
-      d.shifts.forEach((s,si) => {
-        if (s.person) {
-          currentWeek.forEach((other,odi) => {
-            other.shifts.forEach((os,osi) => {
-              if (di===odi && si===osi) return;
-              if (os.person === s.person && odi===di && osi!==si) return;
-            });
-          });
-        }
-      });
-    });
-    return arr;
-  },[currentWeek]);
-
   const newWeek = () => moveWeek(1);
 
   const resetAll = () => {
