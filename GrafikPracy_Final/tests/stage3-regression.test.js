@@ -461,3 +461,10 @@ test('GPS dashboard subscribes to central vehicle assignment changes', () => {
   assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
   assert.match(live, /if\(configUnsub\) configUnsub\(\)/);
 });
+
+test('Now dashboard reacts to central vehicle assignment changes', () => {
+  const now = read('NowDashboard.js');
+  assert.match(now, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
+  assert.match(now, /subscribe\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
+  assert.match(now, /if\(configUnsub\)configUnsub\(\)/);
+});
