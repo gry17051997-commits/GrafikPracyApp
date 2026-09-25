@@ -50,7 +50,7 @@ test('Android location config enables background and location foreground service
   assert.match(config, /"android\.permission\.FOREGROUND_SERVICE_LOCATION"/);
   assert.match(config, /"isAndroidBackgroundLocationEnabled": true/);
   assert.match(config, /"isAndroidForegroundServiceEnabled": true/);
-  assert.match(config, /killServiceOnDestroy:false/);
+  assert.match(config, /killServiceOnDestroy:\s*false/);
 });
 
 test('GPS tracker guards against duplicate background tasks', () => {
@@ -374,7 +374,7 @@ test('recover debt does not grow from already locked or historical replacement s
 test('recover target is based on the clean weekly template plus one recovery debt', () => {
   const app = read('App.js');
   assert.match(app, /const baseTarget=targets\[p\]===null\?baseTargetCounts\[p\]:targets\[p\]/);
-  assert.match(app, /targets\[p\]=baseTarget\+recoveryTarget\[p\]/);
+  assert.match(app, /targets\[p\]\s*=\s*baseTarget\+recoveryTarget\[p\]/);
 });
 
 test('generator uses a soft capacity limit instead of cancelling a valid partial schedule', () => {
