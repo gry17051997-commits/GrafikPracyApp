@@ -524,13 +524,15 @@ test('online schedule persistence includes recovery balance and ledger changes',
   assert.match(effect, /recoveryBalances,recoveryLedger,cloudUser,cloudRole/);
 });
 
-test('swap approval does not mutate the schedule when proposal update fails', () => {
+test('swap approval uses a Firestore transaction against the current proposal and schedule', () => {
   const app = read('App.js');
   const start = app.indexOf('const approveProposal = async proposal =>');
   const end = app.indexOf('const rejectProposal = async id =>', start);
   const block = app.slice(start, end);
-  assert.match(block, /await updateDoc\(doc\(db,'proposals',proposal\.id\)/);
-  const remoteUpdate = block.indexOf('await updateDoc(doc(db,\'proposals\',proposal.id)');
-  const scheduleUpdate = block.indexOf('setWeeks(prev=>', remoteUpdate);
-  assert.ok(remoteUpdate >= 0 && scheduleUpdate > remoteUpdate);
+  assert.match(block, /runTransaction\(db,async tx=>/);
+  assert.match(block, /proposalSnap\.data\(\)\?\.status !== 'pending'/);
+  assert.match(block, /scheduleSnap\.data\(\)\?\.weeks/);
+  assert.match(block, /x\.person!==expectedA \|\| y\.person!==expectedB/);
+  assert.match(block, /tx\.update\(scheduleRef/);
+  assert.match(block, /tx\.update\(proposalRef/);
 });
