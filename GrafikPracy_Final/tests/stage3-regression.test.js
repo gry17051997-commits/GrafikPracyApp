@@ -394,3 +394,19 @@ test('locator role is available for account creation and accepted by backend/rul
   assert.match(rules, /value == 'admin' \|\| value == 'employee' \|\| value == 'locator'/);
   assert.match(app, /role === 'locator' \? 'locator' : 'employee'/);
 });
+
+
+test('locator role is required for vehicle GPS writes', () => {
+  const rules = read('firestore.rules');
+  const gpsBlock = rules.slice(rules.indexOf("match /vehicleTracking/{vehicleId}"));
+  assert.match(gpsBlock, /users\/\$\(request\.auth\.uid\)\)\.data\.role == 'locator'/);
+  assert.match(gpsBlock, /match \/locations\/\{locationId\}/);
+});
+
+test('locator interface hides schedule, summary and chat navigation', () => {
+  const app = read('App.js');
+  assert.match(app, /cloudRole==='locator' ? locatorSettings : settings/);
+  assert.match(app, /cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]/);
+  assert.match(app, /cloudRole==='locator' ? [] : [['summary','📊','Suma'],['chat','💬','Czat']]/);
+  assert.match(app, /Nadajnik GPS/);
+});
