@@ -381,3 +381,16 @@ test('default Sunday Łukasz MUST conditions survive backup restore and full res
   const resetBlock = app.slice(resetStart, resetEnd);
   assert.match(resetBlock, /setConditions\(\[\.\.\.DEFAULT_BUSINESS_CONDITIONS\]\)/);
 });
+
+
+test('locator role is available for account creation and accepted by backend/rules', () => {
+  const panel = read('AdminUsersPanel.js');
+  const fn = read('functions/index.js');
+  const rules = read('firestore.rules');
+  const app = read('App.js');
+  assert.match(panel, /const ROLES=\['employee','locator','admin'\]/);
+  assert.match(panel, /📍 LOKALIZATOR/);
+  assert.match(fn, /new Set\(\['admin','employee','locator'\]\)/);
+  assert.match(rules, /value == 'admin' \|\| value == 'employee' \|\| value == 'locator'/);
+  assert.match(app, /role === 'locator' \? 'locator' : 'employee'/);
+});
