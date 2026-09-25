@@ -118,8 +118,6 @@ async function saveLocationInternal(location) {
     await Promise.all(old.docs.map(d=>deleteDoc(d.ref)));
   } catch(e) {}
 }
-}
-
 
 // Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
 // odczytały tego samego LOCATION_CURRENT_KEY i nie ominęły progu historii.
