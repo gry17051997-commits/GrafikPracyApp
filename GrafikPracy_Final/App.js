@@ -1545,8 +1545,16 @@ export default function App() {
   const restoreBackup = () => {
     try {
       const data = JSON.parse(backupText);
-      if (!data || data.app !== 'Grafik Pracy') throw new Error('bad');
-      setHours(data.hours || 10);
+      const validHours = value => value === 10 || value === 12;
+      const validRotation = value => value === 'P' || value === 'M';
+      const validWeeks = value => value && typeof value === 'object' && !Array.isArray(value);
+      const validBalances = value => value && typeof value === 'object' && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)));
+      const validLedger = value => Array.isArray(value) && value.every(entry => entry && typeof entry === 'object');
+      if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !validWeeks(data.weeks) || !validWeeks(data.weekConfigs || {}) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+        throw new Error('bad-schema');
+      }
+      setHours(data.hours);
       setRotation(data.rotation || 'P');
       setWarehouse(data.warehouse || 'PNT B');
       setWeeks(data.weeks || {});
