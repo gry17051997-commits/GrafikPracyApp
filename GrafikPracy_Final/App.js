@@ -1381,10 +1381,19 @@ export default function App() {
   };
 
   const rejectProposal = async id => {
+    if (readOnly) return;
     try {
-      if(FIREBASE_ENABLED && db) await updateDoc(doc(db,'proposals',id),{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
-      else setProposals(p=>p.map(x=>x.id===id?{...x,status:'rejected'}:x));
-    } catch(e){setCloudError('Nie udało się odrzucić propozycji. Kod: ' + (e?.code || 'unknown'));}
+      if(FIREBASE_ENABLED && db) {
+        const proposalRef=doc(db,'proposals',id);
+        await runTransaction(db,async tx=>{
+          const snap=await tx.get(proposalRef);
+          if(!snap.exists() || snap.data()?.status !== 'pending') throw new Error('proposal-not-pending');
+          tx.update(proposalRef,{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
+        });
+      } else {
+        setProposals(p=>p.map(x=>x.id===id && x.status==='pending'?{...x,status:'rejected'}:x));
+      }
+    } catch(e){setCloudError('Nie udało się odrzucić propozycji. Kod: ' + (e?.code || e?.message || 'unknown'));}
   };
 
   const changeRotation = k => {
