@@ -29,7 +29,7 @@ import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
+import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit, runTransaction} from 'firebase/firestore';
 
 const updateAndroidWidgets = () => {
   if (Platform.OS !== 'android') return;
@@ -1322,19 +1322,43 @@ export default function App() {
     }
     try {
       if(FIREBASE_ENABLED && db) {
-        await updateDoc(doc(db,'proposals',proposal.id),{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
+        const proposalRef=doc(db,'proposals',proposal.id);
+        const scheduleRef=doc(db,'schedules','main');
+        const committedWeeks=await runTransaction(db,async tx=>{
+          const proposalSnap=await tx.get(proposalRef);
+          if(!proposalSnap.exists() || proposalSnap.data()?.status !== 'pending') {
+            throw new Error('proposal-not-pending');
+          }
+          const scheduleSnap=await tx.get(scheduleRef);
+          if(!scheduleSnap.exists()) throw new Error('schedule-missing');
+          const remoteWeeks=scheduleSnap.data()?.weeks || {};
+          const source=remoteWeeks[proposalWeekKey];
+          const x=source?.[fromDay]?.shifts?.[fromShift-1];
+          const y=source?.[toDay]?.shifts?.[toShift-1];
+          if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
+            throw new Error('proposal-stale');
+          }
+          const nextWeeks={...remoteWeeks,[proposalWeekKey]:cloneWeek(source)};
+          const next=nextWeeks[proposalWeekKey];
+          const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
+          const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
+          tx.update(scheduleRef,{weeks:nextWeeks,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
+          tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
+          return nextWeeks;
+        });
+        setWeeks(nextWeeks=>committedWeeks);
       } else {
         setProposals(p=>p.map(x=>x.id===proposal.id?{...x,status:'approved'}:x));
+        setWeeks(prev=>{
+          const source=prev[proposalWeekKey];
+          if(!source) return prev;
+          const next=cloneWeek(source);
+          const x=next[fromDay].shifts[fromShift-1], y=next[toDay].shifts[toShift-1];
+          if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) return prev;
+          const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
+          return {...prev,[proposalWeekKey]:next};
+        });
       }
-      setWeeks(prev=>{
-        const source=prev[proposalWeekKey];
-        if(!source) return prev;
-        const next=cloneWeek(source);
-        const x=next[fromDay].shifts[fromShift-1], y=next[toDay].shifts[toShift-1];
-        if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) return prev;
-        const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
-        return {...prev,[proposalWeekKey]:next};
-      });
     } catch(e){setCloudError('Nie udało się zatwierdzić zamiany. Kod: ' + (e?.code || 'unknown'));}
   };
 
