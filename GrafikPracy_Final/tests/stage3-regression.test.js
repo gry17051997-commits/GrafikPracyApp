@@ -489,3 +489,26 @@ test('removing central vehicle assignment stops an active locator GPS transmitte
   assert.match(block, /setVehicleRegistration\(''\)/);
   assert.match(block, /stopVehicleLocationTracking\(\)/);
 });
+
+
+test('recovery OFF keeps debt attached to the original employee, not the replacement', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const saveOff = () =>');
+  const end = app.indexOf('const submitSwap = async () =>', start);
+  const block = app.slice(start, end);
+  assert.match(block, /previousRecoveryPerson/);
+  assert.match(block, /previousShift\.offOriginalPerson \|\| previousShift\.recoverPerson/);
+  assert.match(block, /const recoveryPerson = offMode === 'recover'/);
+  assert.match(block, /sh\.offOriginalPerson=recoveryPerson/);
+  assert.match(block, /off-recover-reverted/);
+});
+
+test('changing recovery OFF back to plain OFF reverses the recovery ledger entry', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const saveOff = () =>');
+  const end = app.indexOf('const submitSwap = async () =>', start);
+  const block = app.slice(start, end);
+  assert.match(block, /if \(previousRecoveryPerson && previousRecoveryPerson !== recoveryPerson\)/);
+  assert.match(block, /setRecoveryBalances\(prev =>/);
+  assert.match(block, /appendRecoveryLedger\(previousRecoveryPerson,-1,'off-recover-reverted'/);
+});
