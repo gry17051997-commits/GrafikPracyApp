@@ -154,6 +154,9 @@ export async function saveVehicleLocationAssignment(registration) {
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
   const vehicle=safeVehicleId(reg);
   const old=await getConfig();
+  if (safeVehicleId(old.vehicleId||old.registration) !== vehicle) {
+    try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
+  }
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:old.enabled===true,vehicleId:vehicle,registration:reg}));
   return {ok:true,vehicleId:vehicle,registration:reg};
 }
@@ -194,6 +197,7 @@ export async function stopVehicleLocationTracking() {
   } catch(e) {}
   const old=await getConfig();
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:false}));
+  try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
 }
 
 export async function ensureVehicleLocationTracking() {
