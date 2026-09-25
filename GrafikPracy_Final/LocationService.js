@@ -158,18 +158,6 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:registration||vehicle}));
-  // Jeżeli ten telefon jest zalogowany jako administrator, zapisz też globalne przypisanie
-  // pojazdu. WWW może wtedy wskazać dokładnie ten nadajnik mimo osobnego AsyncStorage.
-  try {
-    if (auth?.currentUser?.uid) {
-      await setDoc(doc(db,'locationConfig','main'),{
-        vehicleId:vehicle,
-        registration:registration||vehicle,
-        updatedAt:Date.now(),
-        updatedBy:auth.currentUser.uid
-      },{merge:true});
-    }
-  } catch(e) {}
 
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
