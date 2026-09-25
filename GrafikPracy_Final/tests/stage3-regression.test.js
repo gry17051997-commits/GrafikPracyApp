@@ -622,3 +622,24 @@ test('swap proposal rejects identical source and target shifts and validates sou
   assert.match(block, /sourceShiftData/);
   assert.match(block, /Zmiana, z której tworzysz propozycję/);
 });
+
+
+test('employee swap proposal is restricted to the logged-in employee source shift', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const submitSwap = async () =>');
+  const end = app.indexOf('const approveProposal', start);
+  const block = app.slice(start, end);
+  assert.match(block, /cloudRole !== 'admin'/);
+  assert.match(block, /sourceShiftData\.person !== myPerson/);
+  assert.match(block, /swapModal\.person !== myPerson/);
+});
+
+test('Firestore proposal creation binds employee source person to the user profile', () => {
+  const rules = read('firestore.rules');
+  const start = rules.indexOf('match /proposals/{proposalId}');
+  const end = rules.indexOf('match /chatMessages', start);
+  const block = rules.slice(start, end);
+  assert.match(block, /request\.resource\.data\.fromPerson == get\(/);
+  assert.match(block, /data\.personKey/);
+  assert.match(block, /isAdmin\(\)/);
+});
