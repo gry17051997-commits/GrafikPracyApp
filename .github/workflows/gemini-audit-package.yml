@@ -18,6 +18,8 @@ jobs:
           cp -r GrafikPracy_Final audit-package/
           cp -r .github audit-package/.github
           cp AUDIT_GEMINI.md audit-package/
+          cp GEMINI_AUDIT_REQUEST.md audit-package/
+          cp GEMINI_AUDIT_CONTEXT.md audit-package/
           cp .gitignore audit-package/
           rm -rf audit-package/GrafikPracy_Final/node_modules
           rm -rf audit-package/GrafikPracy_Final/.expo
