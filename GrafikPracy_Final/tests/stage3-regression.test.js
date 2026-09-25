@@ -163,6 +163,15 @@ test('rotation changes never overwrite manual, locked or recovery OFF assignment
   assert.match(block, /const next\s*=\s*cloneWeek\(existing\)/);
 });
 
+test('reselecting the current rotation is a no-op', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const changeRotation =');
+  const end = app.indexOf('  const openWeekSetup =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /const currentRotation = weekConfigs\[wkKey\]\?\.rotation \|\| rotation/);
+  assert.match(block, /if \(k === currentRotation\) return/);
+});
+
 test('week setup preserves an existing week instead of replacing its assignments', () => {
   const app = read('App.js');
   const start = app.indexOf('const confirmWeekSetup =');
