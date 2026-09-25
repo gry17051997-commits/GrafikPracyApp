@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = process.cwd();
+const cwd = process.cwd();
+const root = fs.existsSync(path.join(cwd, 'App.js')) ? cwd : path.join(cwd, 'GrafikPracy_Final');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
 test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', () => {
