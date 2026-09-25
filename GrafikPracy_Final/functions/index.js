@@ -5,7 +5,7 @@ const {getFirestore} = require('firebase-admin/firestore');
 
 initializeApp();
 
-const VALID_ROLES = new Set(['admin','employee']);
+const VALID_ROLES = new Set(['admin','employee','locator']);
 const VALID_PERSON_KEYS = new Set(['P','M','L']);
 
 function requireAdmin(request, callerSnap) {
