@@ -189,6 +189,7 @@ export default function App() {
   const cloudSaveTimerRef = useRef(null);
   const cloudDirtyRef = useRef(false);
   const scheduleHydratedRef = useRef(false);
+  const scheduleDirtyTrackingStartedRef = useRef(false);
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
@@ -652,6 +653,28 @@ export default function App() {
   },[cloudUser]);
 
   useEffect(() => {
+    if (!ready || !scheduleHydratedRef.current) return;
+    if (!scheduleDirtyTrackingStartedRef.current) {
+      scheduleDirtyTrackingStartedRef.current = true;
+      return;
+    }
+    if (cloudApplying.current) {
+      cloudApplying.current = false;
+      return;
+    }
+    cloudDirtyRef.current = true;
+    AsyncStorage.getItem(KEY).then(raw => {
+      if (!raw) return;
+      const local = JSON.parse(raw);
+      return AsyncStorage.setItem(KEY,JSON.stringify({
+        ...local,
+        cloudPending:true,
+        cloudBaseUpdatedAt:cloudUpdatedAtRef.current
+      }));
+    }).catch(()=>{});
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+
+  useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
     if (cloudApplying.current) {
       cloudApplying.current = false;
@@ -671,12 +694,14 @@ export default function App() {
           tx.set(scheduleRef,payload,{merge:true});
         }).then(async ()=>{
           cloudDirtyRef.current = false;
-          cloudUpdatedAtRef.current = Date.now();
           try {
+            const latest = await getDoc(scheduleRef);
+            const committedAt = latest.exists() ? (latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtRef.current) : cloudUpdatedAtRef.current;
+            cloudUpdatedAtRef.current = committedAt;
             const raw = await AsyncStorage.getItem(KEY);
             if (raw) {
               const local = JSON.parse(raw);
-              await AsyncStorage.setItem(KEY,JSON.stringify({...local,cloudPending:false,cloudBaseUpdatedAt:cloudUpdatedAtRef.current}));
+              await AsyncStorage.setItem(KEY,JSON.stringify({...local,cloudPending:false,cloudBaseUpdatedAt:committedAt}));
             }
           } catch(e) {}
         }).catch(async e=>{
