@@ -751,3 +751,32 @@ test('Firestore proposal creation binds employee source person to the user profi
   assert.match(block, /data\.personKey/);
   assert.match(block, /isAdmin\(\)/);
 });
+
+test('Android report alarms use a dedicated MAX-importance channel with vibration and lock-screen visibility', () => {
+  const app = read('App.js');
+  assert.match(app, /const REPORT_NOTIFICATION_CHANNEL_ID = 'work-report-alarm'/);
+  assert.match(app, /Notifications\.setNotificationChannelAsync\(REPORT_NOTIFICATION_CHANNEL_ID/);
+  assert.match(app, /importance: Notifications\.AndroidImportance\.MAX/);
+  assert.match(app, /vibrationPattern: \[0,700,250,700,500\]/);
+  assert.match(app, /lockscreenVisibility: Notifications\.AndroidNotificationVisibility\.PUBLIC/);
+  assert.match(app, /bypassDnd: true/);
+  assert.match(app, /channelId: REPORT_NOTIFICATION_CHANNEL_ID/);
+  assert.match(app, /priority: Notifications\.AndroidNotificationPriority\.MAX/);
+  assert.match(app, /sticky: true/);
+});
+
+test('report alarm repeats vibration while open and cancels it when dismissed', () => {
+  const app = read('App.js');
+  const start = app.indexOf('useEffect(() => {\\n    if (!reportAlarm)');
+  const end = app.indexOf('  const ensureReportNotificationChannel', start);
+  const block = app.slice(start, end);
+  assert.match(block, /Vibration\.vibrate\(\[0,700,250,700,500\], true\)/);
+  assert.match(block, /Vibration\.cancel\(\)/);
+});
+
+test('notification response handling ignores duplicate or stale last-response deliveries', () => {
+  const app = read('App.js');
+  assert.match(app, /REPORT_LAST_HANDLED_NOTIFICATION_KEY/);
+  assert.match(app, /handledReportNotificationRef\.current === id/);
+  assert.match(app, /AsyncStorage\.getItem\(REPORT_LAST_HANDLED_NOTIFICATION_KEY\)/);
+});
