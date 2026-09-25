@@ -147,6 +147,16 @@ test('Android widget refreshes are debounced', () => {
   assert.match(app, /widgetUpdateTimerRef\.current = setTimeout\(async \(\) =>/);
 });
 
+test('hourly report notifications use alarm presentation and handoff to report', () => {
+  const app = read('App.js');
+  assert.match(app, /title: '🚨 RAPORT GODZINOWY'/);
+  assert.match(app, /sound: 'default'/);
+  assert.match(app, /data: \{type:'work-report', alarm:true\}/);
+  assert.match(app, /const \[reportAlarm,setReportAlarm\] = useState\(false\)/);
+  assert.match(app, /setReportAlarm\(true\)/);
+  assert.match(app, /setReportAlarm\(false\);\s*applyReportContinuity\(reportStatus\);\s*setReportModal\(true\)/);
+});
+
 test('work report notification refreshes continuity before opening modal', () => {
   const app = read('App.js');
   const marker = "response.notification.request.content.data?.type === 'work-report'";
