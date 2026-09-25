@@ -575,6 +575,24 @@ test('schedule sync coalesces rapid local state changes into one write window', 
   assert.match(block, /return \(\) =>/);
 });
 
+test('approved swaps are marked manual so the generator preserves them', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const approveProposal = async proposal =>');
+  const end = app.indexOf('const rejectProposal = async id =>', start);
+  const block = app.slice(start, end);
+  assert.match(block, /nx\.person=ny\.person; ny\.person=xp; nx\.manual=true; ny\.manual=true/);
+});
+
+test('advanced generator preserves manual and locked assignments including approved swaps', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const generateAdvancedWeek = () =>');
+  const end = app.indexOf('const generateSchedule =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /if \(dayHasPassed\(di\) \|\| s\.locked \|\| s\.manual\) return;/);
+  assert.match(block, /if \(s\.manual && !autoFillOff\) return;/);
+  assert.match(block, /if\(s\.locked \|\| s\.manual \|\| dayHasPassed\(di\)\)/);
+});
+
 test('reset all stops active locator GPS before clearing local location config', () => {
   const app = read('App.js');
   const start = app.indexOf('const resetAll = () =>');
