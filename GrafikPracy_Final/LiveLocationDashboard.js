@@ -125,7 +125,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
         historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
       },e=>{
         setLocation(null); setHistory([]);
-        setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu lokalizacji. Telefon B musi być zalogowany do konta pracownika.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
+        setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu lokalizacji. Sprawdź konto oraz reguły dostępu do GPS.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
       });
     })();
     return()=>{cancelled=true; if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
