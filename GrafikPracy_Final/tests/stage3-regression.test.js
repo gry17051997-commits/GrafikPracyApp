@@ -98,6 +98,24 @@ test('web and Android acceptance surfaces remain wired', () => {
 });
 
 
+test('rotation changes never overwrite manual, locked or recovery OFF assignments', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const changeRotation =');
+  const end = app.indexOf('  const openWeekSetup =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /if \(s\.manual \|\| s\.locked \|\| s\.person === 'L'\) return/);
+  assert.match(block, /setWeeks\(prev =>/);
+  assert.match(block, /const next=cloneWeek\(existing\)/);
+});
+
+test('week setup preserves an existing week instead of replacing its assignments', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const confirmWeekSetup =');
+  const end = app.indexOf('  const moveWeek =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /setWeeks\(prev=>\(\{\.\.\.prev,\[key\]:prev\[key\]\|\|generateWeek/);
+});
+
 test('advanced generator treats person-specific OFF as a candidate restriction and detects conflicting MUST rules', () => {
   const app = read('App.js');
   assert.match(app, /c\.type==='off' && !c\.person && conditionApplies\(c,''/);
