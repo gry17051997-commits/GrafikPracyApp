@@ -77,6 +77,15 @@ test('report widget filters shared history to the current worker', () => {
   assert.match(handler, /report:getReportData\(data\)/);
 });
 
+test('report alarm persists a bounded set of handled notification IDs', () => {
+  const app = read('App.js');
+  assert.match(app, /const handled = raw \? JSON\.parse\(raw\) : \[\]/);
+  assert.match(app, /const handledIds = Array\.isArray\(handled\) \? handled : \(raw \? \[raw\] : \[\]\)/);
+  assert.match(app, /handledIds\.includes\(id\)/);
+  assert.match(app, /\.slice\(0,50\)/);
+  assert.match(app, /JSON\.stringify\(nextHandled\)/);
+});
+
 test('LocationService closes saveLocationInternal before declaring the serialized queue', () => {
   const service = read('LocationService.js');
   const start = service.indexOf('async function saveLocationInternal');
