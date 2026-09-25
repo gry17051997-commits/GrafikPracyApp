@@ -6,7 +6,7 @@ import path from 'node:path';
 const cwd = process.cwd();
 const root = fs.existsSync(path.join(cwd, 'App.js')) ? cwd : path.join(cwd, 'GrafikPracy_Final');
 const read = file => {
-  const direct = file.startsWith('../') ? path.join(path.dirname(root), file.slice(3)) : path.join(root, file);
+  const direct = file.startsWith('../') ? path.join(root, file.slice(3)) : path.join(root, file);
   if (fs.existsSync(direct)) return fs.readFileSync(direct, 'utf8');
   const local = path.join(root, file.replace(/^\.\.\//, ''));
   return fs.readFileSync(local, 'utf8');
