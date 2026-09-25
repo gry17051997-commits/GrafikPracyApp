@@ -5,6 +5,7 @@ import {getFunctions, httpsCallable} from 'firebase/functions';
 import {db, firebaseApp, FIREBASE_ENABLED} from './firebaseConfig';
 
 const KEYS=['P','M','L'];
+const ROLES=['employee','locator','admin'];
 
 export default function AdminUsersPanel({cloudUser}) {
   const [users,setUsers]=useState([]);
@@ -23,7 +24,7 @@ export default function AdminUsersPanel({cloudUser}) {
   },[cloudUser?.uid]);
 
   const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee'});setModal({mode:'create'});};
-  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:u.role==='admin'?'admin':'employee'});setModal({mode:'edit',user:u});};
+  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:ROLES.includes(u.role)?u.role:'employee'});setModal({mode:'edit',user:u});};
   const close=()=>{if(!busy)setModal(null);};
 
   const save=async()=>{
@@ -63,7 +64,7 @@ export default function AdminUsersPanel({cloudUser}) {
       const self=u.uid===cloudUser?.uid;
       return <View key={u.uid} style={{backgroundColor:'#1c2029',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d'}}>
         <View style={{flexDirection:'row',alignItems:'center'}}>
-          <View style={{flex:1}}><Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text><Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text><Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':'👤 Pracownik'}{u.personKey?' · '+u.personKey:''}</Text></View>
+          <View style={{flex:1}}><Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text><Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text><Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':u.role==='locator'?'📍 Lokalizator':'👤 Pracownik'}{u.personKey?' · '+u.personKey:''}</Text></View>
           {self?<Text style={{color:'#75a1ff',fontSize:12,fontWeight:'900'}}>TO TY</Text>:<View style={{flexDirection:'row',gap:6}}>
             <TouchableOpacity disabled={!!busy} onPress={()=>edit(u)} style={{backgroundColor:'#293c62',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>✏️</Text></TouchableOpacity>
             <TouchableOpacity disabled={!!busy} onPress={()=>remove(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy===u.uid?'…':'🗑️'}</Text></TouchableOpacity>
@@ -85,7 +86,7 @@ export default function AdminUsersPanel({cloudUser}) {
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
-            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['employee','admin'].map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':'👤 PRACOWNIK'}</Text></TouchableOpacity>)}</View>
+            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{ROLES.map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':role==='locator'?'📍 LOKALIZATOR':'👤 PRACOWNIK'}</Text></TouchableOpacity>)}</View>
             {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>{error}</Text>}
             <View style={{flexDirection:'row',gap:8}}><TouchableOpacity onPress={close} disabled={!!busy} style={{flex:1,backgroundColor:'#303744',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>ANULUJ</Text></TouchableOpacity><TouchableOpacity onPress={save} disabled={!!busy} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy?'ZAPISUJĘ…':'ZAPISZ'}</Text></TouchableOpacity></View>
           </ScrollView>
