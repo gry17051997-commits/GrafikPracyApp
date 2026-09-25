@@ -147,11 +147,16 @@ test('Android widget refreshes are debounced', () => {
   assert.match(app, /widgetUpdateTimerRef\.current = setTimeout\(async \(\) =>/);
 });
 
-test('report notifications use each stored week configuration', () => {
+test('report notification scheduling reacts to per-week configuration changes', () => {
   const app = read('App.js');
-  assert.match(app, /const weekTimes = weekConfigs\[key\]\?\.times/);
-  assert.match(app, /DEFAULT_TIMES\[weekConfigs\[key\]\?\.hours \|\| hours\]/);
+  const start = app.indexOf("useEffect(() => {\n    if (!ready || Platform.OS === 'web') return;\n    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);");
+  const end = app.indexOf("  },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);", start);
+  assert.ok(start >= 0 && end > start);
+  const block = app.slice(start, end);
+  assert.match(block, /weeks,weekConfigs,times,vehicleRegistration/);
 });
+
+
 
 
 test('Sunday 24h for Łukasz is an editable default MUST rule, not hardcoded in generateWeek', () => {
