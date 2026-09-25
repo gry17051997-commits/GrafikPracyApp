@@ -128,7 +128,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       };
 
       configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
-        subscribeVehicle(snap.exists()?snap.data()||:{});
+        subscribeVehicle(snap.exists()?snap.data()||{});
       },e=>{
         setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown'));
         subscribeVehicle({});
