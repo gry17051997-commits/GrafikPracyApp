@@ -1276,6 +1276,17 @@ export default function App() {
 
   const submitSwap = async () => {
     if(!swapModal || !swapTarget || !cloudUser) return;
+    const sourceDay=Number(swapModal.dayIndex);
+    const sourceShift=Number(swapModal.shiftIndex)+1;
+    if(sourceDay === Number(swapTargetDay) && sourceShift === Number(swapTargetShift)){
+      Alert.alert('Nieprawidłowa zamiana','Nie można zaproponować zamiany zmiany z nią samą.');
+      return;
+    }
+    const sourceShiftData=currentWeek[sourceDay]?.shifts?.[sourceShift-1];
+    if(!sourceShiftData || !sourceShiftData.person){
+      Alert.alert('Nieprawidłowa zamiana','Zmiana, z której tworzysz propozycję, nie ma przypisanego pracownika.');
+      return;
+    }
     const targetShift=currentWeek[swapTargetDay]?.shifts?.[swapTargetShift-1];
     if(!targetShift || targetShift.person!==swapTarget){
       Alert.alert('Nieprawidłowa zamiana','Wybierz zmianę, na której wybrany pracownik faktycznie pracuje.');
