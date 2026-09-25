@@ -162,6 +162,19 @@ test('cloud snapshot apply guard remains owned by the cloud save effect', () => 
   assert.doesNotMatch(block, /cloudApplying\.current = false/);
 });
 
+test('GPS cache is cleared when the assigned vehicle changes or tracking stops', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /safeVehicleId\(old\.vehicleId\|\|old\.registration\) !== vehicle/);
+  assert.match(service, /removeItem\(LOCATION_CURRENT_KEY\)/);
+});
+
+test('GPS widget only exposes cached coordinates for the currently assigned vehicle', () => {
+  const widget = read('widget-task-handler.js');
+  assert.match(widget, /const sameVehicle=enabled&&cur\?\.vehicleId===loc\?\.vehicleId/);
+  assert.match(widget, /Oczekiwanie na GPS nowego auta/);
+  assert.match(widget, /sameVehicle&&cur\?\.latitude!=null/);
+});
+
 test('offline schedule state is durable and cache snapshots cannot discard it', () => {
   const app = read('App.js');
   assert.match(app, /cloudPending:cloudDirtyRef\.current/);
