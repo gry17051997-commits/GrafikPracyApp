@@ -187,6 +187,9 @@ export default function App() {
   const cloudApplying = useRef(false);
   const cloudUpdatedAtRef = useRef(null);
   const cloudSaveTimerRef = useRef(null);
+  const cloudDirtyRef = useRef(false);
+  const scheduleHydratedRef = useRef(false);
+  const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
   const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
@@ -376,10 +379,13 @@ export default function App() {
           setChatMessages(data.chatMessages || []);
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
+          cloudDirtyRef.current = data.cloudPending === true;
+          cloudUpdatedAtRef.current = data.cloudBaseUpdatedAt ?? null;
         }
       } catch(e) {
         console.log(e);
       } finally {
+        scheduleHydratedRef.current = true;
         setReady(true);
       }
     })();
@@ -411,7 +417,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -589,9 +595,23 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(doc(db,'schedules','main'), snap => {
+    const unsub = onSnapshot(doc(db,'schedules','main'), {includeMetadataChanges:true}, snap => {
       if (!snap.exists()) return;
       const data = snap.data() || {};
+      const remoteUpdatedAt = data.updatedAt?.toMillis?.() ?? null;
+      if (cloudDirtyRef.current) {
+        if (remoteUpdatedAt === cloudUpdatedAtRef.current) {
+          if (!snap.metadata.fromCache) setCloudRetryTick(v => v + 1);
+          return;
+        }
+        if (snap.metadata.fromCache) return;
+        cloudDirtyRef.current = false;
+        AsyncStorage.getItem(KEY).then(raw => {
+          if (!raw) return;
+          const local = JSON.parse(raw);
+          return AsyncStorage.setItem(KEY,JSON.stringify({...local,cloudPending:false,cloudBaseUpdatedAt:remoteUpdatedAt}));
+        }).catch(()=>{});
+      }
       cloudApplying.current = true;
       cloudUpdatedAtRef.current = data.updatedAt?.toMillis?.() ?? null;
       if (data.hours) setHours(data.hours);
@@ -649,6 +669,16 @@ export default function App() {
             throw new Error('schedule-conflict');
           }
           tx.set(scheduleRef,payload,{merge:true});
+        }).then(async ()=>{
+          cloudDirtyRef.current = false;
+          cloudUpdatedAtRef.current = Date.now();
+          try {
+            const raw = await AsyncStorage.getItem(KEY);
+            if (raw) {
+              const local = JSON.parse(raw);
+              await AsyncStorage.setItem(KEY,JSON.stringify({...local,cloudPending:false,cloudBaseUpdatedAt:cloudUpdatedAtRef.current}));
+            }
+          } catch(e) {}
         }).catch(async e=>{
           if(e?.message==='schedule-conflict'){
             // The realtime listener will usually deliver the newer snapshot, but do
@@ -673,6 +703,7 @@ export default function App() {
                 if(Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
                 if(data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
               }
+              cloudDirtyRef.current = false;
               setCloudError('Grafik został zmieniony na innym urządzeniu. Pobrano najnowszą wersję bez jej nadpisania.');
             } catch(reloadError) {
               setCloudError('Grafik został zmieniony na innym urządzeniu, ale nie udało się pobrać najnowszej wersji. Kod: ' + (reloadError?.code || 'unknown'));
@@ -681,7 +712,7 @@ export default function App() {
           }
           setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
         });
-      },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole]);
+      },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole,cloudRetryTick]);
     },250);
     return () => {
       if (cloudSaveTimerRef.current) {
