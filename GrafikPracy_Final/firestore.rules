@@ -13,7 +13,7 @@ service cloud.firestore {
     }
 
     function validRole(value) {
-      return value == 'admin' || value == 'employee';
+      return value == 'admin' || value == 'employee' || value == 'locator';
     }
 
     function validPersonKey(value) {
