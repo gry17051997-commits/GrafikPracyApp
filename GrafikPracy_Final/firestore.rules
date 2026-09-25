@@ -88,7 +88,9 @@ service cloud.firestore {
     }
 
     match /vehicleTracking/{vehicleId} {
-      allow read: if signedIn();
+      allow read: if isAdmin()
+        || (signedIn()
+          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId);
 
       // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
       // jest ustalany przez administratora w locationConfig/main. Pracownik
@@ -124,7 +126,9 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /locations/{locationId} {
-        allow read: if signedIn();
+        allow read: if isAdmin()
+          || (signedIn()
+            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId);
 
         allow create: if isAdmin()
           || (signedIn()
