@@ -949,7 +949,7 @@ export default function App() {
     if (!ready || Platform.OS === 'web') return;
     const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);
     return () => clearTimeout(timer);
-  },[ready,reportsEnabled,myPerson,weeks,times,vehicleRegistration]);
+  },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);
 
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
