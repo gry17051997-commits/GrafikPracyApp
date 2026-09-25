@@ -62,6 +62,15 @@ test('GPS history cleanup is deterministic and keeps only the last 7 days', () =
   assert.match(service, /deleteDoc\(d\.ref\)/);
 });
 
+test('background GPS saves push a fresh Auto widget update on Android', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /if \(Platform\.OS === 'android'\)/);
+  assert.match(service, /requestWidgetUpdate\(/);
+  assert.match(service, /widgetName:'GrafikAuto'/);
+  assert.match(service, /buildWidgetData\(\)/);
+  assert.match(service, /GrafikAutoWidget/);
+});
+
 test('LocationService closes saveLocationInternal before declaring the serialized queue', () => {
   const service = read('LocationService.js');
   const start = service.indexOf('async function saveLocationInternal');
