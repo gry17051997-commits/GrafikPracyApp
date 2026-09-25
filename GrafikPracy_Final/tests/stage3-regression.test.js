@@ -574,3 +574,15 @@ test('backup restore validates version and core schedule schema before mutating 
   assert.match(block, /validLedger/);
   assert.match(block, /setHours\(data\.hours\)/);
 });
+
+
+test('swap rejection is guarded by pending status', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const rejectProposal = async id =>');
+  const end = app.indexOf('const changeRotation', start);
+  const block = app.slice(start, end);
+  assert.match(block, /readOnly\) return/);
+  assert.match(block, /runTransaction\(db,async tx=>/);
+  assert.match(block, /proposal-not-pending/);
+  assert.match(block, /status:'rejected'/);
+});
