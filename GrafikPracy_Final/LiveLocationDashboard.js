@@ -98,7 +98,15 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       const subscribeVehicle=(cloudConfig={})=>{
         if(vehiclesUnsub) vehiclesUnsub();
         if(historyUnsub) { historyUnsub(); historyUnsub=null; }
-        const requestedId=idFor(cloudConfig.vehicleId||c.vehicleId||vehicleRegistration);
+        const hasCentralAssignment=Object.prototype.hasOwnProperty.call(cloudConfig,'vehicleId') || Object.prototype.hasOwnProperty.call(cloudConfig,'registration');
+        const assignedValue=hasCentralAssignment ? (cloudConfig.vehicleId||cloudConfig.registration) : (c.vehicleId||c.registration||vehicleRegistration);
+        if (!assignedValue) {
+          setLocation(null); setHistory([]);
+          setConfig(prev=>({...prev,vehicleId:'',registration:''}));
+          setLocationError('Brak centralnego przypisania pojazdu.');
+          return;
+        }
+        const requestedId=idFor(assignedValue);
         const vehicleRef=doc(db,'vehicleTracking',requestedId);
         vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
           const selected=snap.exists()?({id:snap.id,...snap.data()}):null;
