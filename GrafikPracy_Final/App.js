@@ -1349,14 +1349,14 @@ export default function App() {
 
   const updateShift = (dayIndex,shiftIndex,patch) => {
     if (readOnly) return;
-    setWeek(w => {
-      w[dayIndex].shifts[shiftIndex] = {
-        ...w[dayIndex].shifts[shiftIndex],
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({
+      ...day,
+      shifts:(day.shifts || []).map((shift,si) => si !== shiftIndex ? shift : ({
+        ...shift,
         ...patch,
         manual:true
-      };
-      return w;
-    });
+      }))
+    })));
   };
 
   const removeShift = (dayIndex,shiftIndex) => {
@@ -1366,11 +1366,13 @@ export default function App() {
 
   const toggleLock = (dayIndex,shiftIndex) => {
     if (readOnly) return;
-    setWeek(w => {
-      const s = w[dayIndex].shifts[shiftIndex];
-      s.locked = !s.locked;
-      return w;
-    });
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({
+      ...day,
+      shifts:(day.shifts || []).map((shift,si) => si !== shiftIndex ? shift : ({
+        ...shift,
+        locked:!shift.locked
+      }))
+    })));
   };
 
   const openOff = (dayIndex,shiftIndex) => {
