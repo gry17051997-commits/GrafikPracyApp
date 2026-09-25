@@ -37,15 +37,20 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    const subscribe=(cfg={})=>{
      if(unsub) unsub();
      const requested=idFor(cfg.vehicleId||cfg.registration||vehicleRegistration);
-     unsub=onSnapshot(collection(db,'vehicleTracking'),snap=>{
-       const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&Number(x.updatedAt)>0);
-       if(!rows.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
-       const exact=requested&&rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
-       const fresh=rows.filter(x=>Date.now()-Number(x.updatedAt)<=180000).sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt));
-       const selected=requested ? ((exact&&Date.now()-Number(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||rows.sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt))[0]);
+     const handleSnapshot=(snap,exactMode=false)=>{
+       const rows=exactMode
+         ? (snap.exists() ? [{id:snap.id,...snap.data()}] : [])
+         : snap.docs.map(d=>({id:d.id,...d.data()}));
+       const valid=rows.filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&Number(x.updatedAt)>0);
+       if(!valid.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
+       const exact=exactMode ? valid[0] : requested&&valid.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
+       const fresh=valid.filter(x=>Date.now()-Number(x.updatedAt)<=180000).sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt));
+       const selected=requested ? ((exact&&Date.now()-Number(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt))[0]);
        setLocation(selected||null);
        setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
-     },()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
+     };
+     const vehicleSource=requested ? doc(db,'vehicleTracking',requested) : collection(db,'vehicleTracking');
+     unsub=onSnapshot(vehicleSource,snap=>handleSnapshot(snap,Boolean(requested)),()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
    };
    if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){setLocation(null);return;}
    configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
