@@ -425,6 +425,19 @@ export default function App() {
       if (cloudRole === 'locator') {
         const assigned = String(data.registration || data.vehicleId || '').trim().toUpperCase();
         setVehicleRegistration(assigned);
+        (async () => {
+          try {
+            const local = await getVehicleLocationConfig();
+            const localAssigned = String(local.registration || local.vehicleId || '').trim().toUpperCase();
+            if (assigned && localAssigned !== assigned) {
+              if (local.enabled === true) {
+                await stopVehicleLocationTracking();
+                setLocationTracking(false);
+              }
+              await saveVehicleLocationAssignment(assigned);
+            }
+          } catch (e) {}
+        })();
       }
     });
     return () => unsub();
