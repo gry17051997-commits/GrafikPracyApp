@@ -559,3 +559,18 @@ test('reset all stops active locator GPS before clearing local location config',
   assert.match(block, /await stopVehicleLocationTracking\(\)/);
   assert.match(block, /AsyncStorage\.removeItem\(LOCATION_CONFIG_KEY\)/);
 });
+
+
+test('backup restore validates version and core schedule schema before mutating state', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const restoreBackup = () =>');
+  const end = app.indexOf('const shareFile = async', start);
+  const block = app.slice(start, end);
+  assert.match(block, /Number\(data\.version\) !== 5/);
+  assert.match(block, /validHours/);
+  assert.match(block, /validRotation/);
+  assert.match(block, /validWeeks/);
+  assert.match(block, /validBalances/);
+  assert.match(block, /validLedger/);
+  assert.match(block, /setHours\(data\.hours\)/);
+});
