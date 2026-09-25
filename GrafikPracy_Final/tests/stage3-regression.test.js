@@ -551,6 +551,18 @@ test('shared schedule save guards against stale remote updates', () => {
 });
 
 
+test('schedule conflict immediately reloads the authoritative remote snapshot', () => {
+  const app = read('App.js');
+  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
+  const end = app.indexOf("\n\n  const parseHM", start);
+  const block = app.slice(start, end);
+  assert.match(block, /if\(e\?\.message==='schedule-conflict'\)/);
+  assert.match(block, /const latest=await getDoc\(scheduleRef\)/);
+  assert.match(block, /cloudUpdatedAtRef\.current=data\.updatedAt/);
+  assert.match(block, /setWeeks\(data\.weeks\)/);
+  assert.match(block, /Pobrano najnowszą wersję bez jej nadpisania/);
+});
+
 test('reset all stops active locator GPS before clearing local location config', () => {
   const app = read('App.js');
   const start = app.indexOf('const resetAll = () =>');
