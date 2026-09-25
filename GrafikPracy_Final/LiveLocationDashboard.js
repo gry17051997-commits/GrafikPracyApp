@@ -95,25 +95,20 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       if(!FIREBASE_ENABLED||!db){ setLocationError('Firebase lokalizacji jest wyłączony.'); return; }
       if(!cloudUser?.uid){ setLocationError('Zaloguj się do wspólnego konta, aby odbierać lokalizację telefonu służbowego.'); return; }
 
-      const vehicleRef=collection(db,'vehicleTracking');
       const subscribeVehicle=(cloudConfig={})=>{
         if(vehiclesUnsub) vehiclesUnsub();
         if(historyUnsub) { historyUnsub(); historyUnsub=null; }
         const requestedId=idFor(cloudConfig.vehicleId||c.vehicleId||vehicleRegistration);
+        const vehicleRef=doc(db,'vehicleTracking',requestedId);
         vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
-          const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&x.updatedAt);
-          if(!rows.length){ setLocation(null); setHistory([]); setLocationError('Brak punktów GPS w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.'); return; }
-          const now=Date.now();
-          const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
-          const exactFresh=exact && (now-Number(exact.updatedAt||0)<=180000);
-          const freshRows=rows.filter(x=>now-Number(x.updatedAt||0)<=180000);
-          const selected=requestedId ? (exactFresh ? exact : exact || null) : (freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0]);
-          setLocation(selected || null);
-          if(!selected){
-            setHistory([]);
-            setLocationError(requestedId ? 'Nie znaleziono przypisanego pojazdu w chmurze.' : 'Brak dostępnego nadajnika GPS.');
+          const selected=snap.exists()?({id:snap.id,...snap.data()}):null;
+          if(!selected || !Number.isFinite(Number(selected.latitude)) || !Number.isFinite(Number(selected.longitude)) || !selected.updatedAt){
+            setLocation(null); setHistory([]);
+            setLocationError('Brak punktów GPS przypisanego pojazdu w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.');
             return;
           }
+          const now=Date.now();
+          setLocation(selected);
           setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
           setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
@@ -123,7 +118,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
           historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
         },e=>{
           setLocation(null); setHistory([]);
-          setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu lokalizacji. Sprawdź konto oraz reguły dostępu do GPS.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
+          setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu przypisanego GPS. Sprawdź konto oraz reguły dostępu do GPS.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
         });
       };
 
