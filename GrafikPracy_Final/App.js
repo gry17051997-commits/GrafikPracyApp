@@ -610,7 +610,7 @@ export default function App() {
     }
     const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
     setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,cloudUser,cloudRole]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole]);
 
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
@@ -1320,18 +1320,21 @@ export default function App() {
       Alert.alert('Nie można','Jedna ze zmian jest zablokowana.');
       return;
     }
-    setWeeks(prev=>{
-      const source=prev[proposalWeekKey];
-      if(!source) return prev;
-      const next=cloneWeek(source);
-      const x=next[fromDay].shifts[fromShift-1], y=next[toDay].shifts[toShift-1];
-      if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) return prev;
-      const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
-      return {...prev,[proposalWeekKey]:next};
-    });
     try {
-      if(FIREBASE_ENABLED && db) await updateDoc(doc(db,'proposals',proposal.id),{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
-      else setProposals(p=>p.map(x=>x.id===proposal.id?{...x,status:'approved'}:x));
+      if(FIREBASE_ENABLED && db) {
+        await updateDoc(doc(db,'proposals',proposal.id),{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
+      } else {
+        setProposals(p=>p.map(x=>x.id===proposal.id?{...x,status:'approved'}:x));
+      }
+      setWeeks(prev=>{
+        const source=prev[proposalWeekKey];
+        if(!source) return prev;
+        const next=cloneWeek(source);
+        const x=next[fromDay].shifts[fromShift-1], y=next[toDay].shifts[toShift-1];
+        if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) return prev;
+        const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
+        return {...prev,[proposalWeekKey]:next};
+      });
     } catch(e){setCloudError('Nie udało się zatwierdzić zamiany. Kod: ' + (e?.code || 'unknown'));}
   };
 
