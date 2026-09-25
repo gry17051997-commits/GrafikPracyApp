@@ -243,6 +243,14 @@ test('recovery ledger contract: recover OFF adds exactly one debt entry', () => 
   assert.match(app, /reason:\s*['\"]off-recover['\"]/);
 });
 
+test('recovery ledger entry ids are not based on timestamp alone', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const appendRecoveryLedger =');
+  const end = app.indexOf('const confirmRecovery =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /id:\`\$\{Date\\.now\\(\\)\}-\$\{Math\\.random\\(\\)\\.toString\\(36\\)/);
+});
+
 test('recovery ledger is read-only from the advanced generator', () => {
   const app = read('App.js');
   const start = app.indexOf('const generateAdvancedWeek = () => {');
