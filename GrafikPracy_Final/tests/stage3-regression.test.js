@@ -563,6 +563,18 @@ test('schedule conflict immediately reloads the authoritative remote snapshot', 
   assert.match(block, /Pobrano najnowszą wersję bez jej nadpisania/);
 });
 
+test('schedule sync coalesces rapid local state changes into one write window', () => {
+  const app = read('App.js');
+  assert.match(app, /const cloudSaveTimerRef = useRef\(null\)/);
+  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
+  const end = app.indexOf("\n\n  const parseHM", start);
+  const block = app.slice(start, end);
+  assert.match(block, /clearTimeout\(cloudSaveTimerRef\.current\)/);
+  assert.match(block, /cloudSaveTimerRef\.current=setTimeout/);
+  assert.match(block, /},250\)/);
+  assert.match(block, /return \(\) =>/);
+});
+
 test('reset all stops active locator GPS before clearing local location config', () => {
   const app = read('App.js');
   const start = app.indexOf('const resetAll = () =>');
