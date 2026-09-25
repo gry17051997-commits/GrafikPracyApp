@@ -50,8 +50,6 @@ const REPORT_NOTIFICATION_CHANNEL_ID = 'work-report-alarm';
 const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
-const REPORT_ALARM_CHANNEL_ID = 'work-report-alarm-v1';
-const REPORT_LAST_HANDLED_NOTIFICATION_KEY = 'grafik-pracy-report-last-handled-notification-v1';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -211,8 +209,6 @@ export default function App() {
   const [reportLoaded,setReportLoaded] = useState('załadowany');
   const [reportBusy,setReportBusy] = useState(false);
   const [reportHistory,setReportHistory] = useState([]);
-  const reportStatusRef = useRef(reportStatus);
-  const handledReportNotificationRef = useRef(null);
   const reportStatusRef = useRef(reportStatus);
   const handledReportNotificationRef = useRef(null);
   const [warehouseGeo,setWarehouseGeo] = useState({});
@@ -803,22 +799,6 @@ export default function App() {
     applyReportContinuity(reportStatus);
     setReportModal(true);
   };
-
-  useEffect(() => { reportStatusRef.current = reportStatus; },[reportStatus]);
-
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    Notifications.setNotificationChannelAsync(REPORT_ALARM_CHANNEL_ID, {name:'Raport godzinowy',description:'Alarmy 20 minut przed pełną godziną podczas zmiany.',importance:Notifications.AndroidImportance.MAX,vibrationPattern:[0,700,250,700,250,1200],sound:'default',enableVibrate:true,enableLights:true,lockscreenVisibility:Notifications.AndroidNotificationVisibility.PUBLIC,bypassDnd:true,showBadge:false}).catch(()=>{});
-  },[]);
-
-  useEffect(() => {
-    if (!reportAlarm || Platform.OS !== 'android') return;
-    const pattern=[0,700,250,700,250,1200];
-    const vibrate=()=>{try{const {Vibration}=require('react-native');Vibration.vibrate(pattern);}catch(e){}};
-    vibrate();
-    const timer=setInterval(vibrate,2600);
-    return ()=>{clearInterval(timer);try{const {Vibration}=require('react-native');Vibration.cancel();}catch(e){}};
-  },[reportAlarm]);
 
   const reportText = () => {
     const reg = vehicleRegistration.trim().toUpperCase();
