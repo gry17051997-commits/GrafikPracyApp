@@ -908,7 +908,6 @@ export default function App() {
       await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
     } catch(e) {}
     await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
-      AsyncStorage.removeItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY);
   };
 
   const scheduleReportNotifications = async () => {
@@ -1606,7 +1605,8 @@ export default function App() {
           AsyncStorage.removeItem(KEY),
           AsyncStorage.removeItem(LEGACY_KEY),
           AsyncStorage.removeItem(REPORT_PREFS_KEY),
-          AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY),
+          AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
+      AsyncStorage.removeItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY),
           AsyncStorage.removeItem(CHAT_LOCAL_KEY),
           AsyncStorage.removeItem(REPORT_HISTORY_KEY),
           AsyncStorage.removeItem(REMEMBER_LOGIN_KEY),
