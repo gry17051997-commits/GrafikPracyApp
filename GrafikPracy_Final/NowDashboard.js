@@ -33,12 +33,9 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [locationError,setLocationError]=useState('');
  useEffect(()=>{const id=setInterval(()=>tick(v=>v+1),1000);return()=>clearInterval(id);},[]);
  useEffect(()=>{
-   let unsub=null,cancelled=false;
-   (async()=>{
-     if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){setLocation(null);return;}
-     let cfg={};
-     try{const snap=await getDoc(doc(db,'locationConfig','main'));cfg=snap.exists()?snap.data()||{}:{};}catch(e){}
-     if(cancelled)return;
+   let unsub=null,configUnsub=null,cancelled=false;
+   const subscribe=(cfg={})=>{
+     if(unsub) unsub();
      const requested=idFor(cfg.vehicleId||cfg.registration||vehicleRegistration);
      unsub=onSnapshot(collection(db,'vehicleTracking'),snap=>{
        const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&Number(x.updatedAt)>0);
@@ -49,8 +46,17 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        setLocation(selected||null);
        setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
      },()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
-   })();
-   return()=>{cancelled=true;if(unsub)unsub();};
+   };
+   if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){setLocation(null);return;}
+   configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
+     if(cancelled)return;
+     subscribe(snap.exists()?snap.data()||{}:{});
+   },()=>{
+     if(cancelled)return;
+     setLocationError('Brak dostępu do konfiguracji lokalizacji');
+     subscribe({});
+   });
+   return()=>{cancelled=true;if(configUnsub)configUnsub();if(unsub)unsub();};
  },[cloudUser?.uid,vehicleRegistration]);
 
  const info=useMemo(()=>{
