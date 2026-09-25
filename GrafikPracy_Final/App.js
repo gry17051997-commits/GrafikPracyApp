@@ -182,6 +182,7 @@ export default function App() {
   const [exportModal,setExportModal] = useState(false);
   const exportRef = useRef(null);
   const cloudApplying = useRef(false);
+  const cloudUpdatedAtRef = useRef(null);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
   const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
@@ -565,6 +566,7 @@ export default function App() {
       if (!snap.exists()) return;
       const data = snap.data() || {};
       cloudApplying.current = true;
+      cloudUpdatedAtRef.current = data.updatedAt?.toMillis?.() ?? null;
       if (data.hours) setHours(data.hours);
       if (data.rotation) setRotation(data.rotation);
       if (data.warehouse) setWarehouse(data.warehouse);
@@ -609,7 +611,23 @@ export default function App() {
       return;
     }
     const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
-    setDoc(doc(db,'schedules','main'),payload,{merge:true}).catch(e=>setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || 'nieznany')));
+    const scheduleRef=doc(db,'schedules','main');
+    const expectedUpdatedAt=cloudUpdatedAtRef.current;
+    runTransaction(db,async tx=>{
+      const snap=await tx.get(scheduleRef);
+      const remoteUpdatedAt=snap.exists()?snap.data()?.updatedAt?.toMillis?.() ?? null:null;
+      if (snap.exists() && expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
+        throw new Error('schedule-conflict');
+      }
+      tx.set(scheduleRef,payload,{merge:true});
+    }).catch(e=>{
+      if(e?.message==='schedule-conflict'){
+        cloudApplying.current=true;
+        setCloudError('Grafik został zmieniony na innym urządzeniu. Najnowsza wersja zostanie pobrana bez jej nadpisania.');
+        return;
+      }
+      setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+    });
   },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole]);
 
   const parseHM = value => {
