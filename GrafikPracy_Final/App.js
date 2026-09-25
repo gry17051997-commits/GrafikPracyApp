@@ -196,6 +196,7 @@ export default function App() {
   const [vehicleRegistration,setVehicleRegistration] = useState('');
   const [reportGroupLink,setReportGroupLink] = useState('');
   const [reportModal,setReportModal] = useState(false);
+  const [reportAlarm,setReportAlarm] = useState(false);
   const [reportStatus,setReportStatus] = useState('Czekam na załadunek');
   const [reportWarehouse,setReportWarehouse] = useState('PNT B');
   const [reportFromWarehouse,setReportFromWarehouse] = useState('PNT B');
@@ -918,9 +919,10 @@ export default function App() {
             if (t <= new Date()) continue;
             const notification = await Notifications.scheduleNotificationAsync({
               content: {
-                title: '📋 Raport godzinowy',
+                title: '🚨 RAPORT GODZINOWY',
                 body: `Za 20 min pełna godzina. ${PEOPLE[myPerson]?.name || ''}, przygotuj raport.`,
-                data: {type:'work-report'}
+                sound: 'default',
+                data: {type:'work-report', alarm:true}
               },
               trigger: {
                 type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -937,12 +939,15 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
-    const sub = Notifications.addNotificationResponseReceivedListener(response => {
-      if (response.notification.request.content.data?.type === 'work-report') {
+    const openReportAlarm = response => {
+      if (response?.notification?.request?.content?.data?.type === 'work-report') {
         applyReportContinuity(reportStatus);
-        setReportModal(true);
+        setReportModal(false);
+        setReportAlarm(true);
       }
-    });
+    };
+    const sub = Notifications.addNotificationResponseReceivedListener(openReportAlarm);
+    Notifications.getLastNotificationResponseAsync?.().then(openReportAlarm).catch(()=>{});
     return () => sub.remove();
   },[ready]);
 
@@ -2471,6 +2476,28 @@ export default function App() {
     </Modal>
   );
 
+  const reportAlarmDialog = (
+    <Modal visible={reportAlarm} transparent={false} animationType="fade" onRequestClose={()=>setReportAlarm(false)}>
+      <View style={{flex:1,backgroundColor:'#0b0f17',padding:28,justifyContent:'center',alignItems:'center'}}>
+        <Text style={{fontSize:72,marginBottom:18}}>🚨</Text>
+        <Text style={{color:'#fff',fontSize:30,fontWeight:'900',textAlign:'center'}}>RAPORT GODZINOWY</Text>
+        <Text style={{color:'#cbd5e1',fontSize:18,textAlign:'center',marginTop:14}}>Za 20 minut pełna godzina.</Text>
+        <Text style={{color:'#94a3b8',fontSize:15,textAlign:'center',marginTop:8}}>Przygotuj raport dla grupy WhatsApp.</Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Wyłącz alarm i otwórz raport"
+          style={{marginTop:42,width:'100%',maxWidth:420,minHeight:72,borderRadius:20,backgroundColor:'#ef4444',justifyContent:'center',alignItems:'center'}}
+          onPress={()=>{
+            setReportAlarm(false);
+            applyReportContinuity(reportStatus);
+            setReportModal(true);
+          }}>
+          <Text style={{color:'#fff',fontSize:21,fontWeight:'900'}}>🔕 WYŁĄCZ ALARM</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+
   const reportModalDialog = (
     <Modal visible={reportModal} transparent animationType="slide" onRequestClose={()=>setReportModal(false)}>
       <View style={S.reportOverlay}>
@@ -2647,6 +2674,7 @@ export default function App() {
           {pinDialog}
           {backupDialog}
           {reportModalDialog}
+          {reportAlarmDialog}
           {recoveryLedgerDialog}
           {weekSetupDialog}
 
