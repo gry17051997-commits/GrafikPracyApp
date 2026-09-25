@@ -1585,8 +1585,15 @@ export default function App() {
       const validHours = value => value === 10 || value === 12;
       const validRotation = value => value === 'P' || value === 'M';
       const validWeeks = value => value && typeof value === 'object' && !Array.isArray(value);
-      const validBalances = value => value && typeof value === 'object' && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)));
-      const validLedger = value => Array.isArray(value) && value.every(entry => entry && typeof entry === 'object');
+      const validBalances = value => value && typeof value === 'object'
+        && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
+      const validLedger = value => Array.isArray(value) && value.length <= 500
+        && value.every(entry => entry && typeof entry === 'object'
+          && PERSON_KEYS.includes(entry.person)
+          && Number.isFinite(Number(entry.delta))
+          && Number(entry.delta) !== 0
+          && typeof entry.reason === 'string'
+          && String(entry.id || '').length > 0);
       if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
       if (!validHours(data.hours) || !validRotation(data.rotation) || !validWeeks(data.weeks) || !validWeeks(data.weekConfigs || {}) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
         throw new Error('bad-schema');
