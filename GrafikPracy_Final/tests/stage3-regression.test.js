@@ -454,3 +454,10 @@ test('locator syncs local GPS assignment when admin changes the vehicle', () => 
   assert.match(block, /stopVehicleLocationTracking\(\)/);
   assert.match(block, /saveVehicleLocationAssignment\(assigned\)/);
 });
+
+test('GPS dashboard subscribes to central vehicle assignment changes', () => {
+  const live = read('LiveLocationDashboard.js');
+  assert.match(live, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
+  assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
+  assert.match(live, /if\(configUnsub\) configUnsub\(\)/);
+});
