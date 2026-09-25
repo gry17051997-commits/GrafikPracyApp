@@ -183,6 +183,7 @@ export default function App() {
   const exportRef = useRef(null);
   const cloudApplying = useRef(false);
   const cloudUpdatedAtRef = useRef(null);
+  const cloudSaveTimerRef = useRef(null);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
   const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
@@ -610,49 +611,58 @@ export default function App() {
       cloudApplying.current = false;
       return;
     }
-    const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
-    const scheduleRef=doc(db,'schedules','main');
-    const expectedUpdatedAt=cloudUpdatedAtRef.current;
-    runTransaction(db,async tx=>{
-      const snap=await tx.get(scheduleRef);
-      const remoteUpdatedAt=snap.exists()?snap.data()?.updatedAt?.toMillis?.() ?? null:null;
-      if (snap.exists() && expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
-        throw new Error('schedule-conflict');
-      }
-      tx.set(scheduleRef,payload,{merge:true});
-    }).catch(async e=>{
-      if(e?.message==='schedule-conflict'){
-        // The realtime listener will usually deliver the newer snapshot, but do
-        // not rely on that timing. Read the authoritative document immediately
-        // so this device cannot remain on the stale local schedule after a
-        // conflict is detected.
-        try {
-          const latest=await getDoc(scheduleRef);
-          if(latest.exists()){
-            const data=latest.data() || {};
-            cloudApplying.current=true;
-            cloudUpdatedAtRef.current=data.updatedAt?.toMillis?.() ?? null;
-            if(data.hours) setHours(data.hours);
-            if(data.rotation) setRotation(data.rotation);
-            if(data.warehouse) setWarehouse(data.warehouse);
-            if(data.weeks) setWeeks(data.weeks);
-            if(data.weekConfigs) setWeekConfigs(data.weekConfigs);
-            if(typeof data.autoGenerateWeeks==='boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
-            if(data.personColors) setPersonColors(data.personColors);
-            if(data.conditions) setConditions(data.conditions);
-            if(data.recoveryBalances) setRecoveryBalances({...{P:0,M:0,L:0},...data.recoveryBalances});
-            if(Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
-            if(data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+    if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+    cloudSaveTimerRef.current=setTimeout(()=>{
+        const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+        const scheduleRef=doc(db,'schedules','main');
+        const expectedUpdatedAt=cloudUpdatedAtRef.current;
+        runTransaction(db,async tx=>{
+          const snap=await tx.get(scheduleRef);
+          const remoteUpdatedAt=snap.exists()?snap.data()?.updatedAt?.toMillis?.() ?? null:null;
+          if (snap.exists() && expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
+            throw new Error('schedule-conflict');
           }
-          setCloudError('Grafik został zmieniony na innym urządzeniu. Pobrano najnowszą wersję bez jej nadpisania.');
-        } catch(reloadError) {
-          setCloudError('Grafik został zmieniony na innym urządzeniu, ale nie udało się pobrać najnowszej wersji. Kod: ' + (reloadError?.code || 'unknown'));
-        }
-        return;
+          tx.set(scheduleRef,payload,{merge:true});
+        }).catch(async e=>{
+          if(e?.message==='schedule-conflict'){
+            // The realtime listener will usually deliver the newer snapshot, but do
+            // not rely on that timing. Read the authoritative document immediately
+            // so this device cannot remain on the stale local schedule after a
+            // conflict is detected.
+            try {
+              const latest=await getDoc(scheduleRef);
+              if(latest.exists()){
+                const data=latest.data() || {};
+                cloudApplying.current=true;
+                cloudUpdatedAtRef.current=data.updatedAt?.toMillis?.() ?? null;
+                if(data.hours) setHours(data.hours);
+                if(data.rotation) setRotation(data.rotation);
+                if(data.warehouse) setWarehouse(data.warehouse);
+                if(data.weeks) setWeeks(data.weeks);
+                if(data.weekConfigs) setWeekConfigs(data.weekConfigs);
+                if(typeof data.autoGenerateWeeks==='boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
+                if(data.personColors) setPersonColors(data.personColors);
+                if(data.conditions) setConditions(data.conditions);
+                if(data.recoveryBalances) setRecoveryBalances({...{P:0,M:0,L:0},...data.recoveryBalances});
+                if(Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
+                if(data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+              }
+              setCloudError('Grafik został zmieniony na innym urządzeniu. Pobrano najnowszą wersję bez jej nadpisania.');
+            } catch(reloadError) {
+              setCloudError('Grafik został zmieniony na innym urządzeniu, ale nie udało się pobrać najnowszej wersji. Kod: ' + (reloadError?.code || 'unknown'));
+            }
+            return;
+          }
+          setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+        });
+      },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole]);
+    },250);
+    return () => {
+      if (cloudSaveTimerRef.current) {
+        clearTimeout(cloudSaveTimerRef.current);
+        cloudSaveTimerRef.current=null;
       }
-      setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
-    });
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole]);
+    };
 
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
