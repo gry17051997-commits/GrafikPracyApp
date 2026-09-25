@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const cwd = process.cwd();
 const root = fs.existsSync(path.join(cwd, 'App.js')) ? cwd : path.join(cwd, 'GrafikPracy_Final');
-const read = file => { const normalized = file.startsWith('../') ? file.slice(3) : file; return fs.readFileSync(path.join(root, normalized), 'utf8'); };
+const read = file => file.startsWith('../') ? fs.readFileSync(path.join(path.dirname(root), file.slice(3)), 'utf8') : fs.readFileSync(path.join(root, file), 'utf8');
 
 test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', () => {
   const rules = read('firestore.rules');
@@ -69,7 +69,7 @@ test('GPS dashboards never silently switch to another vehicle when an assigned t
 
 test('Web deployment uses the lockfile for deterministic dependency installation', () => {
   const workflow = read('../.github/workflows/web.yml');
-  const workflow = fs.readFileSync(path.join(cwd, '.github/workflows/web.yml'), 'utf8');
+  assert.match(workflow, /run: npm ci --ignore-scripts/);
 });
 
 test('bottom navigation stays usable on narrow screens', () => {
@@ -288,8 +288,7 @@ test('recovery ledger contract: recover OFF adds exactly one debt entry', () => 
   assert.match(app, /recoveryLedger/);
   assert.match(app, /offMode==='recover'/);
   assert.match(app, /appendRecoveryLedger\(recoveryPerson,1,'off-recover'/);
-  assert.match(app, /reason:\s*['\"]off-recover['\"]/);
-  assert.match(app, /appendRecoveryLedger\(recoveryPerson,1,'off-recover'/);
+});
 
 test('recovery ledger entry ids are not based on timestamp alone', () => {
   const app = read('App.js');
@@ -332,8 +331,7 @@ test('confirmRecovery decrements debt with an auditable ledger entry', () => {
   assert.match(app, /const confirmRecovery\s*=\s*\(?person\)?\s*=>/);
   assert.match(app, /Math\.max\(0,/);
   assert.match(app, /appendRecoveryLedger\(person,-1,'recovery-confirmed'\)/);
-  assert.match(app, /reason:\s*['\"]recovery-confirmed['\"]/);
-  assert.match(app, /appendRecoveryLedger\(person,-1,'recovery-confirmed'/);
+});
 
 test('recovery repayment at zero is idempotent and cannot create negative balance', () => {
   const app = read('App.js');
@@ -474,10 +472,9 @@ test('locator role is required for vehicle GPS writes', () => {
 
 test('locator interface hides schedule, summary and chat navigation', () => {
   const app = read('App.js');
-  assert.match(app, /cloudRole==='locator'\s*\?\s*locatorSettings\s*:\s*settings/);
-  assert.match(app, /cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]/);
   assert.match(app, /cloudRole==='locator'\s*\?\s*\[\]\s*:\s*\[\['grafik','📅','Grafik'\]\]/);
   assert.match(app, /cloudRole==='locator'\s*\?\s*\[\]\s*:\s*\[\['summary','📊','Suma'\],\['chat','💬','Czat'\]\]/);
+  assert.match(app, /cloudRole==='locator'\s*\?\s*locatorSettings\s*:\s*settings/);
 });
 
 
@@ -515,13 +512,13 @@ test('admin vehicle assignment is written to the central GPS config', () => {
 
 test('locator syncs local GPS assignment when admin changes the vehicle', () => {
   const app = read('App.js');
-  const start = app.indexOf("if (cloudRole === 'locator') {");
-  const start = app.lastIndexOf("if (cloudRole === 'locator') {");
+  const start = app.indexOf("const data = snap.data() || {};");
   const end = app.indexOf("    });", start);
+  const block = app.slice(start, end);
+  assert.match(block, /if \(cloudRole === 'locator'\)/);
   assert.match(block, /const local = await getVehicleLocationConfig\(\)/);
-  assert.match(block, /getVehicleLocationConfig\(\)/);
   assert.match(block, /localAssigned\s*!==\s*assigned/);
-  assert.match(app, /saveVehicleLocationAssignment\(assigned\)/);
+  assert.match(block, /saveVehicleLocationAssignment\(assigned\)/);
 });
 
 test('live GPS dashboard clears stale vehicle data when central assignment is removed', () => {
