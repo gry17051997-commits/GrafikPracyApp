@@ -459,7 +459,7 @@ export default function App() {
         doc(db, 'users', user.uid),
         snap => {
           const role = snap.exists() ? snap.data()?.role : null;
-          setCloudRole(role === 'admin' ? 'admin' : 'employee');
+          setCloudRole(role === 'admin' ? 'admin' : role === 'locator' ? 'locator' : 'employee');
           setCloudReady(true);
         },
         error => {
@@ -2389,7 +2389,7 @@ export default function App() {
         <SafeAreaView style={S.container}>
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
           {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
-            <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':'Pracownik'} · {cloudUser.email}</Text>
+            <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
           {Platform.OS==='web' && <View style={S.webNav}>
