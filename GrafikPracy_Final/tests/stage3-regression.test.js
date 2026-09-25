@@ -417,3 +417,17 @@ test('live GPS dashboard does not claim the transmitter must be an employee acco
   assert.doesNotMatch(live, /Telefon B musi być zalogowany do konta pracownika/);
   assert.match(live, /reguły dostępu do GPS/);
 });
+
+test('locator GPS UI uses the admin-assigned vehicle and cannot edit the registration locally', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const locatorSettings = (');
+  const end = app.indexOf('const settings = (', start);
+  const block = app.slice(start, end);
+  assert.match(app, /onSnapshot\(doc\(db,'locationConfig','main'\)/);
+  assert.match(app, /if \(cloudRole === 'locator'\)/);
+  assert.match(app, /const assigned = String\(data\.registration \|\| data\.vehicleId \|\| ''\)/);
+  assert.match(block, /Auto przypisane przez administratora/);
+  assert.match(block, /administrator nie przypisał jeszcze auta/);
+  assert.doesNotMatch(block, /saveVehicleLocationAssignment\(/);
+  assert.doesNotMatch(block, /onChangeText=\{v=>setVehicleRegistration/);
+});
