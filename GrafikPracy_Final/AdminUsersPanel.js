@@ -34,7 +34,7 @@ export default function AdminUsersPanel({cloudUser}) {
       const fn=httpsCallable(getFunctions(firebaseApp),modal.mode==='create'?'createUserAccount':'updateUserProfile');
       await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
       setModal(null);
-      Alert.alert('Gotowe',modal.mode==='create'?'Pracownik został dodany.':'Dane pracownika zapisane.');
+      Alert.alert('Gotowe',modal.mode==='create'?(form.role==='locator'?'Lokalizator został dodany.':form.role==='admin'?'Administrator został dodany.':'Pracownik został dodany.'):(form.role==='locator'?'Dane lokalizatora zapisane.':form.role==='admin'?'Dane administratora zapisane.':'Dane pracownika zapisane.'));
     }catch(e){setError((e?.message||'Operacja nie powiodła się.')+' ('+(e?.code||'unknown')+')');}
     finally{setBusy('');}
   };
