@@ -109,13 +109,15 @@ async function saveLocationInternal(location) {
     payload.historyAt=lastHistoryAt;
   }
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
-  if (Math.random()<0.08) {
-    try {
-      const cutoff=Date.now()-7*24*60*60*1000;
-      const old=await getDocs(query(collection(db,'vehicleTracking',vehicleId,'locations'),where('updatedAt','<',cutoff),limit(100)));
-      await Promise.all(old.docs.map(d=>deleteDoc(d.ref)));
-    } catch(e) {}
-  }
+  // Historia ma być utrzymywana deterministycznie w oknie 7 dni.
+  // Nie uzależniamy sprzątania od losowania, bo przy rzadszych zapisach
+  // stare punkty mogłyby pozostać w Firestore znacznie dłużej.
+  try {
+    const cutoff=Date.now()-7*24*60*60*1000;
+    const old=await getDocs(query(collection(db,'vehicleTracking',vehicleId,'locations'),where('updatedAt','<',cutoff),limit(100)));
+    await Promise.all(old.docs.map(d=>deleteDoc(d.ref)));
+  } catch(e) {}
+}
 }
 
 
