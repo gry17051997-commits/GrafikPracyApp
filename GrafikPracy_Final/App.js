@@ -1977,8 +1977,16 @@ export default function App() {
         setLocationBusy(true);
         try {
           await saveVehicleLocationAssignment(reg);
+          if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
+            await setDoc(doc(db,'locationConfig','main'),{
+              vehicleId:reg,
+              registration:reg,
+              updatedAt:serverTimestamp(),
+              updatedBy:cloudUser.uid
+            },{merge:true});
+          }
           setVehicleRegistration(reg);
-          Alert.alert('Pojazd przypisany','Ten telefon został przypisany do auta '+reg+'. Teraz możesz osobno włączyć nadajnik GPS.');
+          Alert.alert('Pojazd przypisany','Auto '+reg+' zostało przypisane centralnie. Lokalizator zobaczy je automatycznie i dopiero wtedy będzie mógł uruchomić GPS.');
         } catch(e) {
           Alert.alert('Pojazd','Nie udało się zapisać przypisania auta: '+(e?.message||'nieznany błąd'));
         } finally { setLocationBusy(false); }
