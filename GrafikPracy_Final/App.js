@@ -658,10 +658,7 @@ export default function App() {
       scheduleDirtyTrackingStartedRef.current = true;
       return;
     }
-    if (cloudApplying.current) {
-      cloudApplying.current = false;
-      return;
-    }
+    if (cloudApplying.current) return;
     cloudDirtyRef.current = true;
     AsyncStorage.getItem(KEY).then(raw => {
       if (!raw) return;
