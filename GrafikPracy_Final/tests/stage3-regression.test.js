@@ -443,3 +443,14 @@ test('admin vehicle assignment is written to the central GPS config', () => {
   assert.match(block, /registration:reg/);
   assert.match(block, /updatedBy:cloudUser\.uid/);
 });
+
+test('locator syncs local GPS assignment when admin changes the vehicle', () => {
+  const app = read('App.js');
+  const start = app.indexOf("if (cloudRole === 'locator') {");
+  const end = app.indexOf("    });", start);
+  const block = app.slice(start, end);
+  assert.match(block, /getVehicleLocationConfig\(\)/);
+  assert.match(block, /localAssigned !== assigned/);
+  assert.match(block, /stopVehicleLocationTracking\(\)/);
+  assert.match(block, /saveVehicleLocationAssignment\(assigned\)/);
+});
