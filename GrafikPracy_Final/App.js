@@ -29,7 +29,7 @@ import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, setDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
+import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
 
 const updateAndroidWidgets = () => {
   if (Platform.OS !== 'android') return;
@@ -416,11 +416,19 @@ export default function App() {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const unsub = onSnapshot(doc(db,'locationConfig','main'), snap => {
       locationConfigLoaded.current = true;
-      if (!snap.exists()) return;
-      setWarehouseGeo(snap.data()?.warehouseGeo || {});
+      if (!snap.exists()) {
+        if (cloudRole === 'locator') setVehicleRegistration('');
+        return;
+      }
+      const data = snap.data() || {};
+      setWarehouseGeo(data.warehouseGeo || {});
+      if (cloudRole === 'locator') {
+        const assigned = String(data.registration || data.vehicleId || '').trim().toUpperCase();
+        setVehicleRegistration(assigned);
+      }
     });
     return () => unsub();
-  },[cloudUser]);
+  },[cloudUser,cloudRole]);
 
   useEffect(() => {
     if (!ready || !FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !locationConfigLoaded.current) return;
@@ -1889,30 +1897,25 @@ export default function App() {
         <Text style={S.settingsSub}>Ten profil służy wyłącznie do udostępniania lokalizacji telefonu służbowego.</Text>
       </View>
       <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
-      <Text style={S.helpLine}>Przypisz telefon do auta, a następnie aktywuj GPS. Lokalizacja będzie wysyłana w tle do podglądu dla uprawnionych użytkowników.</Text>
-      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
-      <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || locationTracking} style={[S.generateFull,{marginTop:0,opacity:(!vehicleRegistration.trim()||locationBusy||locationTracking)?0.45:1}]} onPress={async()=>{
-        const reg=vehicleRegistration.trim();
-        if(!reg) return;
-        setLocationBusy(true);
-        try {
-          await saveVehicleLocationAssignment(reg);
-          setVehicleRegistration(reg);
-          Alert.alert('Pojazd przypisany','Telefon został przypisany do auta '+reg+'. Teraz możesz aktywować GPS.');
-        } catch(e) {
-          Alert.alert('Pojazd','Nie udało się zapisać przypisania auta: '+(e?.message||'nieznany błąd'));
-        } finally { setLocationBusy(false); }
-      }}><Text style={S.btnText}>{locationBusy?'ZAPISUJĘ…':'ZAPISZ POJAZD'}</Text></TouchableOpacity>
+      <Text style={S.helpLine}>Auto jest przypisywane centralnie przez administratora. Lokalizator nie może samodzielnie zmienić pojazdu, dzięki czemu GPS zawsze zapisuje pozycję do właściwego nadajnika.</Text>
+      <View style={S.option}>
+        <View style={{flex:1}}>
+          <Text style={S.optionText}>🚚 Auto przypisane przez administratora</Text>
+          <Text style={S.muted}>{vehicleRegistration.trim() ? vehicleRegistration.trim() : '⚠️ administrator nie przypisał jeszcze auta'}</Text>
+        </View>
+        <Text style={{color:'#75a1ff',fontWeight:'900'}}>🔒</Text>
+      </View>
       <View style={S.option}>
         <View style={{flex:1}}>
           <Text style={S.optionText}>Telefon służbowy</Text>
-          <Text style={S.muted}>{vehicleRegistration.trim()?'🚚 przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text>
+          <Text style={S.muted}>{vehicleRegistration.trim()?'🚚 nadajnik przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text>
           <Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text>
         </View>
         <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}>
           <Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text>
         </TouchableOpacity>
       </View>
+      {!vehicleRegistration.trim() && <Text style={S.helpLine}>Najpierw administrator musi przypisać pojazd w panelu administracyjnym. Gdy auto zostanie przypisane, pojawi się tutaj automatycznie.</Text>}
       <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję.</Text>
       <View style={[S.option,{marginTop:12}]}>
         <View style={{flex:1}}>
