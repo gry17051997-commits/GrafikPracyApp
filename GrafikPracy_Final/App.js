@@ -939,6 +939,7 @@ export default function App() {
     if (!ready || Platform.OS === 'web') return;
     const sub = Notifications.addNotificationResponseReceivedListener(response => {
       if (response.notification.request.content.data?.type === 'work-report') {
+        applyReportContinuity(reportStatus);
         setReportModal(true);
       }
     });
