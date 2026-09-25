@@ -153,6 +153,15 @@ test('web and Android acceptance surfaces remain wired', () => {
 });
 
 
+test('schedule save refuses to overwrite an existing remote document before initial sync', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const payload = {hours,rotation,warehouse,weeks');
+  const end = app.indexOf('const parseHM =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /snap\.exists\(\) && \(expectedUpdatedAt === null \|\| remoteUpdatedAt !== expectedUpdatedAt\)/);
+  assert.match(block, /throw new Error\('schedule-conflict'\)/);
+});
+
 test('rotation changes never overwrite manual, locked or recovery OFF assignments', () => {
   const app = read('App.js');
   const start = app.indexOf('const changeRotation =');
