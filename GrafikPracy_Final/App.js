@@ -14,7 +14,8 @@ import {
   Platform,
   Dimensions,
   Linking,
-  AppState
+  AppState,
+  Vibration
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sharing from 'expo-sharing';
@@ -44,6 +45,8 @@ const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
 const REPORT_PREFS_KEY = 'grafik-pracy-reports-v1';
 const REPORT_NOTIFICATION_IDS_KEY = 'grafik-pracy-report-notification-ids-v1';
+const REPORT_LAST_HANDLED_NOTIFICATION_KEY = 'grafik-pracy-report-last-handled-notification-v1';
+const REPORT_NOTIFICATION_CHANNEL_ID = 'work-report-alarm';
 const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
@@ -206,6 +209,8 @@ export default function App() {
   const [reportLoaded,setReportLoaded] = useState('załadowany');
   const [reportBusy,setReportBusy] = useState(false);
   const [reportHistory,setReportHistory] = useState([]);
+  const reportStatusRef = useRef(reportStatus);
+  const handledReportNotificationRef = useRef(null);
   const [warehouseGeo,setWarehouseGeo] = useState({});
   const [locationTracking,setLocationTracking] = useState(false);
   const [locationBusy,setLocationBusy] = useState(false);
@@ -857,6 +862,37 @@ export default function App() {
     } catch(e) { Alert.alert('WhatsApp','Raport skopiowano do schowka, ale nie udało się otworzyć WhatsApp.'); }
   };
 
+  useEffect(() => {
+    reportStatusRef.current = reportStatus;
+  },[reportStatus]);
+
+  useEffect(() => {
+    if (!reportAlarm) {
+      Vibration.cancel();
+      return;
+    }
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate([0,700,250,700,500], true);
+    }
+    return () => Vibration.cancel();
+  },[reportAlarm]);
+
+  const ensureReportNotificationChannel = async () => {
+    if (Platform.OS !== 'android') return;
+    await Notifications.setNotificationChannelAsync(REPORT_NOTIFICATION_CHANNEL_ID, {
+      name: 'Raport godzinowy',
+      description: 'Alarmy przypominające o raporcie WhatsApp 20 minut przed pełną godziną.',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0,700,250,700,500],
+      enableVibrate: true,
+      enableLights: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
+      sound: 'default',
+      showBadge: true
+    });
+  };
+
   const requestReportNotifications = async () => {
     if (Platform.OS === 'web') return false;
     const current = await Notifications.getPermissionsAsync();
@@ -872,6 +908,7 @@ export default function App() {
       await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
     } catch(e) {}
     await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
+      AsyncStorage.removeItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY);
   };
 
   const scheduleReportNotifications = async () => {
@@ -882,6 +919,7 @@ export default function App() {
     }
     const granted = await requestReportNotifications();
     if (!granted) return;
+    await ensureReportNotificationChannel();
 
     await cancelReportNotifications();
     const ids = [];
@@ -922,11 +960,15 @@ export default function App() {
                 title: '🚨 RAPORT GODZINOWY',
                 body: `Za 20 min pełna godzina. ${PEOPLE[myPerson]?.name || ''}, przygotuj raport.`,
                 sound: 'default',
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                sticky: true,
+                vibrate: [0,700,250,700,500],
                 data: {type:'work-report', alarm:true}
               },
               trigger: {
                 type: Notifications.SchedulableTriggerInputTypes.DATE,
-                date: new Date(t)
+                date: new Date(t),
+                channelId: REPORT_NOTIFICATION_CHANNEL_ID
               }
             });
             ids.push(notification);
@@ -939,16 +981,33 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
-    const openReportAlarm = response => {
-      if (response?.notification?.request?.content?.data?.type === 'work-report') {
-        applyReportContinuity(reportStatus);
-        setReportModal(false);
-        setReportAlarm(true);
+    let mounted = true;
+    const openReportAlarm = async response => {
+      const notification = response?.notification?.request;
+      const type = notification?.content?.data?.type;
+      const id = notification?.identifier;
+      if (type !== 'work-report' || !mounted) return;
+      if (id && handledReportNotificationRef.current === id) return;
+      if (id) {
+        try {
+          const previous = await AsyncStorage.getItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY);
+          if (previous === id) return;
+          handledReportNotificationRef.current = id;
+          await AsyncStorage.setItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY,id);
+        } catch(e) {
+          handledReportNotificationRef.current = id;
+        }
       }
+      applyReportContinuity(reportStatusRef.current);
+      setReportModal(false);
+      setReportAlarm(true);
     };
     const sub = Notifications.addNotificationResponseReceivedListener(openReportAlarm);
     Notifications.getLastNotificationResponseAsync?.().then(openReportAlarm).catch(()=>{});
-    return () => sub.remove();
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
   },[ready]);
 
   useEffect(() => {
@@ -2477,7 +2536,7 @@ export default function App() {
   );
 
   const reportAlarmDialog = (
-    <Modal visible={reportAlarm} transparent={false} animationType="fade" onRequestClose={()=>setReportAlarm(false)}>
+    <Modal visible={reportAlarm} transparent={false} animationType="fade" onRequestClose={()=>{}}>
       <View style={{flex:1,backgroundColor:'#0b0f17',padding:28,justifyContent:'center',alignItems:'center'}}>
         <Text style={{fontSize:72,marginBottom:18}}>🚨</Text>
         <Text style={{color:'#fff',fontSize:30,fontWeight:'900',textAlign:'center'}}>RAPORT GODZINOWY</Text>
