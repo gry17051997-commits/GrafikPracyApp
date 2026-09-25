@@ -346,6 +346,19 @@ test('backup contains all locally persisted schedule and business state', () => 
   assert.match(app, /recoveryBalances,recoveryLedger,chatMessages/);
 });
 
+test('restore rejects negative recovery balances and malformed ledger entries', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const restoreBackup = () =>');
+  const end = app.indexOf('  const shareFile =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /Number\(value\[key\] \?\? 0\) >= 0/);
+  assert.match(block, /value\.length <= 500/);
+  assert.match(block, /PERSON_KEYS\.includes\(entry\.person\)/);
+  assert.match(block, /Number\.isFinite\(Number\(entry\.delta\)\)/);
+  assert.match(block, /typeof entry\.reason === 'string'/);
+  assert.match(block, /String\(entry\.id \|\| ''\)\.length > 0/);
+});
+
 test('restore restores persisted state beyond the base schedule', () => {
   const app = read('../App.js');
   assert.match(app, /setWeekConfigs\(data\.weekConfigs \|\| \{\}\)/);
