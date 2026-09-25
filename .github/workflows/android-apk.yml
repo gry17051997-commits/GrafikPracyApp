@@ -1,4 +1,5 @@
 name: Build Android APK
+# CI validation: regression suite and installable APK build
 
 on:
   workflow_dispatch:
