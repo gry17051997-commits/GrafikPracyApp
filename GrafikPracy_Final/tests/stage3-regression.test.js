@@ -543,6 +543,12 @@ test('GPS dashboard subscribes to central vehicle assignment changes', () => {
   assert.match(live, /if\(configUnsub\) configUnsub\(\)/);
 });
 
+test('Now dashboard scopes GPS reads to the assigned vehicle when one is configured', () => {
+  const now = read('NowDashboard.js');
+  assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
+  assert.match(now, /onSnapshot\(vehicleSource,snap=>handleSnapshot\(snap,Boolean\(requested\)\)/);
+});
+
 test('Now dashboard reacts to central vehicle assignment changes', () => {
   const now = read('NowDashboard.js');
   assert.match(now, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
