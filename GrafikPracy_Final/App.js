@@ -1220,24 +1220,35 @@ export default function App() {
     if(!offModal) return;
     const {dayIndex,shiftIndex}=offModal;
     const previousShift=currentWeek[dayIndex]?.shifts?.[shiftIndex] || null;
-    const originalPerson=previousShift?.person || null;
-    const wasAlreadyRecoverOff=previousShift?.off === true
-      && previousShift?.offMode === 'recover'
-      && previousShift?.offOriginalPerson === originalPerson;
+    const previousRecoveryPerson = previousShift?.off === true && previousShift?.offMode === 'recover'
+      ? (previousShift.offOriginalPerson || previousShift.recoverPerson || null)
+      : null;
+    // When editing an existing recovery OFF, the debt belongs to the original
+    // employee, not to a replacement currently displayed in the shift.
+    const recoveryPerson = offMode === 'recover'
+      ? (previousRecoveryPerson || previousShift?.person || null)
+      : null;
     setWeek(w=>{
       const sh=w[dayIndex].shifts[shiftIndex];
       sh.person=offReplacement || null;
       sh.off=true;
       sh.offMode=offMode;
       sh.replacement=offReplacement||null;
-      sh.offOriginalPerson=originalPerson || null;
-      sh.recoverPerson=offMode==='recover'?originalPerson:null;
+      sh.offOriginalPerson=recoveryPerson || null;
+      sh.recoverPerson=recoveryPerson || null;
       sh.manual=true;
       return w;
     });
-    if (offMode === 'recover' && originalPerson && !wasAlreadyRecoverOff) {
-      setRecoveryBalances(prev => ({...prev,[originalPerson]:(Number(prev[originalPerson])||0)+1}));
-      appendRecoveryLedger(originalPerson,1,'off-recover',{dayIndex,shiftIndex});
+    if (previousRecoveryPerson && previousRecoveryPerson !== recoveryPerson) {
+      const currentDebt=Number(recoveryBalances[previousRecoveryPerson])||0;
+      if (currentDebt > 0) {
+        setRecoveryBalances(prev => ({...prev,[previousRecoveryPerson]:Math.max(0,(Number(prev[previousRecoveryPerson])||0)-1)}));
+        appendRecoveryLedger(previousRecoveryPerson,-1,'off-recover-reverted',{dayIndex,shiftIndex});
+      }
+    }
+    if (offMode === 'recover' && recoveryPerson && previousRecoveryPerson !== recoveryPerson) {
+      setRecoveryBalances(prev => ({...prev,[recoveryPerson]:(Number(prev[recoveryPerson])||0)+1}));
+      appendRecoveryLedger(recoveryPerson,1,'off-recover',{dayIndex,shiftIndex});
     }
     if(offReplacement){
       Alert.alert('Zastępstwo zapisane', `${PEOPLE[offReplacement].name} zastępuje na tej zmianie.`);
