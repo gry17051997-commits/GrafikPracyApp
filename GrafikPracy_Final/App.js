@@ -1477,6 +1477,9 @@ export default function App() {
     Alert.alert('Wyczyścić dane?','Usunie zapisane grafiki i ustawienia tej aplikacji.',[
       {text:'Anuluj',style:'cancel'},
       {text:'Wyczyść',style:'destructive',onPress:async()=>{
+        if (locationTracking || cloudRole === 'locator') {
+          try { await stopVehicleLocationTracking(); } catch (e) {}
+        }
         await Promise.all([
           AsyncStorage.removeItem(KEY),
           AsyncStorage.removeItem(LEGACY_KEY),
