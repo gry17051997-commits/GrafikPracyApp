@@ -43,6 +43,15 @@ test('GPS tracker guards against duplicate background tasks', () => {
   assert.match(service, /hasStartedLocationUpdatesAsync\(LOCATION_TASK_NAME\)/);
 });
 
+test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
+  const service = read('LocationService.js');
+  assert.doesNotMatch(service, /Math\.random\(\)<0\.08/);
+  assert.match(service, /const cutoff=Date\.now\(\)-7\*24\*60\*60\*1000/);
+  assert.match(service, /where\('updatedAt','<',cutoff\)/);
+  assert.match(service, /limit\(100\)/);
+  assert.match(service, /deleteDoc\(d\.ref\)/);
+});
+
 test('schedule notification date calculation uses stored Monday weeks without shifting days twice', () => {
   const app = read('App.js');
   assert.match(app, /for \(let weekOffset = 0; weekOffset < 2; weekOffset\+\+\)/);
