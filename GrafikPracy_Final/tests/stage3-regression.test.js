@@ -586,3 +586,15 @@ test('swap rejection is guarded by pending status', () => {
   assert.match(block, /proposal-not-pending/);
   assert.match(block, /status:'rejected'/);
 });
+
+
+test('swap proposal rejects identical source and target shifts and validates source assignment', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const submitSwap = async () =>');
+  const end = app.indexOf('const approveProposal', start);
+  const block = app.slice(start, end);
+  assert.match(block, /sourceDay === Number\(swapTargetDay\)/);
+  assert.match(block, /sourceShift === Number\(swapTargetShift\)/);
+  assert.match(block, /sourceShiftData/);
+  assert.match(block, /Zmiana, z której tworzysz propozycję/);
+});
