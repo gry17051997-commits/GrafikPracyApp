@@ -52,6 +52,15 @@ test('GPS history cleanup is deterministic and keeps only the last 7 days', () =
   assert.match(service, /deleteDoc\(d\.ref\)/);
 });
 
+test('LocationService closes saveLocationInternal before declaring the serialized queue', () => {
+  const service = read('LocationService.js');
+  const start = service.indexOf('async function saveLocationInternal');
+  const queue = service.indexOf('// Serializujemy zapisy GPS', start);
+  const block = service.slice(start, queue);
+  assert.equal((block.match(/\{/g)||[]).length, (block.match(/\}/g)||[]).length);
+  assert.match(block, /await AsyncStorage\.setItem\(LOCATION_CURRENT_KEY/);
+});
+
 test('schedule notification date calculation uses stored Monday weeks without shifting days twice', () => {
   const app = read('App.js');
   assert.match(app, /for \(let weekOffset = 0; weekOffset < 2; weekOffset\+\+\)/);
