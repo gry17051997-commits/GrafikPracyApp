@@ -202,13 +202,13 @@ test('recover debt does not grow from already locked or historical replacement s
   const app = read('App.js');
   assert.match(app, /const baseTargetCounts/);
   assert.match(app, /generateWeek(currentWeekConfig\.rotation \|\| rotation,currentWeekWarehouse)/);
-  assert.doesNotMatch(app, /targets\[p\]=Math\.max\(targets\[p\]===null\?counts\[p\]:targets\[p\],counts\[p\]\+recoverNeeds\[p\]\)/);
+  assert.doesNotMatch(app, /targets\[p\]=Math\.max\(targets\[p\]===null\?counts\[p\]:targets\[p\],counts\[p\]\+recoveryTarget\[p\]\)/);
 });
 
 test('recover target is based on the clean weekly template plus one recovery debt', () => {
   const app = read('App.js');
   assert.match(app, /const baseTarget = targets\[p\]===null\?baseTargetCounts\[p\]:targets\[p\]/);
-  assert.match(app, /targets\[p\]=baseTarget\+recoverNeeds\[p\]/);
+  assert.match(app, /targets\[p\]=baseTarget\+recoveryTarget\[p\]/);
 });
 
 
