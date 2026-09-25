@@ -620,10 +620,34 @@ export default function App() {
         throw new Error('schedule-conflict');
       }
       tx.set(scheduleRef,payload,{merge:true});
-    }).catch(e=>{
+    }).catch(async e=>{
       if(e?.message==='schedule-conflict'){
-        cloudApplying.current=true;
-        setCloudError('Grafik został zmieniony na innym urządzeniu. Najnowsza wersja zostanie pobrana bez jej nadpisania.');
+        // The realtime listener will usually deliver the newer snapshot, but do
+        // not rely on that timing. Read the authoritative document immediately
+        // so this device cannot remain on the stale local schedule after a
+        // conflict is detected.
+        try {
+          const latest=await getDoc(scheduleRef);
+          if(latest.exists()){
+            const data=latest.data() || {};
+            cloudApplying.current=true;
+            cloudUpdatedAtRef.current=data.updatedAt?.toMillis?.() ?? null;
+            if(data.hours) setHours(data.hours);
+            if(data.rotation) setRotation(data.rotation);
+            if(data.warehouse) setWarehouse(data.warehouse);
+            if(data.weeks) setWeeks(data.weeks);
+            if(data.weekConfigs) setWeekConfigs(data.weekConfigs);
+            if(typeof data.autoGenerateWeeks==='boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
+            if(data.personColors) setPersonColors(data.personColors);
+            if(data.conditions) setConditions(data.conditions);
+            if(data.recoveryBalances) setRecoveryBalances({...{P:0,M:0,L:0},...data.recoveryBalances});
+            if(Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
+            if(data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+          }
+          setCloudError('Grafik został zmieniony na innym urządzeniu. Pobrano najnowszą wersję bez jej nadpisania.');
+        } catch(reloadError) {
+          setCloudError('Grafik został zmieniony na innym urządzeniu, ale nie udało się pobrać najnowszej wersji. Kod: ' + (reloadError?.code || 'unknown'));
+        }
         return;
       }
       setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
