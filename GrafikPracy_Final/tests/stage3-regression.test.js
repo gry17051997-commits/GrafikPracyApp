@@ -13,6 +13,8 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
+  assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| \(signedIn\(\)/);
+  assert.match(rules, /locationConfig\/main\).*vehicleId == vehicleId/);
 });
 
 test('Firestore rules keep role escalation and self-delete blocked', () => {
