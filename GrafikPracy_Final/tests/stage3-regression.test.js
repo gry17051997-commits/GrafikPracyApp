@@ -781,6 +781,26 @@ test('approved swaps are marked manual so the generator preserves them', () => {
   assert.match(block, /nx\.person=ny\.person; ny\.person=xp; nx\.manual=true; ny\.manual=true/);
 });
 
+test('manual shift editing uses immutable React state updates', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const updateShift =');
+  const end = app.indexOf('const removeShift =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /setWeek\(w => w\.map/);
+  assert.match(block, /shifts:\(day\.shifts \|\| \[\]\)\.map/);
+  assert.doesNotMatch(block, /w\[dayIndex\]\.shifts\[shiftIndex\]\s*=/);
+});
+
+test('locking a shift uses immutable React state updates', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const toggleLock =');
+  const end = app.indexOf('const openOff =', start);
+  const block = app.slice(start, end);
+  assert.match(block, /setWeek\(w => w\.map/);
+  assert.match(block, /locked:!shift\.locked/);
+  assert.doesNotMatch(block, /s\.locked\s*=/);
+});
+
 test('advanced generator preserves manual and locked assignments including approved swaps', () => {
   const app = read('App.js');
   const start = app.indexOf('const generateAdvancedWeek = () =>');
