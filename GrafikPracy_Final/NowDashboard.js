@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
-import {collection, doc, getDoc, onSnapshot} from 'firebase/firestore';
+import {collection, doc, onSnapshot} from 'firebase/firestore';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {WebView} from 'react-native-webview';
 
