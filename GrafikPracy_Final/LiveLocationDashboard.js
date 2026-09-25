@@ -86,6 +86,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   useEffect(()=>{
     let historyUnsub;
     let vehiclesUnsub;
+    let configUnsub;
     let cancelled=false;
     (async()=>{
       const c=await getVehicleLocationConfig();
@@ -93,42 +94,47 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
       setConfig(c);
       if(!FIREBASE_ENABLED||!db){ setLocationError('Firebase lokalizacji jest wyłączony.'); return; }
       if(!cloudUser?.uid){ setLocationError('Zaloguj się do wspólnego konta, aby odbierać lokalizację telefonu służbowego.'); return; }
-      let cloudConfig={};
-      try { const snap=await getDoc(doc(db,'locationConfig','main')); cloudConfig=snap.exists()?snap.data()||{}:{}; } catch(e) { setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown')); }
 
-      // Na WWW AsyncStorage jest osobne od telefonu służbowego, więc lokalne
-      // przypisanie pojazdu nie może być jedynym źródłem identyfikatora.
-      // Pobieramy aktywne nadajniki z Firebase i wybieramy przypisany numer,
-      // a gdy WWW nie ma jeszcze numeru, najnowszy nadajnik.
-      const requestedId=idFor(cloudConfig.vehicleId||c.vehicleId||vehicleRegistration);
       const vehicleRef=collection(db,'vehicleTracking');
-      vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
-        const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&x.updatedAt);
-        if(!rows.length){ setLocation(null); setLocationError('Brak punktów GPS w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.'); return; }
-        const now=Date.now();
-        const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
-        const exactFresh=exact && (now-Number(exact.updatedAt||0)<=180000);
-        const freshRows=rows.filter(x=>now-Number(x.updatedAt||0)<=180000);
-        const selected=requestedId ? (exactFresh ? exact : exact || null) : (freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0]);
-        setLocation(selected || null);
-        if(!selected){
-          setHistory([]);
-          setLocationError(requestedId ? 'Nie znaleziono przypisanego pojazdu w chmurze.' : 'Brak dostępnego nadajnika GPS.');
-          return;
-        }
-        setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
-        setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
+      const subscribeVehicle=(cloudConfig={})=>{
+        if(vehiclesUnsub) vehiclesUnsub();
+        if(historyUnsub) { historyUnsub(); historyUnsub=null; }
+        const requestedId=idFor(cloudConfig.vehicleId||c.vehicleId||vehicleRegistration);
+        vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
+          const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&x.updatedAt);
+          if(!rows.length){ setLocation(null); setHistory([]); setLocationError('Brak punktów GPS w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.'); return; }
+          const now=Date.now();
+          const exact=requestedId && rows.find(x=>idFor(x.vehicleId||x.registration||x.id)===requestedId);
+          const exactFresh=exact && (now-Number(exact.updatedAt||0)<=180000);
+          const freshRows=rows.filter(x=>now-Number(x.updatedAt||0)<=180000);
+          const selected=requestedId ? (exactFresh ? exact : exact || null) : (freshRows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0] || rows.sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0))[0]);
+          setLocation(selected || null);
+          if(!selected){
+            setHistory([]);
+            setLocationError(requestedId ? 'Nie znaleziono przypisanego pojazdu w chmurze.' : 'Brak dostępnego nadajnika GPS.');
+            return;
+          }
+          setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
+          setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
-        if(historyUnsub) historyUnsub();
-        const selectedId=idFor(selected.vehicleId||selected.registration||selected.id);
-        const historyQuery=query(collection(db,'vehicleTracking',selectedId,'locations'),orderBy('updatedAt','desc'),limit(120));
-        historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
+          if(historyUnsub) historyUnsub();
+          const selectedId=idFor(selected.vehicleId||selected.registration||selected.id);
+          const historyQuery=query(collection(db,'vehicleTracking',selectedId,'locations'),orderBy('updatedAt','desc'),limit(120));
+          historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
+        },e=>{
+          setLocation(null); setHistory([]);
+          setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu lokalizacji. Sprawdź konto oraz reguły dostępu do GPS.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
+        });
+      };
+
+      configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
+        subscribeVehicle(snap.exists()?snap.data()||:{});
       },e=>{
-        setLocation(null); setHistory([]);
-        setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu lokalizacji. Sprawdź konto oraz reguły dostępu do GPS.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
+        setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown'));
+        subscribeVehicle({});
       });
     })();
-    return()=>{cancelled=true; if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
+    return()=>{cancelled=true; if(configUnsub) configUnsub(); if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
   },[vehicleRegistration,cloudUser?.uid]);
 
   useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),10000);return()=>clearInterval(t)},[]);
