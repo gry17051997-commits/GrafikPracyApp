@@ -147,6 +147,16 @@ test('Android widget refreshes are debounced', () => {
   assert.match(app, /widgetUpdateTimerRef\.current = setTimeout\(async \(\) =>/);
 });
 
+test('work report notification refreshes continuity before opening modal', () => {
+  const app = read('App.js');
+  const marker = "response.notification.request.content.data?.type === 'work-report'";
+  const i = app.indexOf(marker);
+  assert.ok(i >= 0);
+  const block = app.slice(i, i + 220);
+  assert.match(block, /applyReportContinuity\(reportStatus\)/);
+  assert.match(block, /setReportModal\(true\)/);
+});
+
 test('report notification scheduling reacts to per-week configuration changes', () => {
   const app = read('App.js');
   const start = app.indexOf("useEffect(() => {\n    if (!ready || Platform.OS === 'web') return;\n    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);");
