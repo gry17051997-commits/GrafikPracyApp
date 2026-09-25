@@ -1503,16 +1503,17 @@ export default function App() {
         });
         setWeeks(nextWeeks=>committedWeeks);
       } else {
-        setProposals(p=>p.map(x=>x.id===proposal.id?{...x,status:'approved'}:x));
-        setWeeks(prev=>{
-          const source=prev[proposalWeekKey];
-          if(!source) return prev;
-          const next=cloneWeek(source);
-          const x=next[fromDay].shifts[fromShift-1], y=next[toDay].shifts[toShift-1];
-          if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) return prev;
-          const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
-          return {...prev,[proposalWeekKey]:next};
-        });
+        const source=weeks[proposalWeekKey];
+        if(!source) throw new Error('schedule-missing');
+        const next=cloneWeek(source);
+        const x=next[fromDay]?.shifts?.[fromShift-1], y=next[toDay]?.shifts?.[toShift-1];
+        if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
+          Alert.alert('Propozycja nieaktualna','Grafik zmienił się od czasu wysłania propozycji. Zamiana nie została wykonana.');
+          return;
+        }
+        const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
+        setWeeks(prev=>({...prev,[proposalWeekKey]:next}));
+        setProposals(p=>p.map(item=>item.id===proposal.id?{...item,status:'approved'}:item));
       }
     } catch(e){setCloudError('Nie udało się zatwierdzić zamiany. Kod: ' + (e?.code || 'unknown'));}
   };
