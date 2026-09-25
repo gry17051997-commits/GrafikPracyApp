@@ -989,11 +989,15 @@ export default function App() {
       if (id && handledReportNotificationRef.current === id) return;
       if (id) {
         try {
-          const previous = await AsyncStorage.getItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY);
-          if (previous === id) return;
+          const raw = await AsyncStorage.getItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY);
+          const handled = raw ? JSON.parse(raw) : [];
+          const handledIds = Array.isArray(handled) ? handled : (raw ? [raw] : []);
+          if (handledIds.includes(id) || handledReportNotificationRef.current === id) return;
+          const nextHandled = [id,...handledIds].filter(Boolean).slice(0,50);
           handledReportNotificationRef.current = id;
-          await AsyncStorage.setItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY,id);
+          await AsyncStorage.setItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY,JSON.stringify(nextHandled));
         } catch(e) {
+          if (handledReportNotificationRef.current === id) return;
           handledReportNotificationRef.current = id;
         }
       }
