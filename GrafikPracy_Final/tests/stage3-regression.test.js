@@ -180,6 +180,17 @@ test('week setup preserves an existing week instead of replacing its assignments
   assert.match(block, /setWeeks\(prev=>\(\{\.\.\.prev,\[key\]:prev\[key\]\|\|generateWeek/);
 });
 
+test('offline swap approval validates the current assignments before marking approved', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const approveProposal = async proposal => {');
+  const end = app.indexOf('  const rejectProposal = async id => {', start);
+  const block = app.slice(start, end);
+  assert.match(block, /const source=weeks\[proposalWeekKey\]/);
+  assert.match(block, /x\.person!==expectedA \|\| y\.person!==expectedB \|\| x\.locked \|\| y\.locked/);
+  assert.match(block, /setWeeks\(prev=>\(\{\.\.\.prev,\[proposalWeekKey\]:next\}\)\)/);
+  assert.match(block, /setProposals\(p=>p\.map\(item=>item\.id===proposal\.id\?\{\.\.\.item,status:'approved'\}:item\)\)/);
+});
+
 test('advanced generator treats person-specific OFF as a candidate restriction and detects conflicting MUST rules', () => {
   const app = read('App.js');
   assert.match(app, /c\.type==='off' && !c\.person && conditionApplies\(c,''/);
