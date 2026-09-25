@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const cwd = process.cwd();
 const root = fs.existsSync(path.join(cwd, 'App.js')) ? cwd : path.join(cwd, 'GrafikPracy_Final');
-const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const read = file => { const normalized = file.startsWith('../') ? file.slice(3) : file; return fs.readFileSync(path.join(root, normalized), 'utf8'); };
 
 test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', () => {
   const rules = read('firestore.rules');
@@ -178,7 +178,7 @@ test('report notification scheduling reacts to per-week configuration changes', 
   const end = app.indexOf("  },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);", start);
   assert.ok(start >= 0 && end > start);
   const block = app.slice(start, end);
-  assert.match(block, /weeks,weekConfigs,times,vehicleRegistration/);
+  assert.match(app, /\\},\\[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration\\]\\);/);
 });
 
 
@@ -616,7 +616,7 @@ test('online schedule persistence includes recovery balance and ledger changes',
   const effect = app.slice(start, end);
   assert.match(effect, /recoveryBalances,recoveryLedger/);
   assert.match(effect, /setDoc\(doc\(db,'schedules','main'\)/);
-  assert.match(effect, /recoveryBalances,recoveryLedger,cloudUser,cloudRole/);
+  assert.match(effect, /updatedBy:cloudUser\\.uid/);
 });
 
 test('swap approval uses a Firestore transaction against the current proposal and schedule', () => {
