@@ -12,7 +12,7 @@
     },
     "android": {
       "package": "pl.grafikpracy.app",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "foregroundImage": "./icon-512.png",
         "backgroundColor": "#11151c"
