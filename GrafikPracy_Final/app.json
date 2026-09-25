@@ -4,6 +4,7 @@
     "slug": "grafikpracyapp",
     "version": "1.0.3",
     "orientation": "portrait",
+    "newArchEnabled": false,
     "userInterfaceStyle": "dark",
     "icon": "./icon-512.png",
     "web": {
