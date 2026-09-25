@@ -1240,7 +1240,7 @@ export default function App() {
 
   const appendRecoveryLedger = (person, delta, reason, meta={}) => {
     if (!person || !PERSON_KEYS.includes(person) || !Number.isFinite(Number(delta)) || Number(delta) === 0) return;
-    setRecoveryLedger(prev => [{id:String(Date.now()),person,delta:Number(delta),reason,...meta,createdAt:new Date().toISOString()},...prev].slice(0,500));
+    setRecoveryLedger(prev => [{id:`${Date.now()}-${Math.random().toString(36).slice(2,10)}`,person,delta:Number(delta),reason,...meta,createdAt:new Date().toISOString()},...prev].slice(0,500));
   };
 
   const confirmRecovery = person => {
