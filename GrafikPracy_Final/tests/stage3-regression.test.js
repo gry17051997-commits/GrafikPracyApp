@@ -535,6 +535,17 @@ test('changing recovery OFF back to plain OFF reverses the recovery ledger entry
 });
 
 
+test('cloud recovery snapshots are sanitized before entering app state', () => {
+  const app = read('App.js');
+  assert.match(app, /const normalizeRecoveryBalances = value =>/);
+  assert.match(app, /Number\.isFinite\(n\) && n >= 0/);
+  assert.match(app, /const normalizeRecoveryLedger = value =>/);
+  assert.match(app, /PERSON_KEYS\.includes\(entry\.person\)/);
+  assert.match(app, /\.slice\(0,500\)/);
+  assert.match(app, /setRecoveryBalances\(normalizeRecoveryBalances\(data\.recoveryBalances\)\)/);
+  assert.match(app, /setRecoveryLedger\(normalizeRecoveryLedger\(data\.recoveryLedger\)\)/);
+});
+
 test('online schedule persistence includes recovery balance and ledger changes', () => {
   const app = read('App.js');
   const start = app.indexOf("const payload = {hours,rotation,warehouse,weeks,weekConfigs");
