@@ -468,3 +468,24 @@ test('Now dashboard reacts to central vehicle assignment changes', () => {
   assert.match(now, /subscribe\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
   assert.match(now, /if\(configUnsub\)configUnsub\(\)/);
 });
+
+
+test('locator cannot restart GPS from stale local assignment before central assignment is loaded', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const refreshLocationState=async()=>');
+  const end = app.indexOf('    };', start) + '    };'.length;
+  const block = app.slice(start, end);
+  assert.match(block, /if \(cloudRole === 'locator'\)/);
+  assert.match(block, /setLocationTracking\(false\)/);
+  assert.doesNotMatch(block, /cloudRole === 'locator'[\\s\\S]*ensureVehicleLocationTracking\(\)/);
+});
+
+test('removing central vehicle assignment stops an active locator GPS transmitter', () => {
+  const app = read('App.js');
+  const start = app.indexOf("if (!snap.exists())");
+  const end = app.indexOf("        return;", start) + "        return;".length;
+  const block = app.slice(start, end);
+  assert.match(block, /cloudRole === 'locator'/);
+  assert.match(block, /setVehicleRegistration\(''\)/);
+  assert.match(block, /stopVehicleLocationTracking\(\)/);
+});
