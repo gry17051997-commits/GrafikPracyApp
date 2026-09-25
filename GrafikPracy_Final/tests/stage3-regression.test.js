@@ -4,12 +4,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const cwd = process.cwd();
-const root = fs.existsSync(path.join(cwd, 'App.js')) ? cwd : path.join(cwd, 'GrafikPracy_Final');
+const appRoot = fs.existsSync(path.join(cwd, 'GrafikPracy_Final', 'App.js'))
+  ? path.join(cwd, 'GrafikPracy_Final')
+  : fs.existsSync(path.join(cwd, 'App.js'))
+    ? cwd
+    : path.join(cwd, 'GrafikPracy_Final');
+
 const read = file => {
-  const direct = file.startsWith('../') ? path.join(root, file.slice(3)) : path.join(root, file);
-  if (fs.existsSync(direct)) return fs.readFileSync(direct, 'utf8');
-  const local = path.join(root, file.replace(/^\.\.\//, ''));
-  return fs.readFileSync(local, 'utf8');
+  const normalized = file.replace(/^\.\.\//, '');
+  const candidates = [
+    path.join(appRoot, normalized),
+    path.join(cwd, normalized),
+    path.join(cwd, 'GrafikPracy_Final', normalized)
+  ];
+  const found = candidates.find(candidate => fs.existsSync(candidate));
+  if (!found) throw new Error(`Test fixture not found: ${file}`);
+  return fs.readFileSync(found, 'utf8');
 };
 
 test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', () => {
