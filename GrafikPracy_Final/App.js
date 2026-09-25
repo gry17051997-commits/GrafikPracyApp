@@ -398,6 +398,13 @@ export default function App() {
       try {
         const c=await getVehicleLocationConfig();
         if (!mounted) return;
+        // Lokalizator może wznowić nadajnik dopiero po odczytaniu centralnego
+        // przypisania pojazdu. Chroni to przed startem GPS na starym aucie
+        // zapisanym lokalnie, zanim Firestore zdąży dostarczyć nowe przypisanie.
+        if (cloudRole === 'locator') {
+          setLocationTracking(false);
+          return;
+        }
         setLocationTracking(c.enabled === true && !!c.vehicleId);
         if (c.enabled === true && c.vehicleId && auth?.currentUser?.uid) {
           const result=await ensureVehicleLocationTracking();
@@ -410,14 +417,25 @@ export default function App() {
       if(state==='active') refreshLocationState();
     });
     return ()=>{mounted=false; sub?.remove?.();};
-  },[ready]);
+  },[ready,cloudRole]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const unsub = onSnapshot(doc(db,'locationConfig','main'), snap => {
       locationConfigLoaded.current = true;
       if (!snap.exists()) {
-        if (cloudRole === 'locator') setVehicleRegistration('');
+        if (cloudRole === 'locator') {
+          setVehicleRegistration('');
+          (async () => {
+            try {
+              const local = await getVehicleLocationConfig();
+              if (local.enabled === true) {
+                await stopVehicleLocationTracking();
+                setLocationTracking(false);
+              }
+            } catch (e) {}
+          })();
+        }
         return;
       }
       const data = snap.data() || {};
@@ -429,12 +447,24 @@ export default function App() {
           try {
             const local = await getVehicleLocationConfig();
             const localAssigned = String(local.registration || local.vehicleId || '').trim().toUpperCase();
-            if (assigned && localAssigned !== assigned) {
+            if (!assigned) {
+              if (local.enabled === true) {
+                await stopVehicleLocationTracking();
+                setLocationTracking(false);
+              }
+              return;
+            }
+            if (localAssigned !== assigned) {
               if (local.enabled === true) {
                 await stopVehicleLocationTracking();
                 setLocationTracking(false);
               }
               await saveVehicleLocationAssignment(assigned);
+              return;
+            }
+            if (local.enabled === true) {
+              const result = await ensureVehicleLocationTracking();
+              if (result.ok) setLocationTracking(true);
             }
           } catch (e) {}
         })();
