@@ -71,6 +71,12 @@ test('background GPS saves push a fresh Auto widget update on Android', () => {
   assert.match(service, /GrafikAutoWidget/);
 });
 
+test('report widget filters shared history to the current worker', () => {
+  const handler = read('widget-task-handler.js');
+  assert.match(handler, /x\?\.createdAt&&\(!x\.person\|\|x\.person===data\?\.myPerson\)/);
+  assert.match(handler, /report:getReportData\(data\)/);
+});
+
 test('LocationService closes saveLocationInternal before declaring the serialized queue', () => {
   const service = read('LocationService.js');
   const start = service.indexOf('async function saveLocationInternal');
