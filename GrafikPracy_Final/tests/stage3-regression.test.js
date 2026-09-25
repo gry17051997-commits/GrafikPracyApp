@@ -410,3 +410,10 @@ test('locator interface hides schedule, summary and chat navigation', () => {
   assert.match(app, /cloudRole==='locator' ? [] : [['summary','📊','Suma'],['chat','💬','Czat']]/);
   assert.match(app, /Nadajnik GPS/);
 });
+
+
+test('live GPS dashboard does not claim the transmitter must be an employee account', () => {
+  const live = read('LiveLocationDashboard.js');
+  assert.doesNotMatch(live, /Telefon B musi być zalogowany do konta pracownika/);
+  assert.match(live, /reguły dostępu do GPS/);
+});
