@@ -1880,6 +1880,54 @@ export default function App() {
     </View></View></Modal>
   );
 
+  const locatorSettings = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+      {header}
+      <View style={[S.settingsHero,{borderColor:'#315f9e'}]}>
+        <Text style={S.settingsEyebrow}>LOKALIZATOR</Text>
+        <Text style={S.settingsTitle}>📍 Nadajnik GPS</Text>
+        <Text style={S.settingsSub}>Ten profil służy wyłącznie do udostępniania lokalizacji telefonu służbowego.</Text>
+      </View>
+      <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
+      <Text style={S.helpLine}>Przypisz telefon do auta, a następnie aktywuj GPS. Lokalizacja będzie wysyłana w tle do podglądu dla uprawnionych użytkowników.</Text>
+      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
+      <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || locationTracking} style={[S.generateFull,{marginTop:0,opacity:(!vehicleRegistration.trim()||locationBusy||locationTracking)?0.45:1}]} onPress={async()=>{
+        const reg=vehicleRegistration.trim();
+        if(!reg) return;
+        setLocationBusy(true);
+        try {
+          await saveVehicleLocationAssignment(reg);
+          setVehicleRegistration(reg);
+          Alert.alert('Pojazd przypisany','Telefon został przypisany do auta '+reg+'. Teraz możesz aktywować GPS.');
+        } catch(e) {
+          Alert.alert('Pojazd','Nie udało się zapisać przypisania auta: '+(e?.message||'nieznany błąd'));
+        } finally { setLocationBusy(false); }
+      }}><Text style={S.btnText}>{locationBusy?'ZAPISUJĘ…':'ZAPISZ POJAZD'}</Text></TouchableOpacity>
+      <View style={S.option}>
+        <View style={{flex:1}}>
+          <Text style={S.optionText}>Telefon służbowy</Text>
+          <Text style={S.muted}>{vehicleRegistration.trim()?'🚚 przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text>
+          <Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text>
+        </View>
+        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}>
+          <Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję.</Text>
+      <View style={[S.option,{marginTop:12}]}>
+        <View style={{flex:1}}>
+          <Text style={S.optionText}>☁️ Konto lokalizatora</Text>
+          <Text style={S.muted}>{cloudUser?.email||'brak konta'}</Text>
+        </View>
+        <Text style={{color:'#75a1ff',fontWeight:'900'}}>📍 GPS</Text>
+      </View>
+      <TouchableOpacity style={S.option} onPress={cloudLogout}>
+        <Text style={S.optionText}>🚪 Wyloguj</Text>
+        <Text style={S.muted}>{cloudUser?.email||''}</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
   const settings = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
@@ -2394,15 +2442,15 @@ export default function App() {
           </View>}
           {Platform.OS==='web' && <View style={S.webNav}>
             {[
-              ['teraz','🟢','Teraz'],['grafik','📅','Grafik'],['auto','📍','Auto / GPS'],
-              ['summary','📊','Podsumowanie'],['chat','💬','Czat'],['ustawienia','⚙️','Ustawienia']
+              ['teraz','🟢','Teraz'],...(cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]),['auto','📍','Auto / GPS'],
+              ...(cloudRole==='locator' ? [] : [['summary','📊','Podsumowanie'],['chat','💬','Czat']]),['ustawienia','⚙️','Ustawienia']
             ].map(([key,icon,label])=>
               <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label} style={[S.webNavBtn,tab===key&&S.webNavActive]} onPress={()=>setTab(key)}>
                 <Text style={S.webNavIcon}>{icon}</Text><Text style={S.webNavText}>{label}</Text>
               </TouchableOpacity>
             )}
           </View>}
-          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : settings}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
           {editModal}
           {colorModal}
           {helpModal}
@@ -2420,10 +2468,9 @@ export default function App() {
             <View style={S.navDock}>
               {[
                 ['teraz','🟢','Teraz'],
-                ['grafik','📅','Grafik'],
+                ...(cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]),
                 ['auto','📍','Auto'],
-                ['summary','📊','Suma'],
-                ['chat','💬','Czat'],
+                ...(cloudRole==='locator' ? [] : [['summary','📊','Suma'],['chat','💬','Czat']]),
                 ['ustawienia','⚙️','Ustaw.']
               ].map(([key,icon,label])=>(
                 <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label}
