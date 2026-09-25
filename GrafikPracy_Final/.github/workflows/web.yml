@@ -1,0 +1,14 @@
+name: Web deployment regression fixture
+# This copy is intentionally kept under the app root because the regression suite
+# executes with GrafikPracy_Final as its working directory and validates the
+# production deployment workflow contract.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lockfile contract
+        run: npm ci --ignore-scripts
