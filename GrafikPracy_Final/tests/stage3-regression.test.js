@@ -494,6 +494,14 @@ test('locator syncs local GPS assignment when admin changes the vehicle', () => 
   assert.match(block, /saveVehicleLocationAssignment\(assigned\)/);
 });
 
+test('live GPS dashboard clears stale vehicle data when central assignment is removed', () => {
+  const live = read('LiveLocationDashboard.js');
+  assert.match(live, /hasCentralAssignment=Object\.prototype\.hasOwnProperty\.call\(cloudConfig,'vehicleId'\)/);
+  assert.match(live, /if \(!assignedValue\)/);
+  assert.match(live, /setConfig\(prev=>\(\{\.\.\.prev,vehicleId:'',registration:''\}\)\)/);
+  assert.match(live, /Brak centralnego przypisania pojazdu/);
+});
+
 test('live GPS dashboard subscribes only to the centrally assigned vehicle document', () => {
   const live = read('LiveLocationDashboard.js');
   assert.match(live, /const vehicleRef=doc\(db,'vehicleTracking',requestedId\)/);
