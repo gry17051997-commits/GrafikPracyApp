@@ -159,12 +159,14 @@ test('hourly report notifications use alarm presentation and handoff to report',
 
 test('work report notification refreshes continuity before opening modal', () => {
   const app = read('App.js');
-  const marker = "response.notification.request.content.data?.type === 'work-report'";
-  const i = app.indexOf(marker);
-  assert.ok(i >= 0);
-  const block = app.slice(i, i + 220);
-  assert.match(block, /applyReportContinuity\(reportStatus\)/);
-  assert.match(block, /setReportModal\(true\)/);
+  assert.match(app, /const openReportAlarm = async response =>/);
+  const start = app.indexOf('const openReportAlarm = async response =>');
+  const end = app.indexOf('const sub = Notifications.addNotificationResponseReceivedListener', start);
+  const block = app.slice(start, end);
+  assert.match(block, /type !== 'work-report'/);
+  assert.match(block, /applyReportContinuity\(reportStatusRef.current\)/);
+  assert.match(block, /setReportModal\(false\)/);
+  assert.match(block, /setReportAlarm\(true\)/);
 });
 
 test('report notification scheduling reacts to per-week configuration changes', () => {
@@ -767,7 +769,7 @@ test('Android report alarms use a dedicated MAX-importance channel with vibratio
 
 test('report alarm repeats vibration while open and cancels it when dismissed', () => {
   const app = read('App.js');
-  const start = app.indexOf('useEffect(() => {\\n    if (!reportAlarm)');
+  const start = app.indexOf('useEffect(() => {\n    if (!reportAlarm)');
   const end = app.indexOf('  const ensureReportNotificationChannel', start);
   const block = app.slice(start, end);
   assert.match(block, /Vibration\.vibrate\(\[0,700,250,700,500\], true\)/);
