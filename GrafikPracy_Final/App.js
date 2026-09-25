@@ -238,6 +238,26 @@ export default function App() {
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
   const [guestMode,setGuestMode] = useState(false);
+  const normalizeRecoveryBalances = value => {
+    const source = value && typeof value === 'object' ? value : {};
+    return Object.fromEntries(PERSON_KEYS.map(key => {
+      const n = Number(source[key] ?? 0);
+      return [key, Number.isFinite(n) && n >= 0 ? n : 0];
+    }));
+  };
+
+  const normalizeRecoveryLedger = value => {
+    if (!Array.isArray(value)) return [];
+    return value.filter(entry =>
+      entry && typeof entry === 'object'
+      && PERSON_KEYS.includes(entry.person)
+      && Number.isFinite(Number(entry.delta))
+      && Number(entry.delta) !== 0
+      && typeof entry.reason === 'string'
+      && String(entry.id || '').length > 0
+    ).slice(0,500);
+  };
+
   const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
 
   const wkKey = iso(weekStart);
@@ -338,8 +358,8 @@ export default function App() {
             ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
             ...savedConditions
           ]);
-          setRecoveryBalances({...{P:0,M:0,L:0},...(data.recoveryBalances || {})});
-          setRecoveryLedger(Array.isArray(data.recoveryLedger) ? data.recoveryLedger : []);
+          setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
+          setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
           setProposals(data.proposals || []);
           setMyPerson(data.myPerson || 'P');
           setVehicleRegistration(data.vehicleRegistration || '');
@@ -576,8 +596,8 @@ export default function App() {
       if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (data.personColors) setPersonColors(data.personColors);
       if (data.conditions) setConditions(data.conditions);
-      if (data.recoveryBalances) setRecoveryBalances({...{P:0,M:0,L:0},...data.recoveryBalances});
-      if (Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
+      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
+      setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       setCloudUpdated(true);
       setTimeout(() => setCloudUpdated(false), 2500);
