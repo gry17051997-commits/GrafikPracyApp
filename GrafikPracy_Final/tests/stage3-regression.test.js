@@ -153,6 +153,16 @@ test('web and Android acceptance surfaces remain wired', () => {
 });
 
 
+test('offline schedule state is durable and cache snapshots cannot discard it', () => {
+  const app = read('App.js');
+  assert.match(app, /cloudPending:cloudDirtyRef\.current/);
+  assert.match(app, /cloudBaseUpdatedAt:cloudUpdatedAtRef\.current/);
+  assert.match(app, /onSnapshot\(doc\(db,'schedules','main'\), \{includeMetadataChanges:true\}/);
+  assert.match(app, /if \(cloudDirtyRef\.current\)/);
+  assert.match(app, /if \(snap\.metadata\.fromCache\) return/);
+  assert.match(app, /setCloudRetryTick\(v => v \+ 1\)/);
+});
+
 test('schedule save refuses to overwrite an existing remote document before initial sync', () => {
   const app = read('App.js');
   const start = app.indexOf('const payload = {hours,rotation,warehouse,weeks');
