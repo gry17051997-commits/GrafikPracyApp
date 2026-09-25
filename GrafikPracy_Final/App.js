@@ -2548,7 +2548,7 @@ export default function App() {
           style={{marginTop:42,width:'100%',maxWidth:420,minHeight:72,borderRadius:20,backgroundColor:'#ef4444',justifyContent:'center',alignItems:'center'}}
           onPress={()=>{
             setReportAlarm(false);
-            applyReportContinuity(reportStatus);
+            applyReportContinuity(reportStatusRef.current);
             setReportModal(true);
           }}>
           <Text style={{color:'#fff',fontSize:21,fontWeight:'900'}}>🔕 WYŁĄCZ ALARM</Text>
