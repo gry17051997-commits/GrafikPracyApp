@@ -1321,6 +1321,10 @@ export default function App() {
       Alert.alert('Nieprawidłowa zamiana','Zmiana, z której tworzysz propozycję, nie ma przypisanego pracownika.');
       return;
     }
+    if(cloudRole !== 'admin' && (sourceShiftData.person !== myPerson || swapModal.person !== myPerson)){
+      Alert.alert('Nieprawidłowa zamiana','Pracownik może proponować zamianę tylko ze swojej zmiany.');
+      return;
+    }
     const targetShift=currentWeek[swapTargetDay]?.shifts?.[swapTargetShift-1];
     if(!targetShift || targetShift.person!==swapTarget){
       Alert.alert('Nieprawidłowa zamiana','Wybierz zmianę, na której wybrany pracownik faktycznie pracuje.');
