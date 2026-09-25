@@ -549,3 +549,13 @@ test('shared schedule save guards against stale remote updates', () => {
   assert.match(block, /schedule-conflict/);
   assert.match(block, /tx\.set\(scheduleRef,payload/);
 });
+
+
+test('reset all stops active locator GPS before clearing local location config', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const resetAll = () =>');
+  const end = app.indexOf('const buildBackupPayload', start);
+  const block = app.slice(start, end);
+  assert.match(block, /await stopVehicleLocationTracking\(\)/);
+  assert.match(block, /AsyncStorage\.removeItem\(LOCATION_CONFIG_KEY\)/);
+});
