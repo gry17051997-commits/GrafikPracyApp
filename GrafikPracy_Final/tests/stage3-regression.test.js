@@ -38,6 +38,16 @@ test('GPS service rechecks authenticated owner before every cloud write', () => 
   assert.match(service, /expectedUid\s*&&\s*ownerUid\s*!==\s*expectedUid/);
 });
 
+test('Android location config enables background and location foreground service permissions', () => {
+  const config = read('app.json');
+  assert.match(config, /"android\.permission\.ACCESS_BACKGROUND_LOCATION"/);
+  assert.match(config, /"android\.permission\.FOREGROUND_SERVICE"/);
+  assert.match(config, /"android\.permission\.FOREGROUND_SERVICE_LOCATION"/);
+  assert.match(config, /"isAndroidBackgroundLocationEnabled": true/);
+  assert.match(config, /"isAndroidForegroundServiceEnabled": true/);
+  assert.match(config, /killServiceOnDestroy:false/);
+});
+
 test('GPS tracker guards against duplicate background tasks', () => {
   const service = read('LocationService.js');
   assert.match(service, /hasStartedLocationUpdatesAsync\(LOCATION_TASK_NAME\)/);
