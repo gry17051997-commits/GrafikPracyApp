@@ -536,3 +536,16 @@ test('swap approval uses a Firestore transaction against the current proposal an
   assert.match(block, /tx\.update\(scheduleRef/);
   assert.match(block, /tx\.update\(proposalRef/);
 });
+
+
+test('shared schedule save guards against stale remote updates', () => {
+  const app = read('App.js');
+  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
+  const end = app.indexOf("\n\n  const parseHM", start);
+  const block = app.slice(start, end);
+  assert.match(block, /cloudUpdatedAtRef\.current/);
+  assert.match(block, /runTransaction\(db,async tx=>/);
+  assert.match(block, /remoteUpdatedAt/);
+  assert.match(block, /schedule-conflict/);
+  assert.match(block, /tx\.set\(scheduleRef,payload/);
+});
