@@ -357,8 +357,7 @@ test('recover target is based on the clean weekly template plus one recovery deb
   const app = read('App.js');
   assert.match(app, /const baseTarget=targets\[p\]===null\?baseTargetCounts\[p\]:targets\[p\]/);
   assert.match(app, /targets\[p\]=baseTarget\+recoveryTarget\[p\]/);
-  assert.match(app, /targets\[p\]=baseTarget\+recoveryTarget\[p\]/);
-
+});
 
 test('generator uses a soft capacity limit instead of cancelling a valid partial schedule', () => {
   const app = read('App.js');
@@ -446,8 +445,7 @@ test('manual negative recovery correction is clamped at zero and audited', () =>
   assert.match(app, /Math\.max\(0,/);
   assert.match(app, /appendRecoveryLedger\(person,applied,'manual-correction'/);
   assert.match(app, /reason:\s*['\"]manual-correction['\"]/);
-  assert.match(app, /appendRecoveryLedger\(person,applied,'manual-correction'/);
-
+});
 
 test('swap proposals snapshot the week and expected assignments', () => {
   const app = read('App.js');
