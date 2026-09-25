@@ -645,7 +645,7 @@ export default function App() {
         runTransaction(db,async tx=>{
           const snap=await tx.get(scheduleRef);
           const remoteUpdatedAt=snap.exists()?snap.data()?.updatedAt?.toMillis?.() ?? null:null;
-          if (snap.exists() && expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
+          if (snap.exists() && (expectedUpdatedAt === null || remoteUpdatedAt !== expectedUpdatedAt)) {
             throw new Error('schedule-conflict');
           }
           tx.set(scheduleRef,payload,{merge:true});
