@@ -431,3 +431,15 @@ test('locator GPS UI uses the admin-assigned vehicle and cannot edit the registr
   assert.doesNotMatch(block, /saveVehicleLocationAssignment\(/);
   assert.doesNotMatch(block, /onChangeText=\{v=>setVehicleRegistration/);
 });
+
+test('admin vehicle assignment is written to the central GPS config', () => {
+  const app = read('App.js');
+  const start = app.indexOf("await saveVehicleLocationAssignment(reg);");
+  const end = app.indexOf("setVehicleRegistration(reg);", start);
+  const block = app.slice(start, end);
+  assert.match(block, /cloudRole === 'admin'/);
+  assert.match(block, /setDoc\(doc\(db,'locationConfig','main'\)/);
+  assert.match(block, /vehicleId:reg/);
+  assert.match(block, /registration:reg/);
+  assert.match(block, /updatedBy:cloudUser\.uid/);
+});
