@@ -512,3 +512,25 @@ test('changing recovery OFF back to plain OFF reverses the recovery ledger entry
   assert.match(block, /setRecoveryBalances\(prev =>/);
   assert.match(block, /appendRecoveryLedger\(previousRecoveryPerson,-1,'off-recover-reverted'/);
 });
+
+
+test('online schedule persistence includes recovery balance and ledger changes', () => {
+  const app = read('App.js');
+  const start = app.indexOf("const payload = {hours,rotation,warehouse,weeks,weekConfigs");
+  const end = app.indexOf("},[ready,hours", start);
+  const effect = app.slice(start, end);
+  assert.match(effect, /recoveryBalances,recoveryLedger/);
+  assert.match(effect, /setDoc\(doc\(db,'schedules','main'\)/);
+  assert.match(effect, /recoveryBalances,recoveryLedger,cloudUser,cloudRole/);
+});
+
+test('swap approval does not mutate the schedule when proposal update fails', () => {
+  const app = read('App.js');
+  const start = app.indexOf('const approveProposal = async proposal =>');
+  const end = app.indexOf('const rejectProposal = async id =>', start);
+  const block = app.slice(start, end);
+  assert.match(block, /await updateDoc\(doc\(db,'proposals',proposal\.id\)/);
+  const remoteUpdate = block.indexOf('await updateDoc(doc(db,\'proposals\',proposal.id)');
+  const scheduleUpdate = block.indexOf('setWeeks(prev=>', remoteUpdate);
+  assert.ok(remoteUpdate >= 0 && scheduleUpdate > remoteUpdate);
+});
