@@ -36,6 +36,9 @@ jobs:
         run: npm ci --ignore-scripts
 
 
+      - name: Run regression tests
+        run: npm test
+
       - name: Export Expo web
         run: npx expo export --platform web
 
