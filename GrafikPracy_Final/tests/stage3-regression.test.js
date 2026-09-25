@@ -153,6 +153,15 @@ test('web and Android acceptance surfaces remain wired', () => {
 });
 
 
+test('cloud snapshot apply guard remains owned by the cloud save effect', () => {
+  const app = read('App.js');
+  const start = app.indexOf('useEffect(() => {\n    if (!ready || !scheduleHydratedRef.current) return;');
+  const end = app.indexOf("useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;", start);
+  const block = app.slice(start, end);
+  assert.match(block, /if \(cloudApplying\.current\) return;/);
+  assert.doesNotMatch(block, /cloudApplying\.current = false/);
+});
+
 test('offline schedule state is durable and cache snapshots cannot discard it', () => {
   const app = read('App.js');
   assert.match(app, /cloudPending:cloudDirtyRef\.current/);
