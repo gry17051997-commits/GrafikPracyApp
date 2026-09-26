@@ -99,6 +99,30 @@ jobs:
           unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
           ls -lh android/app/build/outputs/apk/release/app-release.apk
 
+      - name: Automated Android 16 smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: Pixel_2
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set -euxo pipefail
+            adb install -r android/app/build/outputs/apk/release/app-release.apk
+            adb shell monkey -p pl.grafikpracy.app 1
+            sleep 8
+            echo "=== PID ==="
+            adb shell pidof pl.grafikpracy.app || true
+            echo "=== LOGCAT: React/Android fatal errors ==="
+            adb logcat -d -v threadtime | grep -Ei "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|SoLoader|UnsatisfiedLinkError|pl.grafikpracy.app|Unable to start activity|Exception" || true
+            echo "=== LOGCAT: last 500 lines ==="
+            adb logcat -d -v threadtime | tail -n 500
+            adb shell screencap -p /sdcard/grafik-screen.png
+            adb pull /sdcard/grafik-screen.png ./grafik-screen.png || true
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
