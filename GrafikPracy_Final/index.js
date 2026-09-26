@@ -62,7 +62,7 @@ function Root() {
 
 registerRootComponent(Root);
 
-// Widget task handler is intentionally not registered during JS bootstrap.
+// DIAGNOSTIC_BUILD_1_0_4: widget native registration stays disabled until Android startup is verified.\n// Widget task handler is intentionally not registered during JS bootstrap.
 // The previous implementation loaded react-native-android-widget before the
 // main UI was mounted, which can cause a native startup failure on Android.
 // Widget support will be reattached after the base app startup is verified.
