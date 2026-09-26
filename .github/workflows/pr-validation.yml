@@ -79,22 +79,23 @@ jobs:
           test -f android/gradlew
           test -f android/app/src/main/AndroidManifest.xml
 
-      - name: Build debug APK
+      - name: Build release APK
         working-directory: GrafikPracy_Final/android
-        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
       - name: Verify APK
         working-directory: GrafikPracy_Final
         run: |
-          test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "lib/|META-INF/" | head -5
-          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
+          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/|lib/|META-INF/" | head -20
+          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "index\.android|assets/.+\.hbc|assets/.+\.bundle" || true
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: Grafik-Pracy-NoNativeWidget-APK
-          path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Grafik-Pracy-Standalone-APK
+          path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
 
