@@ -96,7 +96,7 @@ jobs:
         working-directory: GrafikPracy_Final
         run: |
           test -s android/app/build/outputs/apk/release/app-release.apk
-          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
+          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/(index\.android\.bundle|.*\.hbc)$"
           ls -lh android/app/build/outputs/apk/release/app-release.apk
 
       - name: Automated Android 16 smoke test
@@ -105,13 +105,13 @@ jobs:
           api-level: 36
           target: google_apis
           arch: x86_64
-          profile: Pixel_2
+          profile: pixel_2
           force-avd-creation: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
           script: |
             set -euxo pipefail
-            adb install -r android/app/build/outputs/apk/release/app-release.apk
+            adb install -r GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
             adb shell monkey -p pl.grafikpracy.app 1
             sleep 8
             echo "=== PID ==="
