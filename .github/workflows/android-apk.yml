@@ -112,10 +112,18 @@ jobs:
           script: |
             set -eu
             mkdir -p "$GITHUB_WORKSPACE/android16-smoke"
-            adb wait-for-device\nadb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk" || true
+            adb wait-for-device
+            adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk" > "$GITHUB_WORKSPACE/android16-smoke/install.txt" 2>&1
+            install_rc=$?
+            cat "$GITHUB_WORKSPACE/android16-smoke/install.txt"
+            echo "INSTALL_RC=$install_rc"
+            adb shell pm path pl.grafikpracy.app || true
+            adb shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER pl.grafikpracy.app || true
+            if [ "$install_rc" -ne 0 ]; then exit "$install_rc"; fi
             adb shell am force-stop pl.grafikpracy.app || true
             adb logcat -c || true
-            adb shell monkey -p pl.grafikpracy.app 1 || true
+            adb shell monkey -p pl.grafikpracy.app 1 > "$GITHUB_WORKSPACE/android16-smoke/monkey.txt" 2>&1 || true
+            cat "$GITHUB_WORKSPACE/android16-smoke/monkey.txt"
             sleep 8
             echo "=== PID ==="
             adb shell pidof pl.grafikpracy.app || true
