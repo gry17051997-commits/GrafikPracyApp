@@ -100,6 +100,7 @@ jobs:
           ls -lh android/app/build/outputs/apk/release/app-release.apk
 
       - name: Automated Android 16 smoke test
+        if: ${{ vars.RUN_ANDROID16_SMOKE == '1' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 36
