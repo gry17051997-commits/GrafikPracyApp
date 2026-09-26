@@ -1,4 +1,4 @@
-import React, {useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   SafeAreaView,
   View,
@@ -30,7 +30,6 @@ import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-const useEffect = () => {}; // v10 diagnostic: disable all startup effects
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit, runTransaction} from 'firebase/firestore';
 
 const updateAndroidWidgets = () => {
@@ -155,7 +154,7 @@ function contrastText(hex) {
 }
 
 export default function App() {
-  const [ready,setReady] = useState(true);
+  const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
   const [hours,setHours] = useState(10);
   const [rotation,setRotation] = useState('P');
@@ -2767,11 +2766,59 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={{flex:1,backgroundColor:'#11151c',alignItems:'center',justifyContent:'center',padding:24}}>
-      <Text style={{color:'#fff',fontSize:30,fontWeight:'900'}}>GRAFIK PRACY v10</Text>
-      <Text style={{color:'#4f8cff',fontSize:18,fontWeight:'900',marginTop:16,textAlign:'center'}}>App.js RENDER DZIAŁA</Text>
-      <Text style={{color:'#c7ccd6',fontSize:14,marginTop:18,textAlign:'center'}}>Wszystkie useEffect są wyłączone. Testujemy sam komponent App.</Text>
-    </SafeAreaView>
+    <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
+      <View style={S.scrim}>
+        <SafeAreaView style={S.container}>
+          {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
+          {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
+            <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
+            {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
+          </View>}
+          {Platform.OS==='web' && <View style={S.webNav}>
+            {[
+              ['teraz','🟢','Teraz'],...(cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]),['auto','📍','Auto / GPS'],
+              ...(cloudRole==='locator' ? [] : [['summary','📊','Podsumowanie'],['chat','💬','Czat']]),['ustawienia','⚙️','Ustawienia']
+            ].map(([key,icon,label])=>
+              <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label} style={[S.webNavBtn,tab===key&&S.webNavActive]} onPress={()=>setTab(key)}>
+                <Text style={S.webNavIcon}>{icon}</Text><Text style={S.webNavText}>{label}</Text>
+              </TouchableOpacity>
+            )}
+          </View>}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
+          {editModal}
+          {colorModal}
+          {helpModal}
+          {exportModalDialog}
+          {conditionModalDialog}
+          {offModalDialog}
+          {swapModalDialog}
+          {pinDialog}
+          {backupDialog}
+          {reportModalDialog}
+          {reportAlarmDialog}
+          {recoveryLedgerDialog}
+          {weekSetupDialog}
+
+          {Platform.OS!=='web' && <View style={S.nav}>
+            <View style={S.navDock}>
+              {[
+                ['teraz','🟢','Teraz'],
+                ...(cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]),
+                ['auto','📍','Auto'],
+                ...(cloudRole==='locator' ? [] : [['summary','📊','Suma'],['chat','💬','Czat']]),
+                ['ustawienia','⚙️','Ustaw.']
+              ].map(([key,icon,label])=>(
+                <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label}
+                  style={[S.navBtn,tab===key&&S.navActive]} onPress={()=>setTab(key)} activeOpacity={0.78}>
+                  <Text style={S.navIcon}>{icon}</Text>
+                  <Text numberOfLines={1} style={[S.navText,tab===key&&S.navTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>}
+        </SafeAreaView>
+      </View>
+    </ImageBackground>
   );
 }
 
