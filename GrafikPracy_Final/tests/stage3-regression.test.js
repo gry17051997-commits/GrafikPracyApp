@@ -142,7 +142,7 @@ test('Web deployment uses the lockfile for deterministic dependency installation
 });
 
 test('bottom navigation stays usable on narrow screens', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   assert.match(app, /navDock:\{flex:1,flexDirection:'row'/);
   assert.match(app, /navBtn:\{flex:1,minWidth:0/);
   assert.match(app, /navText:\{color:'#8f99aa'.*fontSize:10/);
@@ -151,7 +151,7 @@ test('bottom navigation stays usable on narrow screens', () => {
 });
 
 test('weekly totals use the configured hours for the displayed week', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   assert.match(app, /const currentWeekHours = currentWeekConfig\.hours \|\| hours/);
   assert.match(app, /result\.all\.hours \+= currentWeekHours/);
   assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
@@ -512,7 +512,7 @@ test('manual negative recovery correction records the actually applied delta', (
 });
 
 test('backup contains all locally persisted schedule and business state', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   assert.match(app, /const buildBackupPayload = \(\) =>/);
   assert.match(app, /weekConfigs,autoGenerateWeeks/);
   assert.match(app, /conditions,proposals,myPerson/);
@@ -534,7 +534,7 @@ test('restore rejects negative recovery balances and malformed ledger entries', 
 });
 
 test('restore restores persisted state beyond the base schedule', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   assert.match(app, /setWeekConfigs\(data\.weekConfigs \|\| \{\}\)/);
   assert.match(app, /setAutoGenerateWeeks\(!!data\.autoGenerateWeeks\)/);
   assert.match(app, /setRecoveryBalances/);
@@ -545,7 +545,7 @@ test('restore restores persisted state beyond the base schedule', () => {
 });
 
 test('reset clears local auxiliary state as well as the main schedule', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   assert.match(app, /AsyncStorage\.removeItem\(LEGACY_KEY\)/);
   assert.match(app, /AsyncStorage\.removeItem\(REPORT_HISTORY_KEY\)/);
   assert.match(app, /AsyncStorage\.removeItem\(LOCATION_CONFIG_KEY\)/);
@@ -555,7 +555,7 @@ test('reset clears local auxiliary state as well as the main schedule', () => {
 });
 
 test('PDF export headers use the displayed week time configuration', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   assert.match(app, /I · \$\{escapeHtml\(currentWeekTimes\.s1\)/);
   assert.match(app, /II · \$\{escapeHtml\(currentWeekTimes\.s2\)/);
   assert.doesNotMatch(app, /I · \$\{escapeHtml\(times\.s1\)/);
@@ -563,7 +563,7 @@ test('PDF export headers use the displayed week time configuration', () => {
 
 
 test('default Sunday Łukasz MUST conditions survive backup restore and full reset', () => {
-  const app = read('../App.js');
+  const app = read('App.js');
   const restoreStart = app.indexOf('const restoreBackup = () => {');
   const restoreEnd = app.indexOf('  const shareFile =', restoreStart);
   const restoreBlock = app.slice(restoreStart, restoreEnd);
