@@ -47,6 +47,8 @@ function Root() {
     const t = setTimeout(() => {
       setStage('ŁADOWANIE App.js...');
       try {
+        const originalUseEffect = React.useEffect;
+        React.useEffect = (effect, deps) => originalUseEffect(() => {}, deps);
         const mod = require('./App');
         if (typeof mod?.default !== 'function') {
           throw new Error('App.js nie eksportuje komponentu default');
