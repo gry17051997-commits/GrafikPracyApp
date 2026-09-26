@@ -62,13 +62,10 @@ function Root() {
 
 registerRootComponent(Root);
 
-if (typeof require === 'function') {
-  try {
-    const {registerWidgetTaskHandler} = require('react-native-android-widget');
-    const {widgetTaskHandler} = require('./widget-task-handler');
-    registerWidgetTaskHandler(widgetTaskHandler);
-  } catch (e) {}
-}
+// Widget task handler is intentionally not registered during JS bootstrap.
+// The previous implementation loaded react-native-android-widget before the
+// main UI was mounted, which can cause a native startup failure on Android.
+// Widget support will be reattached after the base app startup is verified.
 
 const styles = StyleSheet.create({
   root: {
@@ -105,6 +102,11 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: '#ffb4b4',
+    fontSize: 13,
+    lineHeight: 19
+  },
+  hint: {
+    color: '#9299a8',
     fontSize: 13,
     lineHeight: 19
   },
