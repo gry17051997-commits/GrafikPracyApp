@@ -104,13 +104,7 @@ const styles = StyleSheet.create({
     color: '#ffb4b4',
     fontSize: 13,
     lineHeight: 19
-  },
-  hint: {
-    color: '#9299a8',
-    fontSize: 13,
-    lineHeight: 19
-  },
-  hint: {
+  },\n  hint: {
     color: '#9299a8',
     fontSize: 13,
     lineHeight: 19,
