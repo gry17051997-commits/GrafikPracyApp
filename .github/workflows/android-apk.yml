@@ -113,8 +113,10 @@ jobs:
             set -eu
             mkdir -p "$GITHUB_WORKSPACE/android16-smoke"
             adb wait-for-device
+            set +e
             adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk" > "$GITHUB_WORKSPACE/android16-smoke/install.txt" 2>&1
             install_rc=$?
+            set -e
             cat "$GITHUB_WORKSPACE/android16-smoke/install.txt"
             echo "INSTALL_RC=$install_rc"
             adb shell pm path pl.grafikpracy.app || true
