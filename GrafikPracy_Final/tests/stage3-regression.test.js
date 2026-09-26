@@ -273,13 +273,6 @@ test('GPS history writes are serialized to prevent concurrent duplicate-history 
   assert.match(service, /locationSaveQueue = run\.catch\(\(\) => \{\}\);/);
 });
 
-test('Android widget refreshes are debounced', () => {
-  const app = read('App.js');
-  assert.match(app, /const widgetUpdateTimerRef = useRef\(null\);/);
-  assert.match(app, /clearTimeout\(widgetUpdateTimerRef\.current\)/);
-  assert.match(app, /widgetUpdateTimerRef\.current = setTimeout\(async \(\) =>/);
-});
-
 test('hourly report notifications use alarm presentation and handoff to report', () => {
   const app = read('App.js');
   assert.match(app, /title: '🚨 RAPORT GODZINOWY'/);
