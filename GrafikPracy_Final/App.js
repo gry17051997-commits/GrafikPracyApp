@@ -440,11 +440,8 @@ export default function App() {
           setLocationTracking(false);
           return;
         }
+        // Android 16: nie uruchamiamy foreground service GPS automatycznie przy starcie.
         setLocationTracking(c.enabled === true && !!c.vehicleId);
-        if (c.enabled === true && c.vehicleId && auth?.currentUser?.uid) {
-          const result=await ensureVehicleLocationTracking();
-          if (mounted && result.restarted) setLocationTracking(true);
-        }
       } catch(e) {}
     };
     refreshLocationState();
@@ -497,10 +494,7 @@ export default function App() {
               await saveVehicleLocationAssignment(assigned);
               return;
             }
-            if (local.enabled === true) {
-              const result = await ensureVehicleLocationTracking();
-              if (result.ok) setLocationTracking(true);
-            }
+            if (local.enabled === true) setLocationTracking(true);
           } catch (e) {}
         })();
       }
@@ -534,7 +528,6 @@ export default function App() {
       }
 
       if (!user) {
-        try { await stopVehicleLocationTracking(); } catch(e) {}
         setLocationTracking(false);
         setCloudRole('employee');
         setCloudReady(true);
