@@ -108,11 +108,11 @@ jobs:
           profile: pixel_2
           force-avd-creation: true
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          disable-animations: true
+          disable-animations: false
           script: |
             set -eu
-            mkdir -p android16-smoke
-            adb install -r GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk || true
+            mkdir -p "$GITHUB_WORKSPACE/android16-smoke"
+            adb wait-for-device\nadb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk" || true
             adb shell am force-stop pl.grafikpracy.app || true
             adb logcat -c || true
             adb shell monkey -p pl.grafikpracy.app 1 || true
@@ -123,10 +123,10 @@ jobs:
             adb logcat -d -v threadtime | grep -Ei "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|SoLoader|UnsatisfiedLinkError|pl.grafikpracy.app|Unable to start activity|Exception" || true
             echo "=== LOGCAT: last 500 lines ==="
             adb logcat -d -v threadtime | tail -n 500 || true
-            adb logcat -d -v threadtime > android16-smoke/logcat.txt || true
-            adb exec-out screencap -p > android16-smoke/grafik-screen.png || true
-            test -s android16-smoke/logcat.txt || true
-            test -s android16-smoke/grafik-screen.png || true
+            adb logcat -d -v threadtime > "$GITHUB_WORKSPACE/android16-smoke/logcat.txt" || true
+            adb exec-out screencap -p > "$GITHUB_WORKSPACE/android16-smoke/grafik-screen.png" || true
+            test -s "$GITHUB_WORKSPACE/android16-smoke/logcat.txt"
+            test -s "$GITHUB_WORKSPACE/android16-smoke/grafik-screen.png"
 
       - name: Upload Android 16 diagnostics
         if: always()
