@@ -90,3 +90,11 @@ jobs:
           unzip -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "lib/|META-INF/" | head -5
           ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grafik-Pracy-NoNativeWidget-APK
+          path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
