@@ -90,19 +90,19 @@ jobs:
 
       - name: Build APK
         working-directory: GrafikPracy_Final/android
-        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
       - name: Verify APK
         working-directory: GrafikPracy_Final
         run: |
-          test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
-          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Grafik-Pracy-Android-APK
-          path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+          path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
