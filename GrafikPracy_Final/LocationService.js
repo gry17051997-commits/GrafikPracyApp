@@ -109,20 +109,6 @@ async function saveLocationInternal(location) {
     payload.historyAt=lastHistoryAt;
   }
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
-  // Aktualizacja GPS może przychodzić z zadania tła, gdy App.js nie jest
-  // zamontowany. Wymuszamy więc odświeżenie tylko widgetu auta po udanym zapisie.
-  if (Platform.OS === 'android') {
-    try {
-      const {requestWidgetUpdate} = require('react-native-android-widget');
-      const {buildWidgetData} = require('./widget-task-handler');
-      const {GrafikAutoWidget} = require('./widgets');
-      const data=await buildWidgetData();
-      requestWidgetUpdate({
-        widgetName:'GrafikAuto',
-        renderWidget:()=> <GrafikAutoWidget data={data.auto}/>
-      });
-    } catch(e) {}
-  }
   // Historia ma być utrzymywana deterministycznie w oknie 7 dni.
   // Nie uzależniamy sprzątania od losowania, bo przy rzadszych zapisach
   // stare punkty mogłyby pozostać w Firestore znacznie dłużej.
