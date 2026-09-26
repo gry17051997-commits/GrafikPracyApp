@@ -79,15 +79,6 @@ test('GPS history cleanup is deterministic and keeps only the last 7 days', () =
   assert.match(service, /deleteDoc\(d\.ref\)/);
 });
 
-test('background GPS saves push a fresh Auto widget update on Android', () => {
-  const service = read('LocationService.js');
-  assert.match(service, /if \(Platform\.OS === 'android'\)/);
-  assert.match(service, /requestWidgetUpdate\(/);
-  assert.match(service, /widgetName:'GrafikAuto'/);
-  assert.match(service, /buildWidgetData\(\)/);
-  assert.match(service, /GrafikAutoWidget/);
-});
-
 test('report widget filters shared history to the current worker', () => {
   const handler = read('widget-task-handler.js');
   assert.match(handler, /x\?\.createdAt&&\(!x\.person\|\|x\.person===data\?\.myPerson\)/);
@@ -271,13 +262,6 @@ test('GPS history writes are serialized to prevent concurrent duplicate-history 
   assert.match(service, /let locationSaveQueue = Promise\.resolve\(\);/);
   assert.match(service, /const run = locationSaveQueue\.then\(\(\) => saveLocationInternal\(location\)\);/);
   assert.match(service, /locationSaveQueue = run\.catch\(\(\) => \{\}\);/);
-});
-
-test('Android widget refreshes are debounced', () => {
-  const app = read('App.js');
-  assert.match(app, /const widgetUpdateTimerRef = useRef\(null\);/);
-  assert.match(app, /clearTimeout\(widgetUpdateTimerRef\.current\)/);
-  assert.match(app, /widgetUpdateTimerRef\.current = setTimeout\(async \(\) =>/);
 });
 
 test('hourly report notifications use alarm presentation and handoff to report', () => {

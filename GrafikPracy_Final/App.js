@@ -32,15 +32,6 @@ import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit, runTransaction} from 'firebase/firestore';
 
-const updateAndroidWidgets = () => {
-  if (Platform.OS !== 'android') return;
-  try {
-    const {requestWidgetUpdate} = require('react-native-android-widget');
-    const names = ['GrafikTeraz','GrafikAuto','GrafikRaport'];
-    names.forEach(widgetName => requestWidgetUpdate({widgetName, renderWidget: () => null}).catch?.(() => {}));
-  } catch (e) {}
-};
-
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
 const REPORT_PREFS_KEY = 'grafik-pracy-reports-v1';
@@ -392,29 +383,6 @@ export default function App() {
     })();
   },[]);
 
-  const widgetUpdateTimerRef = useRef(null);
-  useEffect(() => {
-    if (!ready || Platform.OS !== 'android') return;
-    if (widgetUpdateTimerRef.current) clearTimeout(widgetUpdateTimerRef.current);
-    widgetUpdateTimerRef.current = setTimeout(async () => {
-      widgetUpdateTimerRef.current = null;
-      try {
-        const {requestWidgetUpdate} = require('react-native-android-widget');
-        const {buildWidgetData} = require('./widget-task-handler');
-        const {GrafikTerazWidget,GrafikAutoWidget,GrafikRaportWidget} = require('./widgets');
-        const data = await buildWidgetData();
-        requestWidgetUpdate({widgetName:'GrafikTeraz',renderWidget:() => <GrafikTerazWidget data={data.now}/>});
-        requestWidgetUpdate({widgetName:'GrafikAuto',renderWidget:() => <GrafikAutoWidget data={data.auto}/>});
-        requestWidgetUpdate({widgetName:'GrafikRaport',renderWidget:() => <GrafikRaportWidget data={data.report}/>});
-      } catch (e) {}
-    }, 250);
-    return () => {
-      if (widgetUpdateTimerRef.current) {
-        clearTimeout(widgetUpdateTimerRef.current);
-        widgetUpdateTimerRef.current = null;
-      }
-    };
-  }, [ready,weeks,times,reportHistory,vehicleRegistration,warehouseGeo]);
 
   useEffect(() => {
     if (!ready) return;
