@@ -84,7 +84,9 @@ jobs:
             echo "=== recent activity ==="
             adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20 || true
             echo "=== crash scan ==="
-            if adb logcat -d -t 600 | grep -E "FATAL EXCEPTION|AndroidRuntime.*pl.grafikpracy.app2|Process: pl.grafikpracy.app2"; then
+            crash_lines="$(adb logcat -d -t 600 | grep -E "FATAL EXCEPTION|AndroidRuntime.*pl.grafikpracy.app2|Process: pl.grafikpracy.app2" || true)"
+            if [ -n "$crash_lines" ]; then
+              echo "$crash_lines"
               echo "Application crash detected"
               exit 1
             fi
