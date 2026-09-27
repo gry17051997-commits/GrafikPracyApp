@@ -183,6 +183,7 @@ export default function App() {
   const scheduleHydratedRef = useRef(false);
   const scheduleDirtyTrackingStartedRef = useRef(false);
   const legacyMigrationRef = useRef(false);
+  const cloudUpdatedAtByWeekRef = useRef({});
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
@@ -611,6 +612,7 @@ export default function App() {
         const data = d.data() || {};
         if (data.week) remoteWeeks[d.id] = data.week;
         if (data.config) remoteConfigs[d.id] = data.config;
+        cloudUpdatedAtByWeekRef.current[d.id] = data.updatedAt?.toMillis?.() ?? null;
       });
       if (cloudDirtyRef.current) return;
       cloudApplying.current = true;
@@ -689,7 +691,7 @@ export default function App() {
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
     cloudSaveTimerRef.current=setTimeout(async()=>{
       const scheduleRef=doc(db,'schedules',wkKey);
-      const expectedUpdatedAt=cloudUpdatedAtRef.current;
+      const expectedUpdatedAt=cloudUpdatedAtByWeekRef.current[wkKey] ?? null;
       try {
         const before=await getDoc(scheduleRef);
         const remoteUpdatedAt=before.exists()?before.data()?.updatedAt?.toMillis?.() ?? null:null;
@@ -713,7 +715,7 @@ export default function App() {
 
         cloudDirtyRef.current=false;
         const latest=await getDoc(scheduleRef);
-        cloudUpdatedAtRef.current=latest.exists()?latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtRef.current:cloudUpdatedAtRef.current;
+        cloudUpdatedAtByWeekRef.current[wkKey]=latest.exists()?latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtByWeekRef.current[wkKey]:cloudUpdatedAtByWeekRef.current[wkKey];
       } catch(e) {
         if(e?.message==='schedule-conflict'){
           cloudDirtyRef.current=false;
