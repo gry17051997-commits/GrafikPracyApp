@@ -4,7 +4,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "./src/theme";
 import { PEOPLE, WAREHOUSES } from "./src/data";
 import { generateWeek, mondayOf, isoDate, summarize, shiftLabel } from "./src/scheduleEngine";
-import { signIn } from "./src/backend/auth.js";
 
 const STORAGE="@grafik_pracy_2_state";
 const NAV=[["start","Start"],["grafik","Grafik"],["podsumowanie","Podsum."],["więcej","Więcej"]];
@@ -22,7 +21,7 @@ function Auth({onGuest,onLogin}){
     <Card style={styles.authCard}><Text style={styles.sectionTitle}>Logowanie</Text>
       <TextInput value={email} onChangeText={setEmail} placeholder="E-mail" placeholderTextColor={colors.muted} style={styles.input} autoCapitalize="none"/>
       <TextInput value={password} onChangeText={setPassword} placeholder="Hasło" placeholderTextColor={colors.muted} style={styles.input} secureTextEntry/>
-      <Button onPress={async()=>{setError("");setBusy(true);try{const user=await signIn(email,password);onLogin(user)}catch(e){setError(e?.code==="auth/invalid-credential"?"Nieprawidłowy e-mail lub hasło.":(e?.message||"Logowanie nie powiodło się."))}finally{setBusy(false)}}}>{busy?"LOGOWANIE…":"ZALOGUJ SIĘ"}</Button>
+      <Button onPress={async()=>{setError("");setBusy(true);try{const { signIn } = await import("./src/backend/auth.js"); const user=await signIn(email,password);onLogin(user)}catch(e){setError(e?.code==="auth/invalid-credential"?"Nieprawidłowy e-mail lub hasło.":(e?.message||"Logowanie nie powiodło się."))}finally{setBusy(false)}}}>{busy?"LOGOWANIE…":"ZALOGUJ SIĘ"}</Button>
       <Button secondary onPress={onGuest}>WEJDŹ JAKO GOŚĆ</Button>
       {!!error&&<Text style={styles.error}>{error}</Text>}
       <Text style={styles.hint}>Tryb gościa jest lokalny. Logowanie i synchronizacja online zostaną włączone dopiero po przejściu testów backendu.</Text>
