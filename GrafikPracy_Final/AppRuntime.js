@@ -30,7 +30,8 @@ import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit, runTransaction} from 'firebase/firestore';
+import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
+import {canAssignPersonToDay} from './scheduleEngine';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
@@ -1255,7 +1256,7 @@ export default function App() {
       for (const slot of slots) {
         const slotState=result[slot.di].shifts[slot.si];
         if (slotState.person) continue;
-        if (!allow24h && result[slot.di].shifts.some(x=>x.person===p)) continue;
+        if (!canAssignPersonToDay(result[slot.di].shifts,p,allow24h)) continue;
         if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,slot.di,slot.si))) continue;
         if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,slot.di,slot.si))) continue;
         if (slot.offOriginalPerson && p===slot.offOriginalPerson) continue;
@@ -1284,7 +1285,7 @@ export default function App() {
         if(slot.offOriginalPerson && person === slot.offOriginalPerson) return false;
         if(targets[person]!==null && counts[person]>=targets[person]) return false;
         // Don't put the same person twice in a day unless explicitly forced.
-        if(!allow24h && result[slot.di].shifts.some(x=>x.person===person)) return false;
+        if(!canAssignPersonToDay(result[slot.di].shifts,person,allow24h)) return false;
         return true;
       });
       candidates.sort((a,b)=>{
