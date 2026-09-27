@@ -120,6 +120,20 @@ function generateWeek(rotation='P', warehouse='PNT B') {
   return w;
 }
 
+function ChatComposer({busy,onSend}) {
+  const [text,setText]=useState('');
+  const submit=async()=>{
+    const body=text.trim();
+    if(!body || busy) return;
+    const ok=await onSend(body);
+    if(ok) setText('');
+  };
+  return <View style={S.chatComposer}>
+    <TextInput value={text} onChangeText={setText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>
+    <TouchableOpacity disabled={busy || !text.trim()} style={[S.generate,S.chatSend]} onPress={submit}><Text style={S.btnText}>{busy?'…':'WYŚLIJ'}</Text></TouchableOpacity>
+  </View>;
+}
+
 function cloneWeek(w) {
   return (w || []).map(d => ({
     ...d,
@@ -215,7 +229,6 @@ export default function App() {
   const [locationBusy,setLocationBusy] = useState(false);
   const locationConfigLoaded = useRef(false);
   const [chatMessages,setChatMessages] = useState([]);
-  const [chatText,setChatText] = useState('');
   const [chatBusy,setChatBusy] = useState(false);
   const [cloudUpdated,setCloudUpdated] = useState(false);
   const [sharePerson,setSharePerson] = useState('all');
@@ -883,16 +896,16 @@ export default function App() {
     }
   };
 
-  const sendChatMessage = async () => {
-    const body = chatText.trim();
-    if (!body || chatBusy) return;
+  const sendChatMessage = async body => {
+    const normalized=String(body||'').trim();
+    if (!normalized || chatBusy) return false;
     setChatBusy(true);
-    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    const message = {text:normalized,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
     try {
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
       else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
-      setChatText('');
-    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); }
+      return true;
+    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); return false; }
     finally { setChatBusy(false); }
   };
 
@@ -2017,10 +2030,7 @@ export default function App() {
         }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}
       </View>
       {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (
-        <View style={S.chatComposer}>
-          <TextInput value={chatText} onChangeText={setChatText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>
-          <TouchableOpacity disabled={chatBusy || !chatText.trim()} style={[S.generate,S.chatSend]} onPress={sendChatMessage}><Text style={S.btnText}>{chatBusy?'…':'WYŚLIJ'}</Text></TouchableOpacity>
-        </View>
+        <ChatComposer busy={chatBusy} onSend={sendChatMessage}/>
       )}
       <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>
       <Text style={S.helpLine}>Każdy raport jest zapisywany w historii. Ponowne wysłanie kopiuje tekst i otwiera WhatsApp lub ustawioną grupę.</Text>
