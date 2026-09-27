@@ -1,113 +1,73 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, {useState} from 'react';
+import {View, Text, ScrollView, TouchableOpacity, StyleSheet} from 'react-native';
 
-let RuntimeApp = null;
-let loadError = null;
+const TESTS = [
+  ['firebaseConfig', () => require('./firebaseConfig')],
+  ['expo-notifications', () => require('expo-notifications')],
+  ['LocationService', () => require('./LocationService')],
+  ['LiveLocationDashboard', () => require('./LiveLocationDashboard')],
+  ['NowDashboard', () => require('./NowDashboard')],
+  ['AdminUsersPanel', () => require('./AdminUsersPanel')],
+  ['AppRuntime', () => require('./AppRuntime')],
+];
 
-try {
-  const runtimeModule = require('./AppRuntime');
-  RuntimeApp = runtimeModule && runtimeModule.default ? runtimeModule.default : runtimeModule;
-} catch (error) {
-  loadError = error;
-}
+export default function App() {
+  const [results, setResults] = useState([]);
+  const [running, setRunning] = useState(false);
 
-class RuntimeErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { error: null };
-  }
+  const runTests = () => {
+    if (running) return;
+    setRunning(true);
+    setResults([]);
+    const next = [];
 
-  static getDerivedStateFromError(error) {
-    return { error };
-  }
+    for (const [name, loader] of TESTS) {
+      try {
+        loader();
+        next.push({name, ok:true});
+        setResults([...next]);
+      } catch (error) {
+        next.push({
+          name,
+          ok:false,
+          error:String(error?.stack || error?.message || error),
+        });
+        setResults([...next]);
+        break;
+      }
+    }
+    setRunning(false);
+  };
 
-  render() {
-    const error = this.state.error;
-    if (!error) return this.props.children;
-
-    return (
-      <View style={styles.root}>
-        <Text style={styles.title}>GRAFIK PRACY</Text>
-        <Text style={styles.subtitle}>BŁĄD APP RUNTIME</Text>
-        <ScrollView style={styles.box} contentContainerStyle={styles.boxContent}>
-          <Text style={styles.label}>Aplikacja natywna działa, ale AppRuntime zgłosił wyjątek podczas renderowania.</Text>
-          <Text selectable style={styles.error}>{String(error?.stack || error?.message || error)}</Text>
-        </ScrollView>
-      </View>
-    );
-  }
-}
-
-function DiagnosticError({ title, error }) {
   return (
     <View style={styles.root}>
       <Text style={styles.title}>GRAFIK PRACY</Text>
-      <Text style={styles.subtitle}>{title}</Text>
-      <ScrollView style={styles.box} contentContainerStyle={styles.boxContent}>
-        <Text style={styles.label}>Błąd wystąpił podczas ładowania AppRuntime, zanim aplikacja została wyrenderowana.</Text>
-        <Text selectable style={styles.error}>{String(error?.stack || error?.message || error)}</Text>
+      <Text style={styles.subtitle}>DIAGNOSTYKA IMPORTÓW</Text>
+      <Text style={styles.info}>Sprawdzamy łańcuch importów krok po kroku. Aplikacja nie zmienia danych.</Text>
+      <TouchableOpacity disabled={running} onPress={runTests} style={styles.button}>
+        <Text style={styles.buttonText}>{running ? 'TESTOWANIE...' : 'URUCHOM TEST'}</Text>
+      </TouchableOpacity>
+      <ScrollView style={styles.box} contentContainerStyle={{paddingBottom:40}}>
+        {results.map((item,index) => (
+          <View key={item.name} style={styles.result}>
+            <Text style={styles.resultTitle}>{item.ok ? '✅' : '❌'} {index+1}. {item.name}</Text>
+            {!item.ok && <Text selectable style={styles.error}>{item.error}</Text>}
+          </View>
+        ))}
       </ScrollView>
     </View>
   );
 }
 
-export default function App() {
-  if (loadError) {
-    return <DiagnosticError title="BŁĄD ŁADOWANIA APP RUNTIME" error={loadError} />;
-  }
-
-  if (!RuntimeApp) {
-    return <DiagnosticError title="APP RUNTIME NIE ZOSTAŁ ZAŁADOWANY" error={new Error('require("./AppRuntime") zwrócił pustą wartość')} />;
-  }
-
-  return (
-    <RuntimeErrorBoundary>
-      <RuntimeApp />
-    </RuntimeErrorBoundary>
-  );
-}
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  title: {
-    color: '#fff',
-    fontSize: 30,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  subtitle: {
-    color: '#38bdf8',
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: 14,
-    textAlign: 'center',
-  },
-  label: {
-    color: '#cbd5e1',
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 12,
-  },
-  box: {
-    width: '100%',
-    maxWidth: 380,
-    maxHeight: '62%',
-    marginTop: 22,
-    backgroundColor: '#111827',
-    borderRadius: 12,
-  },
-  boxContent: {
-    padding: 16,
-  },
-  error: {
-    color: '#fca5a5',
-    fontSize: 12,
-    lineHeight: 18,
-  },
+const styles=StyleSheet.create({
+  root:{flex:1,backgroundColor:'#0f172a',padding:20,paddingTop:60},
+  title:{color:'#fff',fontSize:28,fontWeight:'900',textAlign:'center'},
+  subtitle:{color:'#38bdf8',fontSize:18,fontWeight:'800',textAlign:'center',marginTop:8},
+  info:{color:'#cbd5e1',fontSize:13,lineHeight:19,textAlign:'center',marginTop:12},
+  button:{backgroundColor:'#2563eb',borderRadius:14,padding:16,marginTop:25},
+  buttonText:{color:'#fff',fontSize:16,fontWeight:'900',textAlign:'center'},
+  box:{marginTop:20},
+  result:{backgroundColor:'#1e293b',borderRadius:12,padding:14,marginBottom:8},
+  resultTitle:{color:'#fff',fontSize:15,fontWeight:'800'},
+  error:{color:'#fca5a5',fontSize:12,lineHeight:17,marginTop:8},
 });
