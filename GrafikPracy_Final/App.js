@@ -52,6 +52,39 @@ class RuntimeErrorBoundary extends Component {
 
 export default function App() {
   const [status, setStatus] = useState('booting');
+  const [globalError, setGlobalError] = useState(null);
+
+  useEffect(() => {
+    const previousHandler =
+      typeof globalThis.ErrorUtils?.getGlobalHandler === 'function'
+        ? globalThis.ErrorUtils.getGlobalHandler()
+        : null;
+
+    const handler = (error, isFatal) => {
+      console.error('GLOBAL_JS_ERROR', error, isFatal);
+      setGlobalError({
+        message: String(error?.message || error || 'Nieznany błąd JavaScript.'),
+        fatal: !!isFatal,
+      });
+      if (previousHandler && previousHandler !== handler) {
+        try {
+          previousHandler(error, isFatal);
+        } catch (handlerError) {
+          console.error('PREVIOUS_GLOBAL_HANDLER_ERROR', handlerError);
+        }
+      }
+    };
+
+    if (globalThis.ErrorUtils?.setGlobalHandler) {
+      globalThis.ErrorUtils.setGlobalHandler(handler);
+    }
+
+    return () => {
+      if (globalThis.ErrorUtils?.setGlobalHandler && previousHandler) {
+        globalThis.ErrorUtils.setGlobalHandler(previousHandler);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -80,6 +113,15 @@ export default function App() {
       mounted = false;
     };
   }, []);
+
+  if (globalError) {
+    return (
+      <ErrorScreen
+        title={globalError.fatal ? 'Krytyczny błąd JavaScript' : 'Błąd JavaScript'}
+        message={globalError.message}
+      />
+    );
+  }
 
   if (status === 'booting') return <BootScreen />;
 
