@@ -30,7 +30,7 @@ import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
-import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit} from 'firebase/firestore';
+import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit, runTransaction} from 'firebase/firestore';
 import {canAssignPersonToDay} from './scheduleEngine';
 
 const KEY = 'grafik-pracy-v5';
@@ -1522,30 +1522,28 @@ export default function App() {
     try {
       if(FIREBASE_ENABLED && db) {
         const proposalRef=doc(db,'proposals',proposal.id);
-        const scheduleRef=doc(db,'schedules','main');
-        const committedWeeks=await runTransaction(db,async tx=>{
+        const scheduleRef=doc(db,'schedules',proposalWeekKey);
+        const committedWeek=await runTransaction(db,async tx=>{
           const proposalSnap=await tx.get(proposalRef);
           if(!proposalSnap.exists() || proposalSnap.data()?.status !== 'pending') {
             throw new Error('proposal-not-pending');
           }
           const scheduleSnap=await tx.get(scheduleRef);
           if(!scheduleSnap.exists()) throw new Error('schedule-missing');
-          const remoteWeeks=scheduleSnap.data()?.weeks || {};
-          const source=remoteWeeks[proposalWeekKey];
+          const source=scheduleSnap.data()?.week;
           const x=source?.[fromDay]?.shifts?.[fromShift-1];
           const y=source?.[toDay]?.shifts?.[toShift-1];
           if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
             throw new Error('proposal-stale');
           }
-          const nextWeeks={...remoteWeeks,[proposalWeekKey]:cloneWeek(source)};
-          const next=nextWeeks[proposalWeekKey];
+          const next=cloneWeek(source);
           const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
           const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
-          tx.update(scheduleRef,{weeks:nextWeeks,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
+          tx.update(scheduleRef,{week:next,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
           tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
-          return nextWeeks;
+          return next;
         });
-        setWeeks(nextWeeks=>committedWeeks);
+        setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
       } else {
         const source=weeks[proposalWeekKey];
         if(!source) throw new Error('schedule-missing');
