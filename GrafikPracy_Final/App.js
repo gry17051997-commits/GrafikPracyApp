@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Component, useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 let AppRuntime = null;
@@ -13,14 +13,41 @@ function BootScreen() {
   );
 }
 
-function ErrorScreen({ message }) {
+function ErrorScreen({ title = 'Błąd startu aplikacji', message }) {
   return (
     <View style={styles.rootError}>
       <Text style={styles.errorIcon}>⚠️</Text>
-      <Text style={styles.errorTitle}>Błąd startu aplikacji</Text>
+      <Text style={styles.errorTitle}>{title}</Text>
       <Text style={styles.errorText}>{message}</Text>
     </View>
   );
+}
+
+class RuntimeErrorBoundary extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('RUNTIME_RENDER_ERROR', error);
+    console.error('RUNTIME_RENDER_ERROR_INFO', info);
+  }
+
+  render() {
+    if (this.state.error) {
+      const error = this.state.error;
+      return (
+        <ErrorScreen
+          title="Błąd renderowania aplikacji"
+          message={String(error?.message || error || 'Nieznany błąd renderowania.')}
+        />
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 export default function App() {
@@ -33,6 +60,10 @@ export default function App() {
       try {
         const mod = require('./AppRuntime');
         if (!mounted) return;
+
+        if (!mod || typeof mod.default !== 'function') {
+          throw new Error('AppRuntime nie zwrócił poprawnego komponentu React.');
+        }
 
         AppRuntime = mod.default;
         setStatus('ready');
@@ -53,12 +84,24 @@ export default function App() {
   if (status === 'booting') return <BootScreen />;
 
   if (status === 'error') {
-    return <ErrorScreen message={String(bootError?.message || bootError || 'Nieznany błąd podczas ładowania aplikacji.')} />;
+    return (
+      <ErrorScreen
+        message={String(
+          bootError?.message ||
+          bootError ||
+          'Nieznany błąd podczas ładowania aplikacji.'
+        )}
+      />
+    );
   }
 
   if (AppRuntime) {
     const RuntimeApp = AppRuntime;
-    return <RuntimeApp />;
+    return (
+      <RuntimeErrorBoundary>
+        <RuntimeApp />
+      </RuntimeErrorBoundary>
+    );
   }
 
   return <BootScreen />;
