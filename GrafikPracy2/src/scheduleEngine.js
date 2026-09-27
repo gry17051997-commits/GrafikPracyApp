@@ -27,11 +27,18 @@ export function generateWeek(weekStart, hours=10, warehouse="PNT B", seed="P") {
   const week = createEmptyWeek(weekStart, hours, warehouse);
   const a = seed === "M" ? "M" : "P";
   const b = a === "P" ? "M" : "P";
+
+  // Mon-Sat: one shift per day for Paweł and Mateusz.
+  // Sunday: Łukasz covers both shifts, matching the default 6/6/2 split.
   week.shifts.forEach((day, i) => {
+    if (i === 6) {
+      day.entries[0].person = "L";
+      day.entries[1].person = "L";
+      return;
+    }
     day.entries[0].person = i % 2 === 0 ? a : b;
     day.entries[1].person = i % 2 === 0 ? b : a;
   });
-  week.shifts[6].entries[1].person = "L";
   return week;
 }
 export function summarize(week, people) {
