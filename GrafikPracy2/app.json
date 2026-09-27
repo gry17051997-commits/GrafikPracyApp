@@ -5,7 +5,6 @@
     "version": "2.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
     "android": {
       "package": "pl.grafikpracy.app2",
       "versionCode": 1
