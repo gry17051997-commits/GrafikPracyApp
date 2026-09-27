@@ -1,7 +1,7 @@
 const fs=require('fs');
 const path=require('path');
-const candidates=[path.join(process.cwd(),'GrafikPracy_Final','AppRuntime.js'),path.join(process.cwd(),'App.js')];
-const file=candidates.find(p=>fs.existsSync(p));
+const candidates=[path.join(process.cwd(),'GrafikPracy_Final','AppRuntime.js'),path.join(process.cwd(),'AppRuntime.js')];
+const file = candidates.find(p=>fs.existsSync(p));
 if(!file)process.exit(0);
 let s=fs.readFileSync(file,'utf8');
 const once=(a,b)=>{if(s.includes(b))return;s=s.replace(a,b);};
