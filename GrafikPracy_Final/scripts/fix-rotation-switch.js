@@ -1,10 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const candidates = [
-  path.join(process.cwd(), 'GrafikPracy_Final', 'App.js'),
-  path.join(process.cwd(), 'AppRuntime.js')
-];
+const candidates=[path.join(process.cwd(),'GrafikPracy_Final','AppRuntime.js'),path.join(process.cwd(),'AppRuntime.js')];
 const file = candidates.find(p => fs.existsSync(p));
 if (!file) process.exit(0);
 
