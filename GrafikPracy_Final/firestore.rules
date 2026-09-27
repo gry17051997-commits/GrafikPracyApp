@@ -46,10 +46,11 @@ service cloud.firestore {
     }
 
     match /schedules/{weekId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && weekId != 'main';
       allow create, update: if isAdmin()
+        && weekId != 'main'
         && request.resource.data.weekId == weekId;
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() && weekId != 'main';
     }
 
     match /settings/main {
