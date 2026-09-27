@@ -27,7 +27,7 @@ export default function App(){
  if(!loaded)return <SafeAreaView style={s.root}><Text style={s.title}>GRAFIK PRACY</Text><Text style={s.muted}>Uruchamianie...</Text></SafeAreaView>;
  return <SafeAreaView style={s.root}>
   <ScrollView contentContainerStyle={s.content}>
-   <Text style={s.title}>GRAFIK PRACY</Text><Text style={s.subtitle}>Stabilny tryb podstawowy</Text>
+   <Text style={s.title}>GRAFIK PRACY</Text><Text style={s.subtitle}>Stabilny tryb podstawowy • diagnostyka APK</Text>
    <View style={s.panel}><Text style={s.label}>System zmian</Text><View style={s.row}>{[10,12].map(h=><TouchableOpacity key={h} onPress={()=>setHours(h)} style={[s.btn,hours===h&&s.active]}><Text style={s.btnText}>{h} h • {RATE[h]} zł</Text></TouchableOpacity>)}</View>
    <Text style={s.label}>Rotacja</Text><View style={s.row}>{['P','M'].map(r=><TouchableOpacity key={r} onPress={()=>setRotation(r)} style={[s.small,rotation===r&&s.active]}><Text style={s.btnText}>{r} start</Text></TouchableOpacity>)}</View>
    <Text style={s.label}>Magazyn: {warehouse}</Text><View style={s.row}>{WAREHOUSES.slice(0,5).map(w=><TouchableOpacity key={w} onPress={()=>setWarehouse(w)} style={[s.small,warehouse===w&&s.active]}><Text style={s.btnText}>{w}</Text></TouchableOpacity>)}</View>
