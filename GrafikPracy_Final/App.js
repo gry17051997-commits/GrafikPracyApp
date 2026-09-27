@@ -31,7 +31,7 @@ export default function App() {
 
     const start = async () => {
       try {
-        const mod = await import('./AppRuntime');
+        const mod = require('./AppRuntime');
         if (!mounted) return;
 
         AppRuntime = mod.default;
