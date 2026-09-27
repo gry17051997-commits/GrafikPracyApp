@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, deleteDoc, doc, getDocs, limit, query, where, setDoc, serverTimestamp, Timestamp} from 'firebase/firestore';
+import {collection, doc, setDoc, serverTimestamp} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
@@ -111,16 +111,8 @@ async function saveLocationInternal(location) {
     payload.historyAt=lastHistoryAt;
   }
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
-  // Historia ma być utrzymywana deterministycznie w oknie 7 dni.
-  // Nie uzależniamy sprzątania od losowania, bo przy rzadszych zapisach
-  // stare punkty mogłyby pozostać w Firestore znacznie dłużej.
-  try {
-    const cutoff=Timestamp.fromMillis(Date.now()-7*24*60*60*1000);
-    const old=await getDocs(query(collection(db,'vehicleTracking',vehicleId,'locations'),where('updatedAt','<',cutoff),limit(100)));
-    await Promise.all(old.docs.map(d=>deleteDoc(d.ref)));
-  } catch(e) {}
-}
-
+  // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
+  // zapytań i deleteDoc przy każdym punkcie GPS.
 // Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
 // odczytały tego samego LOCATION_CURRENT_KEY i nie ominęły progu historii.
 function saveLocation(location) {
