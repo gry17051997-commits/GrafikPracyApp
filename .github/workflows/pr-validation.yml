@@ -77,59 +77,22 @@ jobs:
           script: |
             adb wait-for-device
             echo "=== ADB/package readiness ==="
-            for check in 1 2 3 4 5; do
-              if adb shell getprop sys.boot_completed | grep -q "1"; then
-                echo "Android boot completed"
-                break
-              fi
-              echo "Waiting for Android package services (attempt $check/5)"
-              sleep 3
-            done
+            adb shell getprop sys.boot_completed
             adb shell service check package || true
             adb logcat -c || true
-
-            install_ok=0
-            for attempt in 1 2 3; do
-              echo "=== APK install attempt $attempt/3 ==="
-              if adb install -r GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk; then
-                install_ok=1
-                break
-              fi
-              echo "APK install failed, reconnecting ADB before retry"
-              adb reconnect || true
-              sleep 5
-            done
-
-            if [ "$install_ok" -ne 1 ]; then
-              echo "APK installation failed after retries"
-              adb shell getprop || true
-              adb shell dumpsys package pl.grafikpracy.app2 || true
-              exit 1
-            fi
-
+            echo "=== APK install with retry ==="
+            install_ok=0; for attempt in 1 2 3; do echo "APK install attempt $attempt/3"; if adb install -r GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk; then install_ok=1; break; fi; adb reconnect || true; sleep 5; done; if [ "$install_ok" -ne 1 ]; then echo "APK installation failed after retries"; adb shell getprop || true; adb shell dumpsys package pl.grafikpracy.app2 || true; exit 1; fi
             adb shell am force-stop pl.grafikpracy.app2 || true
             adb shell monkey -p pl.grafikpracy.app2 1
             sleep 15
-
             echo "=== package process ==="
             pid="$(adb shell pidof pl.grafikpracy.app2 | tr -d '\r')"
             echo "PID: $pid"
-            if [ -z "$pid" ]; then
-              echo "Application process not running"
-              adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20 || true
-              adb logcat -d -t 600 | tail -200 || true
-              exit 1
-            fi
-
+            if [ -z "$pid" ]; then echo "Application process not running"; adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20 || true; adb logcat -d -t 600 | tail -200 || true; exit 1; fi
             echo "=== recent activity ==="
             adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20 || true
-
             echo "=== crash scan ==="
-            if adb logcat -d -t 600 | grep -E "FATAL EXCEPTION|AndroidRuntime.*pl.grafikpracy.app2|Process: pl.grafikpracy.app2"; then
-              echo "Application crash detected"
-              exit 1
-            fi
-
+            if adb logcat -d -t 600 | grep -E "FATAL EXCEPTION|AndroidRuntime.*pl.grafikpracy.app2|Process: pl.grafikpracy.app2"; then echo "Application crash detected"; exit 1; fi
             echo "Android 16 startup smoke test passed"
       - name: Upload APK
         uses: actions/upload-artifact@v4
