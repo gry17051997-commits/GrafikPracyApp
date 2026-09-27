@@ -69,10 +69,19 @@ jobs:
           profile: pixel_2
           script: |
             adb install -r GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am force-stop pl.grafikpracy.app2 || true
             adb shell monkey -p pl.grafikpracy.app2 1
-            sleep 12
-            adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20
-            adb logcat -d -t 400 | grep -E "FATAL EXCEPTION|AndroidRuntime|pl.grafikpracy.app2" | tail -80 || true
+            sleep 15
+            echo "=== package process ==="
+            adb shell pidof pl.grafikpracy.app2 || true
+            echo "=== recent activity ==="
+            adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20 || true
+            echo "=== crash scan ==="
+            if adb logcat -d -t 600 | grep -E "FATAL EXCEPTION|AndroidRuntime.*pl.grafikpracy.app2|Process: pl.grafikpracy.app2"; then
+              echo "Application crash detected"
+              exit 1
+            fi
+            echo "Android 16 startup smoke test passed"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
