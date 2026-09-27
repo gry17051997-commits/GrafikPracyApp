@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors } from "./src/theme";
-import { PEOPLE } from "./src/data";
+import { PEOPLE, WAREHOUSES } from "./src/data";
 import { generateWeek, mondayOf, isoDate, summarize, shiftLabel } from "./src/scheduleEngine";
 
 const STORAGE="@grafik_pracy_2_state";
@@ -22,7 +22,7 @@ function Auth({onGuest}){
       <TextInput value={email} onChangeText={setEmail} placeholder="E-mail" placeholderTextColor={colors.muted} style={styles.input} autoCapitalize="none"/>
       <TextInput value={password} onChangeText={setPassword} placeholder="Hasło" placeholderTextColor={colors.muted} style={styles.input} secureTextEntry/>
       <Button onPress={onGuest}>WEJDŹ JAKO GOŚĆ</Button>
-      <Text style={styles.hint}>Backend zostanie podłączony po ustabilizowaniu rdzenia aplikacji.</Text>
+      <Text style={styles.hint}>Tryb gościa jest lokalny. Logowanie i synchronizacja online zostaną włączone dopiero po przejściu testów backendu.</Text>
     </Card>
   </View></SafeAreaView>
 }
@@ -33,7 +33,7 @@ function Dashboard({week,onNavigate}){
     <Text style={styles.kicker}>DZISIAJ</Text>
     <Card style={styles.heroCard}><View style={styles.rowBetween}><View><Text style={styles.heroName}>{person?.name||"Brak przypisania"}</Text><Text style={styles.muted}>PZ387WR • zmiana {first?.shift===0?1:2}</Text></View><Pill color={person?.color||colors.surface2}>{person?.key||"—"}</Pill></View>
       <Text style={styles.bigTime}>{first?shiftLabel(week.hours,first.shift):"Wolne"}</Text>
-      <View style={styles.row}><Pill>📍 {first?.warehouse||week.warehouse}</Pill><Pill color={colors.success}>● ONLINE</Pill></View>
+      <View style={styles.row}><Pill>📍 {first?.warehouse||week.warehouse}</Pill><Pill color={colors.surface2}>● LOKALNIE</Pill></View>
     </Card>
     <View style={styles.grid}><Card><Text style={styles.metricLabel}>SYSTEM</Text><Text style={styles.metric}>{week.hours} h</Text><Text style={styles.muted}>stawka {week.hours===10?300:360} PLN</Text></Card><Card><Text style={styles.metricLabel}>TYDZIEŃ</Text><Text style={styles.metric}>7 dni</Text><Text style={styles.muted}>{week.weekStart}</Text></Card></View>
     <Card><Text style={styles.sectionTitle}>Szybkie akcje</Text><View style={styles.rowWrap}><Button onPress={()=>onNavigate("grafik")}>OTWÓRZ GRAFIK</Button><Button secondary onPress={()=>onNavigate("podsumowanie")}>PODSUMOWANIE</Button></View></Card>
@@ -46,7 +46,7 @@ function Schedule({week,setWeek}){
   const updateEntry=(dayIndex,shift,patch)=>setWeek(prev=>({...prev,shifts:prev.shifts.map((d,i)=>i!==dayIndex?d:{...d,entries:d.entries.map((e,j)=>j!==shift?e:{...e,...patch})})}));
   return <ScrollView contentContainerStyle={styles.content}>
     <View style={styles.rowBetween}><View><Text style={styles.kicker}>TYDZIEŃ</Text><Text style={styles.pageTitle}>{week.weekStart}</Text></View><Pill>{week.hours} h</Pill></View>
-    <Card><View style={styles.rowWrap}><Button active={week.hours===10} onPress={()=>setWeek({...week,hours:10})}>10 H</Button><Button active={week.hours===12} onPress={()=>setWeek({...week,hours:12})}>12 H</Button><Button secondary onPress={()=>setWeek({...week,warehouse:week.warehouse==="PNT B"?"DC2":"PNT B"})}>MAG: {week.warehouse}</Button></View>
+    <Card><View style={styles.rowWrap}><Button active={week.hours===10} onPress={()=>setWeek({...week,hours:10})}>10 H</Button><Button active={week.hours===12} onPress={()=>setWeek({...week,hours:12})}>12 H</Button>{WAREHOUSES.map((warehouse)=><Button key={warehouse} secondary active={week.warehouse===warehouse} onPress={()=>setWeek({...week,warehouse})}>MAG: {warehouse}</Button>)}</View>
       <View style={styles.rowWrap}><Button secondary onPress={()=>{setSeed("P");regenerate("P")}}>ROTACJA P</Button><Button secondary onPress={()=>{setSeed("M");regenerate("M")}}>ROTACJA M</Button><Button onPress={()=>regenerate()}>GENERUJ</Button></View>
     </Card>
     {week.shifts.map(day=><Card key={day.date}><View style={styles.rowBetween}><Text style={styles.day}>{day.name}</Text><Text style={styles.muted}>{day.date}</Text></View>
