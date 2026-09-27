@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function roleIs(role) { return signedIn() && userDoc().data.role == role; }
+    function isAdmin() { return roleIs('admin'); }
+    function isManager() { return isAdmin() || roleIs('manager'); }
+    function isDriver() { return roleIs('driver'); }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'driver';
+      allow update: if isAdmin()
+        || (request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName','personKey']));
+      allow delete: if isAdmin();
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if signedIn();
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    match /scheduleEntries/{entryId} {
+      allow read: if signedIn();
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    match /settlements/{settlementId} {
+      allow read: if isManager()
+        || (signedIn() && resource.data.employeeId == request.auth.uid);
+      allow create, update: if isManager();
+      allow delete: if isAdmin();
+    }
+
+    match /driverStatuses/{uid} {
+      allow read: if signedIn();
+      allow create, update: if request.auth.uid == uid && isDriver();
+      allow delete: if isManager();
+    }
+
+    match /locations/{locationId} {
+      allow read: if isManager()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isDriver()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number;
+      allow update: if isDriver()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number;
+      allow delete: if isManager();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isManager()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isManager();
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 1000;
+      allow update, delete: if isManager();
+    }
+
+    match /auditLogs/{entryId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+  }
+}
