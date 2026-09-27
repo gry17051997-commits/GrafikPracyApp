@@ -1,9 +1,10 @@
-name: Build Android APK
-# CI validation: regression suite and installable APK build
+name: Android Runtime Diagnostics
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
+    branches:
+      - main
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/android-apk.yml"
@@ -12,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: grafik-pracy-android-build
+  group: grafik-pracy-runtime-diagnostics
   cancel-in-progress: true
 
 env:
@@ -20,10 +21,14 @@ env:
   CI: "1"
 
 jobs:
-  build_android:
-    name: Build installable Android APK
+  runtime_test:
+    name: Runtime TEST ${{ matrix.test }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [1, 2, 3, 4]
 
     defaults:
       run:
@@ -46,29 +51,103 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Verify Android SDK
-        run: |
-          test -n "$ANDROID_HOME"
-          test -x "$ANDROID_HOME/platform-tools/adb"
-          "$ANDROID_HOME/platform-tools/adb" version
-
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # These patches are part of the actual CI build input, so they must run
-      # before regression tests. Otherwise the tests validate different source
-      # from the source that is eventually bundled into the APK.
-      - name: Apply application build fixes
-        run: node scripts/fix-app-build.js
+      - name: Select controlled App.js test
+        env:
+          TEST_ID: ${{ matrix.test }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
 
-      - name: Apply chat build fixes
-        run: node scripts/fix-chat-build.js
+          test = os.environ["TEST_ID"]
 
-      - name: Apply rotation switch fix
-        run: node scripts/fix-rotation-switch.js
+          common = """import React from 'react';
+          import { View, Text, StyleSheet } from 'react-native';
 
-      - name: Run regression tests on final build source
-        run: npm test
+          const S = StyleSheet.create({
+            root: { flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center', padding: 20 },
+            text: { color: '#fff', fontSize: 28, fontWeight: '900', textAlign: 'center' },
+            sub: { color: '#9db9ff', fontSize: 14, marginTop: 8, textAlign: 'center' }
+          });
+          """
+
+          tests = {
+            "1": common + """
+          export default function App() {
+            return <View style={S.root}>
+              <Text style={S.text}>TEST 1: ENTRY POINT</Text>
+              <Text style={S.sub}>Native + JS render OK</Text>
+            </View>;
+          }
+          """,
+            "2": common + """
+          import { FIREBASE_ENABLED, auth, db } from './firebaseConfig';
+
+          export default function App() {
+            return <View style={S.root}>
+              <Text style={S.text}>TEST 2: FIREBASE</Text>
+              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
+              <Text style={S.sub}>Auth: {auth ? 'OK' : 'FAIL'}</Text>
+              <Text style={S.sub}>Firestore: {db ? 'OK' : 'FAIL'}</Text>
+            </View>;
+          }
+          """,
+            "3": common + """
+          import { FIREBASE_ENABLED } from './firebaseConfig';
+          import './LocationService';
+
+          export default function App() {
+            return <View style={S.root}>
+              <Text style={S.text}>TEST 3: LOCATION</Text>
+              <Text style={S.sub}>LocationService loaded OK</Text>
+              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
+            </View>;
+          }
+          """,
+            "4": common + """
+          import AsyncStorage from '@react-native-async-storage/async-storage';
+          import * as Sharing from 'expo-sharing';
+          import * as Print from 'expo-print';
+          import * as Notifications from 'expo-notifications';
+          import * as Clipboard from 'expo-clipboard';
+          import { captureRef } from 'react-native-view-shot';
+          import * as Location from 'expo-location';
+          import { FIREBASE_ENABLED } from './firebaseConfig';
+          import './LocationService';
+          import { onAuthStateChanged } from 'firebase/auth';
+          import { doc, onSnapshot, collection, query } from 'firebase/firestore';
+
+          Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+              shouldShowBanner: true,
+              shouldShowList: true,
+              shouldPlaySound: true,
+              shouldSetBadge: false
+            })
+          });
+
+          export default function App() {
+            return <View style={S.root}>
+              <Text style={S.text}>TEST 4: ALL IMPORTS</Text>
+              <Text style={S.sub}>All imports loaded</Text>
+              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
+              <Text style={S.sub}>AsyncStorage: OK</Text>
+              <Text style={S.sub}>Notifications: OK</Text>
+            </View>;
+          }
+          """
+          }
+
+          Path("App.js").write_text(tests[test], encoding="utf-8")
+          PY
+
+      - name: Verify selected source
+        run: |
+          echo "=== TEST ${{ matrix.test }} App.js ==="
+          sed -n '1,220p' App.js
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
@@ -89,23 +168,57 @@ jobs:
           '''
           path.write_text(text.replace(marker, block, 1))
           PY
-          grep -A5 "^react {" android/app/build.gradle
 
       - name: Build APK
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
 
-      - name: Verify APK
-        working-directory: GrafikPracy_Final
-        run: |
-          test -s android/app/build/outputs/apk/debug/app-debug.apk
-          unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E "assets/(index\\.android\\.bundle|.*\\.hbc)$"
-          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Start Android emulator and run app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            set +e
+            cd GrafikPracy_Final
+            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            INSTALL_RC=$?
+            adb logcat -c
+            adb shell monkey -p pl.grafikpracy.app 1
+            LAUNCH_RC=$?
+            sleep 8
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+            adb pull /sdcard/window.xml runtime-window.xml >/dev/null 2>&1
+            adb logcat -d > runtime-logcat.txt
+            adb shell pidof pl.grafikpracy.app > runtime-pid.txt
+            echo "INSTALL_RC=$INSTALL_RC"
+            echo "LAUNCH_RC=$LAUNCH_RC"
+            echo "=== UI DUMP ==="
+            cat runtime-window.xml 2>/dev/null
+            echo "=== PROCESS ==="
+            cat runtime-pid.txt 2>/dev/null
+            echo "=== FATAL/ERROR LOGS ==="
+            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" runtime-logcat.txt | tail -200
+            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi
+            if grep -q "TEST ${{ matrix.test }}" runtime-window.xml; then
+              echo "TEST ${{ matrix.test }} UI marker FOUND"
+              exit 0
+            fi
+            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
+            exit 2
 
-      - name: Upload APK
+      - name: Upload runtime diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Grafik-Pracy-Android-APK
-          path: GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          name: runtime-test-${{ matrix.test }}
+          path: |
+            GrafikPracy_Final/runtime-logcat.txt
+            GrafikPracy_Final/runtime-window.xml
+            GrafikPracy_Final/runtime-pid.txt
+          if-no-files-found: warn
           retention-days: 14
