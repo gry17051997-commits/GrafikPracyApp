@@ -17,13 +17,13 @@ const makeWeek=(rotation,warehouse,start=monday(new Date()))=>Array.from({length
 
 export default function App(){
  const [hours,setHours]=useState(10),[rotation,setRotation]=useState('P'),[warehouse,setWarehouse]=useState('PNT B'),[weekStart,setWeekStart]=useState(()=>monday(new Date()));
- const [week,setWeek]=useState(()=>makeWeek('P','PNT B')),[loaded,setLoaded]=useState(false),[info,setInfo]=useState('');
- useEffect(()=>{(async()=>{try{const s=await AsyncStorage.getItem(KEY);if(s){const x=JSON.parse(s);setHours(x.hours||10);setRotation(x.rotation||'P');setWarehouse(x.warehouse||'PNT B');setWeekStart(x.weekStart?new Date(x.weekStart):monday(new Date()));setWeek(x.week||makeWeek(x.rotation||'P',x.warehouse||'PNT B',x.weekStart?new Date(x.weekStart):monday(new Date())));}}catch(e){}finally{setLoaded(true);}})()},[]);
- useEffect(()=>{if(loaded)AsyncStorage.setItem(KEY,JSON.stringify({hours,rotation,warehouse,week,weekStart:weekStart.toISOString()})).catch(()=>{});},[loaded,hours,rotation,warehouse,week]);
+ const [week,setWeek]=useState(()=>makeWeek('P','PNT B')),[weeks,setWeeks]=useState({}),[loaded,setLoaded]=useState(false),[info,setInfo]=useState('');
+ useEffect(()=>{(async()=>{try{const s=await AsyncStorage.getItem(KEY);if(s){const x=JSON.parse(s);const start=x.weekStart?new Date(x.weekStart):monday(new Date());const key=dateKey(start);const savedWeeks=x.weeks||{};const current=x.week||savedWeeks[key]||makeWeek(x.rotation||'P',x.warehouse||'PNT B',start);setHours(x.hours||10);setRotation(x.rotation||'P');setWarehouse(x.warehouse||'PNT B');setWeekStart(start);setWeeks({...savedWeeks,[key]:current});setWeek(current);}}catch(e){}finally{setLoaded(true);}})()},[]);
+ useEffect(()=>{if(!loaded)return;const key=dateKey(weekStart);setWeeks(prev=>({...prev,[key]:week}));AsyncStorage.setItem(KEY,JSON.stringify({hours,rotation,warehouse,week,weekStart:weekStart.toISOString(),weeks:{...weeks,[key]:week}})).catch(()=>{});},[loaded,hours,rotation,warehouse,week,weekStart]);
  const totals=useMemo(()=>Object.keys(PEOPLE).map(p=>({p,shifts:week.reduce((n,d)=>n+(d.shifts||[]).filter(s=>s.person===p).length,0)})),[week]);
  const regenerate=()=>{setWeek(makeWeek(rotation,warehouse,weekStart));setInfo('Grafik wygenerowany');};
- const moveWeek=n=>{const d=addDays(weekStart,n*7);setWeekStart(d);setWeek(makeWeek(rotation,warehouse,d));setInfo('');};
- const goToday=()=>{const d=monday(new Date());setWeekStart(d);setWeek(makeWeek(rotation,warehouse,d));setInfo('');};
+ const moveWeek=n=>{const d=addDays(weekStart,n*7);const key=dateKey(d);setWeekStart(d);setWeek(weeks[key]||makeWeek(rotation,warehouse,d));setInfo('');};
+ const goToday=()=>{const d=monday(new Date());const key=dateKey(d);setWeekStart(d);setWeek(weeks[key]||makeWeek(rotation,warehouse,d));setInfo('');};
  const cycleWarehouse=i=>setWeek(w=>w.map((d,n)=>n===i?{...d,warehouse:WAREHOUSES[(WAREHOUSES.indexOf(d.warehouse)+1)%WAREHOUSES.length]}:d));
  const swap=i=>setWeek(w=>w.map((d,n)=>n===i?{...d,shifts:d.shifts.map(s=>({...s,person:s.person==='P'?'M':s.person==='M'?'L':'P'}))}:d));
  if(!loaded)return <SafeAreaView style={s.root}><Text style={s.title}>GRAFIK PRACY</Text><Text style={s.muted}>Uruchamianie...</Text></SafeAreaView>;
@@ -35,7 +35,7 @@ export default function App(){
    <Text style={s.label}>Magazyn: {warehouse}</Text><View style={s.row}>{WAREHOUSES.map(w=><TouchableOpacity key={w} onPress={()=>setWarehouse(w)} style={[s.small,warehouse===w&&s.active]}><Text style={s.btnText}>{w}</Text></TouchableOpacity>)}</View>
    <TouchableOpacity onPress={regenerate} style={s.generate}><Text style={s.generateText}>GENERUJ TEN TYDZIEŃ</Text></TouchableOpacity></View>
    {week.map((d,i)=><View key={d.date} style={s.day}><View style={s.dayHead}><Text style={s.dayTitle}>{['Pon','Wt','Śr','Czw','Pt','Sob','Nd'][i]} {d.date.slice(8)}.{d.date.slice(5,7)}</Text><TouchableOpacity onPress={()=>cycleWarehouse(i)}><Text style={s.warehouse}>{d.warehouse} ↻</Text></TouchableOpacity></View>
-    {d.shifts.map(sh=><View key={sh.id} style={s.shift}><Text style={s.shiftName}>{sh.shift===1?'I':'II'} zmiana</Text><View style={[s.person,{backgroundColor:PEOPLE[sh.person].color}]}><Text style={s.personText}>{PEOPLE[sh.person].name}</Text></View><Text style={s.time}>{hours===10?(sh.shift===1?'06:00–16:00':'16:00–02:00'):(sh.shift===1?'07:00–19:00':'19:00–07:00')}</Text></View>)}
+    {d.shifts.map(sh=><View key={sh.id} style={s.shift}><Text style={s.shiftName}>{sh.shift===1?'I':'II'} zmiana</Text><View style={[s.person,{backgroundColor:PEOPLE[sh.person].color}]}><Text style={s.personText}>{PEOPLE[sh.person].name}</Text></View><Text style={s.time}>{hours===10?(sh.shift===1?'06:00–16:00':'16:00–02:00'):(sh.shift===1?'06:00–18:00':'18:00–06:00')}</Text></View>)}
     <TouchableOpacity onPress={()=>swap(i)}><Text style={s.swap}>ZAMIEŃ OBSADĘ</Text></TouchableOpacity>
    </View>)}
    <View style={s.panel}><Text style={s.section}>Podsumowanie tygodnia</Text>{totals.map(x=><Text key={x.p} style={s.total}>{PEOPLE[x.p].name}: {x.shifts} zmian • {x.shifts*RATE[hours]} zł</Text>)}{!!info&&<Text style={s.ok}>{info}</Text>}</View>
