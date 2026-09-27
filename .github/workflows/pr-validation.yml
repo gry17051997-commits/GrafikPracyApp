@@ -23,7 +23,7 @@ jobs:
   validate-grafik2:
     name: Grafik Pracy 2.0 baseline
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: GrafikPracy2
@@ -67,6 +67,13 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          force-avd-creation: true
+          emulator-boot-timeout: 900
+          cores: 4
+          ram-size: 4096M
+          disk-size: 8G
+          emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader_indirect -no-boot-anim
+          disable-animations: true
           script: |
             adb install -r GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk
             adb shell am force-stop pl.grafikpracy.app2 || true
