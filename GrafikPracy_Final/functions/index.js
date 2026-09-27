@@ -1,4 +1,5 @@
 const {onCall,HttpsError} = require('firebase-functions/v2/https');
+const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {initializeApp} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
 const {getFirestore} = require('firebase-admin/firestore');
@@ -254,3 +255,30 @@ exports.updateUserProfile = onCall(async request => {
 
   return {ok:true,uid};
 });
+
+
+exports.cleanupVehicleLocationHistory = onSchedule(
+  {schedule:'0 3 * * *',timeZone:'Europe/Warsaw',retryCount:2},
+  async () => {
+    const db = getFirestore();
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const vehicles = await db.collection('vehicleTracking').get();
+    let deleted = 0;
+
+    for (const vehicle of vehicles.docs) {
+      const old = await vehicle.ref
+        .collection('locations')
+        .where('updatedAt','<',cutoff)
+        .limit(500)
+        .get();
+
+      if (old.empty) continue;
+      const batch = db.batch();
+      old.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      deleted += old.size;
+    }
+
+    console.log('cleanupVehicleLocationHistory', {vehicles:vehicles.size, deleted});
+  }
+);
