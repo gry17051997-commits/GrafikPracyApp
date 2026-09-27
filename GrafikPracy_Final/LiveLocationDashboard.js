@@ -12,9 +12,10 @@ const distanceMeters=(a,b)=>{
   const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
   return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 };
+const serverMillis=ts=>Number.isFinite(Number(ts))?Number(ts):(typeof ts?.toMillis==='function'?ts.toMillis():0);
 const ageText=ts=>{
   if(!ts) return 'brak danych';
-  const m=Math.max(0,Math.floor((Date.now()-Number(ts))/60000));
+  const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/60000));
   if(m<1) return 'przed chwilą';
   if(m<60) return m+' min temu';
   return Math.floor(m/60)+' h '+(m%60)+' min temu';
@@ -110,14 +111,14 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
         const vehicleRef=doc(db,'vehicleTracking',requestedId);
         vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
           const selected=snap.exists()?({id:snap.id,...snap.data()}):null;
-          if(!selected || !Number.isFinite(Number(selected.latitude)) || !Number.isFinite(Number(selected.longitude)) || !selected.updatedAt){
+          if(!selected || !Number.isFinite(Number(selected.latitude)) || !Number.isFinite(Number(selected.longitude)) || !serverMillis(selected.updatedAt)){
             setLocation(null); setHistory([]);
             setLocationError('Brak punktów GPS przypisanego pojazdu w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.');
             return;
           }
           const now=Date.now();
           setLocation(selected);
-          setLocationError(now-Number(selected.updatedAt||0)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
+          setLocationError(now-serverMillis(selected.updatedAt)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
           setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
           if(historyUnsub) historyUnsub();
@@ -149,7 +150,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   },[location,warehouseGeo,tick]);
 
   const speed=location&&Number(location.speed)>0?Math.round(Number(location.speed)*3.6):0;
-  const stale=location?Date.now()-Number(location.updatedAt||0)>180000:true;
+  const stale=location?Date.now()-serverMillis(location.updatedAt)>180000:true;
   const last=reportHistory?.[0];
   let suggestion=null;
   if(location&&!stale){
@@ -193,7 +194,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
         <View style={styles.card}>
       <Text style={styles.section}>🧭 HISTORIA TRASY · 7 DNI</Text>
       <Text style={styles.sub}>Punkty starsze niż 7 dni są automatycznie usuwane. Pokazuję ostatnie {history.length} zapisanych punktów.</Text>
-      {history.slice(0,6).map((p,i)=>{const key=Number(p.latitude).toFixed(5)+','+Number(p.longitude).toFixed(5); const address=historyAddresses[key]; return <Text key={String(p.updatedAt)+'-'+i} style={styles.history}>{new Date(Number(p.updatedAt)).toLocaleString('pl-PL')} · {address||'Ustalanie adresu…'} · {Number(p.speed||0)>0?Math.round(Number(p.speed)*3.6)+' km/h':'postój'}</Text>;})}
+      {history.slice(0,6).map((p,i)=>{const key=Number(p.latitude).toFixed(5)+','+Number(p.longitude).toFixed(5); const address=historyAddresses[key]; return <Text key={String(p.updatedAt)+'-'+i} style={styles.history}>{new Date(serverMillis(p.updatedAt)).toLocaleString('pl-PL')} · {address||'Ustalanie adresu…'} · {Number(p.speed||0)>0?Math.round(Number(p.speed)*3.6)+' km/h':'postój'}</Text>;})}
     </View>
     <View style={styles.mapWrap}>{location?(Platform.OS==='web'?webMap:nativeMap):<Text style={styles.sub}>Mapa pojawi się po odebraniu lokalizacji.</Text>}</View>
   </ScrollView>;
