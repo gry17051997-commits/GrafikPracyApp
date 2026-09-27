@@ -66,7 +66,7 @@ export default function App() {
         message: String(error?.message || error || 'Nieznany błąd JavaScript.'),
         fatal: !!isFatal,
       });
-      if (previousHandler && previousHandler !== handler) {
+      if (!isFatal && previousHandler && previousHandler !== handler) {
         try {
           previousHandler(error, isFatal);
         } catch (handlerError) {
