@@ -67,7 +67,7 @@ const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','N
 const RATES = {10: 300, 12: 360};
 const DEFAULT_TIMES = {
   10: {s1:'06:00',e1:'16:00',s2:'16:00',e2:'02:00'},
-  12: {s1:'06:00',e1:'18:00',s2:'18:00',e2:'06:00'}
+  12: {s1:'07:00',e1:'19:00',s2:'19:00',e2:'07:00'}
 };
 
 const monday = d => {
