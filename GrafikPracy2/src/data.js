@@ -8,5 +8,5 @@ export const RATES = { 10: 300, 12: 360 };
 export const DAYS = ["Poniedziałek","Wtorek","Środa","Czwartek","Piątek","Sobota","Niedziela"];
 export const SHIFT_TIMES = {
   10: [{start:"06:00",end:"16:00"},{start:"16:00",end:"02:00"}],
-  12: [{start:"06:00",end:"18:00"},{start:"18:00",end:"06:00"}]
+  12: [{start:"07:00",end:"19:00"},{start:"19:00",end:"07:00"}]
 };
