@@ -923,11 +923,10 @@ export default function App() {
   };
 
   const cancelReportNotifications = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(REPORT_NOTIFICATION_IDS_KEY);
-      const ids = raw ? JSON.parse(raw) : [];
-      await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
-    } catch(e) {}
+    // AsyncStorage is only a recovery/audit record. The OS scheduler is authoritative.
+    // Clear all scheduled notifications before rebuilding the report schedule so a
+    // killed process cannot leave orphaned alarms from an older shift plan.
+    try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch(e) {}
     await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
   };
 
@@ -973,7 +972,7 @@ export default function App() {
           first.setMinutes(40,0,0);
           if (first <= shiftStart) first.setHours(first.getHours()+1);
 
-          for (let t = new Date(first); t < shiftEnd; t.setHours(t.getHours()+1)) {
+          for (let t = new Date(first); t < shiftEnd; t = new Date(t.getTime() + 3600000)) {
             if (t <= new Date()) continue;
             const notification = await Notifications.scheduleNotificationAsync({
               content: {
