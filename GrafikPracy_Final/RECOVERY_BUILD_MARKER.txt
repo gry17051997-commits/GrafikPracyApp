@@ -1,0 +1,2 @@
+Recovery baseline: pre-native-widget app state.
+Purpose: trigger Android APK build without changing application runtime.
