@@ -60,6 +60,19 @@ jobs:
           test -s android/app/build/outputs/apk/debug/app-debug.apk
           unzip -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
           ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Runtime smoke test Android 16
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: |
+            adb install -r GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell monkey -p pl.grafikpracy.app2 1
+            sleep 12
+            adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2" | head -20
+            adb logcat -d -t 400 | grep -E "FATAL EXCEPTION|AndroidRuntime|pl.grafikpracy.app2" | tail -80 || true
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
