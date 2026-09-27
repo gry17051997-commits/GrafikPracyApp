@@ -1,0 +1,4 @@
+APK baseline build marker.
+Source baseline: 57027d76ee4bda5c31fc97795ab6334d463f0dd5
+Purpose: build and verify the pre-black-screen application baseline.
+This file has no runtime effect.
