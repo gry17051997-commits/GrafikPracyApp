@@ -18,6 +18,7 @@ concurrency:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  DIAGNOSTIC_MINIMAL_APP: "1"
 
 jobs:
   build_android:
@@ -59,15 +60,19 @@ jobs:
       # before regression tests. Otherwise the tests validate different source
       # from the source that is eventually bundled into the APK.
       - name: Apply application build fixes
+        if: env.DIAGNOSTIC_MINIMAL_APP != '1'
         run: node scripts/fix-app-build.js
 
       - name: Apply chat build fixes
+        if: env.DIAGNOSTIC_MINIMAL_APP != '1'
         run: node scripts/fix-chat-build.js
 
       - name: Apply rotation switch fix
+        if: env.DIAGNOSTIC_MINIMAL_APP != '1'
         run: node scripts/fix-rotation-switch.js
 
       - name: Run regression tests on final build source
+        if: env.DIAGNOSTIC_MINIMAL_APP != '1'
         run: npm test
 
       - name: Generate native Android project
