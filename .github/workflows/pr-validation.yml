@@ -1,6 +1,10 @@
 name: PR Validation
 
 on:
+  push:
+    branches:
+      - 'diagnostic/app-bootstrap-runtime'
+  workflow_dispatch:
   pull_request:
     branches: ['main']
     paths:
