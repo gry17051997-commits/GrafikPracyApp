@@ -24,8 +24,15 @@ import * as Notifications from 'expo-notifications';
 import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
-import LiveLocationDashboard from './LiveLocationDashboard';
-import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, LOCATION_CONFIG_KEY} from './LocationService';
+
+// DIAGNOSTIC: LocationService is intentionally isolated from AppRuntime startup.
+// The real GPS service remains in LocationService.js and is not deleted.
+const LOCATION_CONFIG_KEY = 'grafik-pracy-location-config-v1';
+const getVehicleLocationConfig = async () => ({});
+const saveVehicleLocationAssignment = async () => ({ok:false, reason:'diagnostic-location-disabled'});
+const startVehicleLocationTracking = async () => ({ok:false, reason:'diagnostic-location-disabled'});
+const stopVehicleLocationTracking = async () => {};
+const ensureVehicleLocationTracking = async () => ({ok:false, reason:'diagnostic-location-disabled'});
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
@@ -2752,7 +2759,7 @@ export default function App() {
               </TouchableOpacity>
             )}
           </View>}
-          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <View style={{flex:1,alignItems:'center',justifyContent:'center',padding:24}}><Text style={{color:'#fff',fontSize:18,fontWeight:'900',textAlign:'center'}}>TRYB LOKALIZACJI WYŁĄCZONY W TEŚCIE DIAGNOSTYCZNYM</Text><Text style={{color:'#9da5b4',fontSize:13,textAlign:'center',marginTop:10}}>GPS jest tymczasowo odłączony tylko po to, aby ustalić przyczynę czarnego ekranu.</Text></View> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
           {editModal}
           {colorModal}
           {helpModal}
