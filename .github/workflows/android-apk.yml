@@ -2,9 +2,9 @@ name: Android Runtime Diagnostics
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - diagnostic/app-bootstrap-runtime
+      - main
     paths:
       - "GrafikPracy_Final/**"
       - ".github/workflows/android-apk.yml"
