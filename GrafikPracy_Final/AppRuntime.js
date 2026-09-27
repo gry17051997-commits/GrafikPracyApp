@@ -607,7 +607,7 @@ export default function App() {
               autoGenerateWeeks:!!data.autoGenerateWeeks,
               allow24h:!!data.allow24h,
               times:data.times || DEFAULT_TIMES,
-              personColors:data.personColors || PEOPLE,
+              personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
               conditions:data.conditions || [],
               recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
               recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
