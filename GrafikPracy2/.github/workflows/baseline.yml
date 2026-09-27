@@ -1,0 +1,51 @@
+name: Grafik Pracy 2.0 baseline
+
+on:
+  push:
+    branches: ["grafik-pracy-2.0", "main"]
+  workflow_dispatch:
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: GrafikPracy2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: GrafikPracy2/package.json
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: npm install
+      - name: Core tests
+        run: npm test
+      - name: Expo doctor
+        run: npx expo-doctor
+      - name: Web export
+        run: npx expo export --platform web
+      - name: Android prebuild
+        run: npx expo prebuild --platform android --non-interactive
+      - name: Android debug APK
+        run: cd android && ./gradlew assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafik-pracy-2-debug-apk
+          path: GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Upload Web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafik-pracy-2-web
+          path: GrafikPracy2/dist
+          if-no-files-found: error

@@ -5,6 +5,7 @@ on:
     branches: ['main']
     paths:
       - 'GrafikPracy_Final/**'
+      - 'GrafikPracy2/**'
       - '.github/workflows/**'
 
 permissions:
@@ -19,83 +20,99 @@ env:
   CI: "1"
 
 jobs:
-  validate:
-    name: Validate Web + Android + Stage 3
+  validate-grafik2:
+    name: Grafik Pracy 2.0 baseline
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     defaults:
       run:
-        working-directory: GrafikPracy_Final
-
+        working-directory: GrafikPracy2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-
+          node-version: 22
+          cache: npm
+          cache-dependency-path: GrafikPracy2/package.json
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Install dependencies
-        run: npm install --ignore-scripts
-
-      - name: Stage 3 regression tests
+        run: npm install
+      - name: Core tests
         run: npm test
-
-      - name: Validate project configuration
-        run: npx expo config --type public
-
-      - name: Validate build-fix scripts
-        run: |
-          node --check scripts/fix-app-build.js
-          node --check scripts/fix-chat-build.js
-          node --check scripts/fix-rotation-switch.js
-
-      - name: Apply deterministic build fixes
-        run: |
-          node scripts/fix-app-build.js
-          node scripts/fix-chat-build.js
-          node scripts/fix-rotation-switch.js
-
+      - name: Expo doctor
+        run: npx expo-doctor
       - name: Export web
-        run: npx expo export --platform web --output-dir ci-dist
-
-      - name: Verify web bundle
-        run: |
-          test -s ci-dist/index.html
-          find ci-dist -type f | head -20
-
+        run: npx expo export --platform web
       - name: Generate Android project
-        run: npx expo prebuild --platform android --no-install --non-interactive
-
-      - name: Verify Android native project
-        run: |
-          test -f android/gradlew
-          test -f android/app/src/main/AndroidManifest.xml
-
-      - name: Build release APK
-        working-directory: GrafikPracy_Final/android
-        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
-
+        run: npx expo prebuild --platform android --non-interactive
+      - name: Build debug APK
+        working-directory: GrafikPracy2/android
+        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
       - name: Verify APK
-        working-directory: GrafikPracy_Final
+        working-directory: GrafikPracy2
         run: |
-          test -s android/app/build/outputs/apk/release/app-release.apk
-          unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
-          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "assets/|lib/|META-INF/" | head -20
-          unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -E "index\.android|assets/.+\.hbc|assets/.+\.bundle" || true
-          ls -lh android/app/build/outputs/apk/release/app-release.apk
-      - name: Upload verified APK
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Runtime smoke test Android 16
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          force-avd-creation: true
+          emulator-boot-timeout: 900
+          cores: 4
+          ram-size: 4096M
+          disk-size: 8G
+          emulator-options: -no-window -no-snapshot -noaudio -gpu swiftshader_indirect -no-boot-anim
+          disable-animations: true
+          script: |
+            adb wait-for-device
+            echo "=== ADB/package readiness ==="
+            adb shell getprop sys.boot_completed
+            adb shell service check package || true
+            adb logcat -c || true
+            echo "=== APK install with retry ==="
+            install_ok=0; for attempt in 1 2 3; do echo "APK install attempt $attempt/3"; if adb install -r GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk; then install_ok=1; break; fi; adb reconnect || true; sleep 5; done; if [ "$install_ok" -ne 1 ]; then echo "APK installation failed after retries"; adb shell getprop || true; adb shell dumpsys package pl.grafikpracy.app2 || true; exit 1; fi
+            adb shell am force-stop pl.grafikpracy.app2 || true
+            adb shell am start -W -n pl.grafikpracy.app2/.MainActivity
+            sleep 8
+            echo "=== package process ==="
+            pid="$(adb shell pidof pl.grafikpracy.app2 | tr -d '\r')"
+            echo "PID: $pid"
+            echo "=== activity state ==="
+            adb shell dumpsys activity activities | grep -E "pl.grafikpracy.app2|Splash Screen" | head -30 || true
+            echo "=== app log ==="
+            adb logcat -d -b all -t 1200 | grep -E "pl.grafikpracy.app2|ReactNativeJS|AndroidRuntime" | tail -120 || true
+            if [ -z "$pid" ]; then
+              echo "Application process not running"
+              if adb shell dumpsys activity activities | grep -q "Splash Screen pl.grafikpracy.app2"; then
+                echo "App is stuck on native splash screen"
+              fi
+              exit 1
+            fi
+            crash_log="$(adb logcat -d -b all -t 1200 | grep -E "FATAL EXCEPTION|AndroidRuntime.*pl.grafikpracy.app2|Process: pl.grafikpracy.app2" || true)"
+            if [ -n "$crash_log" ]; then echo "$crash_log"; echo "Application crash detected"; exit 1; fi
+            echo "Android 16 startup smoke test passed"
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Grafik-Pracy-Standalone-APK
-          path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
+          name: Grafik-Pracy-2-Baseline-APK
+          path: GrafikPracy2/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-
+      - name: Upload Web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Grafik-Pracy-2-Baseline-Web
+          path: GrafikPracy2/dist
+          if-no-files-found: error
+          retention-days: 14

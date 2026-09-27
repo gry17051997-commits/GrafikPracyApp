@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Grafik Pracy 2.0",
+    "slug": "grafik-pracy-2",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "pl.grafikpracy.app2",
+      "versionCode": 1
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    }
+  }
+}
