@@ -116,6 +116,11 @@ exports.createUserAccount = onCall(async request => {
     throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
   }
 
+  if (personKey) {
+    const existing = await db.collection('users').where('personKey','==',personKey).limit(1).get();
+    if (!existing.empty) throw new HttpsError('already-exists','Ten identyfikator pracownika jest już przypisany do innego konta.');
+  }
+
   let user;
   try {
     user = await auth.createUser({email,password,displayName});
@@ -201,6 +206,12 @@ exports.updateUserProfile = onCall(async request => {
   }
   if (uid === request.auth.uid && role !== 'admin') {
     throw new HttpsError('failed-precondition','Nie możesz odebrać sobie roli administratora.');
+  }
+
+  if (personKey && personKey !== current.personKey) {
+    const existing = await db.collection('users').where('personKey','==',personKey).limit(2).get();
+    const conflict = existing.docs.find(item => item.id !== uid);
+    if (conflict) throw new HttpsError('already-exists','Ten identyfikator pracownika jest już przypisany do innego konta.');
   }
 
   const update = {
