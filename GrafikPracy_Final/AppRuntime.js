@@ -153,6 +153,7 @@ export default function App() {
   const [weekStart,setWeekStart] = useState(monday(new Date()));
   const [weekConfigs,setWeekConfigs] = useState({});
   const [autoGenerateWeeks,setAutoGenerateWeeks] = useState(false);
+  const [allow24h,setAllow24h] = useState(false);
   const [weekSetup,setWeekSetup] = useState(null);
   const [dismissedWeekSetupKey,setDismissedWeekSetupKey] = useState('');
   const [weekSetupHours,setWeekSetupHours] = useState(10);
@@ -347,6 +348,7 @@ export default function App() {
           setWeeks(data.weeks || {});
           setWeekConfigs(data.weekConfigs || {});
           setAutoGenerateWeeks(!!data.autoGenerateWeeks);
+          setAllow24h(!!data.allow24h);
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
@@ -386,13 +388,13 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
@@ -637,7 +639,7 @@ export default function App() {
         cloudBaseUpdatedAt:cloudUpdatedAtRef.current
       }));
     }).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
@@ -647,7 +649,7 @@ export default function App() {
     }
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
     cloudSaveTimerRef.current=setTimeout(()=>{
-        const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+        const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
         const scheduleRef=doc(db,'schedules','main');
         const expectedUpdatedAt=cloudUpdatedAtRef.current;
         runTransaction(db,async tx=>{
@@ -1234,7 +1236,7 @@ export default function App() {
       for (const slot of slots) {
         const slotState=result[slot.di].shifts[slot.si];
         if (slotState.person) continue;
-        if (result[slot.di].shifts.some(x=>x.person===p)) continue;
+        if (!allow24h && result[slot.di].shifts.some(x=>x.person===p)) continue;
         if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,slot.di,slot.si))) continue;
         if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,slot.di,slot.si))) continue;
         if (slot.offOriginalPerson && p===slot.offOriginalPerson) continue;
@@ -1263,7 +1265,7 @@ export default function App() {
         if(slot.offOriginalPerson && person === slot.offOriginalPerson) return false;
         if(targets[person]!==null && counts[person]>=targets[person]) return false;
         // Don't put the same person twice in a day unless explicitly forced.
-        if(result[slot.di].shifts.some(x=>x.person===person)) return false;
+        if(!allow24h && result[slot.di].shifts.some(x=>x.person===person)) return false;
         return true;
       });
       candidates.sort((a,b)=>{
@@ -2327,9 +2329,9 @@ export default function App() {
       </TouchableOpacity>
 
       <Text style={S.section}>Mój profil</Text>
-      <Text style={S.helpLine}>Wybierz osobę przypisaną do tego konta. Dzięki temu pracownik może składać propozycje zamian ze swojej zmiany.</Text>
+      <Text style={S.helpLine}>Przypisanie P/M/L jest kontrolowane przez administratora i nie może być zmieniane przez pracownika.</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
-        {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k); if(FIREBASE_ENABLED&&db&&cloudUser){try{await updateDoc(doc(db,'users',cloudUser.uid),{personKey:k})}catch(e){setCloudError('Nie udało się zapisać profilu.')}}}}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+        {PERSON_KEYS.map(k=><TouchableOpacity key={k} disabled={FIREBASE_ENABLED} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)},FIREBASE_ENABLED&&{opacity:myPerson===k?1:0.45}]} onPress={()=>!FIREBASE_ENABLED&&setMyPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
       </ScrollView>
 
       <Text style={S.section}>⚡ Warunki generatora</Text>
@@ -2342,6 +2344,10 @@ export default function App() {
         <View style={S.option}>
           <View style={{flex:1}}><Text style={S.optionText}>Generuj kolejne tygodnie automatycznie</Text><Text style={S.muted}>{autoGenerateWeeks?'🟢 WŁĄCZONE':'🔴 WYŁĄCZONE'}</Text></View>
           <TouchableOpacity style={[S.btn,autoGenerateWeeks&&S.active]} onPress={()=>setAutoGenerateWeeks(v=>!v)}><Text style={S.btnText}>{autoGenerateWeeks?'WŁĄCZONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Zezwalaj na 24h / dwie zmiany tej samej osoby</Text><Text style={S.muted}>{allow24h?'🟢 DOZWOLONE':'🔴 ZABLOKOWANE'}</Text></View>
+          <TouchableOpacity style={[S.btn,allow24h&&S.active]} onPress={()=>setAllow24h(v=>!v)}><Text style={S.btnText}>{allow24h?'DOZWOLONE':'WŁĄCZ'}</Text></TouchableOpacity>
         </View>
         <Text style={S.section}>🔔 Propozycje zamian {proposals.filter(p=>p.status==='pending').length ? `(${proposals.filter(p=>p.status==='pending').length})` : ''}</Text>
         {proposals.filter(p=>p.status==='pending').slice(0,10).map(p=><View key={p.id} style={S.proposalCard}>
