@@ -90,17 +90,27 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence uses an atomic Firestore transaction', async () => {
+test('schedule cloud persistence updates only changed shift map fields', async () => {
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const start = source.indexOf("const scheduleRef=doc(db,'schedules',wkKey);");
-  const end = source.indexOf("    },250);", start);
-  assert.ok(start >= 0 && end > start);
-  const block = source.slice(start, end);
-  assert.match(block, /runTransaction\(db,async tx=>/);
-  assert.match(block, /const scheduleSnap=await tx\.get\(scheduleRef\)/);
-  assert.match(block, /tx\.set\(scheduleRef/);
-  assert.match(block, /tx\.set\(settingsRef/);
-  assert.doesNotMatch(block, /await setDoc\(scheduleRef/);
+  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',wkKey);");
+  const blockEnd = source.indexOf("    },250);", blockStart);
+  assert.ok(blockStart >= 0 && blockEnd > blockStart);
+  const block = source.slice(blockStart, blockEnd);
+  assert.match(block, /const localMap=weekToShiftMap\(localWeek,wkKey\)/);
+  assert.match(block, /updates\[.*shifts\..*\]/);
+  assert.match(block, /runTransaction\(db, async tx=>/);
+  assert.match(block, /tx\.get\(scheduleRef\)/);
+  assert.match(block, /tx\.update\(scheduleRef/);
+  assert.doesNotMatch(block, /tx\.set\(settingsRef/);
+});
+
+test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
+  const fs = await import('node:fs/promises');
+  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(source, /includeMetadataChanges:true/);
+  assert.match(source, /hasPendingWrites/);
+  assert.match(source, /shiftMapToWeek/);
+  assert.match(source, /weekToShiftMap/);
 });
 
