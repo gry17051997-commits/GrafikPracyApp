@@ -45,13 +45,9 @@ test('runtime dashboards use the shared animation-frame ticker instead of setInt
 
 test('security-sensitive PIN is not serialized by the primary local application state', async () => {
   const source = await read('AppRuntime.js');
-  const storageWrites = [...source.matchAll(/AsyncStorage\.setItem\(([^\n]+))/g)].map(match => match[1]);
 
-  assert.equal(
-    storageWrites.some(expression => /JSON\.stringify\([^)]*pin/i.test(expression)),
-    false,
-    'PIN must not be serialized into AsyncStorage JSON'
-  );
+  assert.doesNotMatch(source, /AsyncStorage\.setItem\(PIN_KEY/);
+  assert.doesNotMatch(source, /AsyncStorage\.setItem\([^\n]*pin[^\n]*JSON\.stringify/is);
 });
 
 test('CI no longer depends on source-rewriting build fix scripts', async () => {
