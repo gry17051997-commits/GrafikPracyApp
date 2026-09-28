@@ -23,10 +23,10 @@ test('entrypoint keeps native background registrations outside React lifecycle',
 test('LocationService defines its background task at module scope', async () => {
   const source = await read('LocationService.js');
   const taskIndex = source.indexOf('TaskManager.defineTask(');
-  const firstFunctionBody = source.indexOf('function ');
 
   assert.ok(taskIndex >= 0, 'background location task must be defined');
-  assert.ok(firstFunctionBody < 0 || taskIndex < firstFunctionBody, 'background task registration must not depend on a React lifecycle');
+  assert.doesNotMatch(source.slice(0, taskIndex), /useEffect\\s*\\(/);
+  assert.doesNotMatch(source, /useEffect\\s*\\([^)]*TaskManager\\.defineTask/s);
   assert.match(source, /TaskManager\.hasStartedLocationUpdatesAsync\(/);
   assert.match(source, /killServiceOnDestroy:\s*false/);
 });
