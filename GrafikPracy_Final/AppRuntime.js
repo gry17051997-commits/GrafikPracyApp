@@ -759,22 +759,37 @@ export default function App() {
       const scheduleRef=doc(db,'schedules',wkKey);
       const settingsRef=doc(db,'settings','main');
       try {
-        const scheduleSnap=await getDoc(scheduleRef);
-        if (!scheduleSnap.exists()) {
-          await setDoc(scheduleRef,{
-            weekId:wkKey,
-            week:weekToMap(currentWeekForSave),
-            config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
-            updatedAt:serverTimestamp(),
-            updatedBy:cloudUser.uid
-          });
-        } else {
+        await runTransaction(db,async tx=>{
+          const scheduleSnap=await tx.get(scheduleRef);
+          const remoteData=scheduleSnap.exists() ? scheduleSnap.data() || {} : {};
+
+          if (!scheduleSnap.exists()) {
+            tx.set(scheduleRef,{
+              weekId:wkKey,
+              week:weekToMap(currentWeekForSave),
+              config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
+              updatedAt:serverTimestamp(),
+              updatedBy:cloudUser.uid
+            });
+            return;
+          }
+
           const updates={updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+          if (Array.isArray(remoteData.week)) {
+            const migratedRemote=weekToMap(remoteData.week);
+            Object.entries(changed).forEach(([shiftId,shift])=>{ migratedRemote[shiftId]=shift; });
+            removed.forEach(shiftId=>{ delete migratedRemote[shiftId]; });
+            updates.week=migratedRemote;
+            updates.config=weekConfigs[wkKey] || remoteData.config || null;
+            tx.update(scheduleRef,updates);
+            return;
+          }
+
           Object.entries(changed).forEach(([shiftId,shift])=>{ updates[`week.${shiftId}`] = shift; });
           removed.forEach(shiftId=>{ updates[`week.${shiftId}`] = null; });
           if (configChanged) updates.config=weekConfigs[wkKey] || null;
-          await updateDoc(scheduleRef,updates);
-        }
+          tx.update(scheduleRef,updates);
+        });
 
         await setDoc(settingsRef,{
           hours,rotation,warehouse,autoGenerateWeeks,allow24h,
