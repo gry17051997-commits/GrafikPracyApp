@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions } from 'firebase/functions';
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: 'AIzaSyCFmVaMVtLo7oGZxj3JCMnrWWum4FT5ZsY',
   authDomain: 'grafik-pracy-c9006.firebaseapp.com',
   projectId: 'grafik-pracy-c9006',
