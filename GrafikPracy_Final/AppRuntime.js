@@ -526,8 +526,16 @@ export default function App() {
 
       roleUnsub = onSnapshot(
         doc(db, 'users', user.uid),
-        snap => {
-          const role = snap.exists() ? snap.data()?.role : null;
+        async snap => {
+          if (!snap.exists() || snap.data()?.disabled === true) {
+            try { await signOut(auth); } catch (e) {}
+            setCloudUser(null);
+            setCloudRole('employee');
+            setCloudReady(true);
+            setCloudError('To konto zostało wyłączone przez administratora.');
+            return;
+          }
+          const role = snap.data()?.role || null;
           setCloudRole(role === 'admin' ? 'admin' : role === 'locator' ? 'locator' : 'employee');
           setCloudReady(true);
         },

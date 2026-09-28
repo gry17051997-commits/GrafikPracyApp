@@ -1,8 +1,8 @@
 import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {collection, onSnapshot} from 'firebase/firestore';
-import {getFunctions, httpsCallable} from 'firebase/functions';
-import {db, firebaseApp, FIREBASE_ENABLED} from './firebaseConfig';
+import {db, FIREBASE_ENABLED} from './firebaseConfig';
+import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions} from './AdminUserService';
 
 const KEYS=['P','M','L'];
 const ROLES=['employee','locator','admin'];
@@ -17,7 +17,7 @@ export default function AdminUsersPanel({cloudUser}) {
   useEffect(()=>{
     if(!FIREBASE_ENABLED||!db||!cloudUser)return;
     return onSnapshot(collection(db,'users'),snap=>{
-      setUsers(snap.docs.map(d=>({uid:d.id,...d.data()})).sort((a,b)=>
+      setUsers(snap.docs.map(d=>({uid:d.id,...d.data()})).filter(u=>!u.disabled).sort((a,b)=>
         String(a.displayName||a.email||a.uid).localeCompare(String(b.displayName||b.email||b.uid))));
       setError('');
     },e=>setError('Nie udało się pobrać użytkowników. Kod: '+(e?.code||'unknown')));
@@ -31,8 +31,8 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!modal)return;
     setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
     try{
-      const fn=httpsCallable(getFunctions(firebaseApp,'us-central1'),modal.mode==='create'?'createUserAccount':'updateUserProfile');
-      await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
+      if(modal.mode==='create') await createUserWithoutFunctions(form);
+      else await updateUserProfileWithoutFunctions(modal.user.uid,form);
       setModal(null);
       Alert.alert('Gotowe',modal.mode==='create'?(form.role==='locator'?'Lokalizator został dodany.':form.role==='admin'?'Administrator został dodany.':'Pracownik został dodany.'):(form.role==='locator'?'Dane lokalizatora zapisane.':form.role==='admin'?'Dane administratora zapisane.':'Dane pracownika zapisane.'));
     }catch(e){setError((e?.message||'Operacja nie powiodła się.')+' ('+(e?.code||'unknown')+')');}
@@ -43,7 +43,7 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!u?.uid||u.uid===cloudUser?.uid)return;
     Alert.alert('Usuń konto','Usunąć '+(u.displayName||u.email||u.uid)+'?',[{text:'Anuluj',style:'cancel'},{text:'USUŃ',style:'destructive',onPress:async()=>{
       setBusy(u.uid);setError('');
-      try{await httpsCallable(getFunctions(firebaseApp,'us-central1'),'deleteUserAccount')({uid:u.uid});Alert.alert('Gotowe','Konto zostało usunięte.');}
+      try{await disableUserWithoutFunctions(u.uid);Alert.alert('Gotowe','Konto zostało wyłączone i usunięte z aktywnej listy.');}
       catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
       finally{setBusy('');}
     }}]);
@@ -79,10 +79,10 @@ export default function AdminUsersPanel({cloudUser}) {
         <View style={{backgroundColor:'#191d26',borderRadius:22,padding:18,borderWidth:1,borderColor:'#344054',maxHeight:'92%'}}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={{color:'#fff',fontSize:22,fontWeight:'900'}}>{modal?.mode==='create'?'➕ Nowy pracownik':'✏️ Edycja pracownika'}</Text>
-            <Text style={{color:'#9299a8',fontSize:13,marginTop:5,marginBottom:12}}>{modal?.mode==='create'?'Utwórz konto logowania i profil.':'Puste pole hasła pozostawia obecne hasło.'}</Text>
+            <Text style={{color:'#9299a8',fontSize:13,marginTop:5,marginBottom:12}}>{modal?.mode==='create'?'Utwórz konto logowania i profil.':'E-mail i hasło ustawia się podczas tworzenia konta. Edycja zmienia profil, rolę i przypisanie.'}</Text>
             {input('Imię i nazwisko','displayName',{placeholder:'np. Jan Kowalski'})}
-            {input('E-mail','email',{placeholder:'pracownik@firma.pl',autoCapitalize:'none',keyboardType:'email-address'})}
-            {input(modal?.mode==='create'?'Hasło, min. 6 znaków':'Nowe hasło, opcjonalnie','password',{placeholder:'Hasło',secureTextEntry:true})}
+            {input('E-mail','email',{placeholder:'pracownik@firma.pl',autoCapitalize:'none',keyboardType:'email-address',editable:modal?.mode==='create'})}
+            {modal?.mode==='create'&&input('Hasło, min. 6 znaków','password',{placeholder:'Hasło',secureTextEntry:true})}
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
