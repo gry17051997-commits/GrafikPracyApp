@@ -25,8 +25,8 @@ test('LocationService defines its background task at module scope', async () => 
   const taskIndex = source.indexOf('TaskManager.defineTask(');
 
   assert.ok(taskIndex >= 0, 'background location task must be defined');
-  assert.doesNotMatch(source.slice(0, taskIndex), /useEffect\\s*\\(/);
-  assert.doesNotMatch(source, /useEffect\\s*\\([^)]*TaskManager\\.defineTask/s);
+  assert.equal(source.slice(0, taskIndex).includes('useEffect('), false);
+  assert.equal(source.includes('useEffect(') && source.indexOf('useEffect(') < taskIndex, false);
   assert.match(source, /TaskManager\.hasStartedLocationUpdatesAsync\(/);
   assert.match(source, /killServiceOnDestroy:\s*false/);
 });
