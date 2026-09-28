@@ -9,7 +9,7 @@ export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
 export const LOCATION_CONFIG_KEY = 'grafik-pracy-location-config-v1';
 export const LOCATION_CURRENT_KEY = 'grafik-pracy-location-current-v1';
 
-const safeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
+export const normalizeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
 
 async function getConfig() {
   try {
@@ -58,7 +58,7 @@ async function saveLocationInternal(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
   const cfg=await getConfig();
   if (cfg.enabled===false) return;
-  const vehicleId=safeVehicleId(cfg.vehicleId||cfg.registration);
+  const vehicleId=normalizeVehicleId(cfg.vehicleId||cfg.registration);
   const c=location.coords;
   const now=Date.now();
   // W zadaniu tła Firebase Auth może potrzebować chwili na odtworzenie sesji
@@ -134,9 +134,9 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
 export async function saveVehicleLocationAssignment(registration) {
   const reg=String(registration||'').trim().toUpperCase();
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
-  const vehicle=safeVehicleId(reg);
+  const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
-  if (safeVehicleId(old.vehicleId||old.registration) !== vehicle) {
+  if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
     try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
   }
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:old.enabled===true,vehicleId:vehicle,registration:reg}));
@@ -146,7 +146,7 @@ export async function saveVehicleLocationAssignment(registration) {
 export async function startVehicleLocationTracking({vehicleId,registration}={}) {
   if (Platform.OS==='web') return {ok:false,reason:'web'};
   if (!FIREBASE_ENABLED || !db) return {ok:false,reason:'firebase'};
-  const vehicle=safeVehicleId(vehicleId||registration);
+  const vehicle=normalizeVehicleId(vehicleId||registration);
   const old=await getConfig();
   const fg=await Location.requestForegroundPermissionsAsync();
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
@@ -201,7 +201,7 @@ export async function ensureVehicleLocationTracking() {
     } catch(e) {
       console.log('LOCATION_WATCHDOG_FIX_ERROR',e);
     }
-    return {ok:true,restarted:true,vehicleId:safeVehicleId(cfg.vehicleId||cfg.registration)};
+    return {ok:true,restarted:true,vehicleId:normalizeVehicleId(cfg.vehicleId||cfg.registration)};
   }
   // Po powrocie aplikacji na pierwszy plan odświeżamy punkt także wtedy,
   // gdy usługa nadal działa. Dzięki temu po dłuższym uśpieniu telefonu
@@ -212,7 +212,7 @@ export async function ensureVehicleLocationTracking() {
   } catch(e) {
     console.log('LOCATION_FOREGROUND_REFRESH_ERROR',e);
   }
-  return {ok:true,restarted:false,vehicleId:safeVehicleId(cfg.vehicleId||cfg.registration)};
+  return {ok:true,restarted:false,vehicleId:normalizeVehicleId(cfg.vehicleId||cfg.registration)};
 }
 
 export async function getVehicleLocationConfig() {
