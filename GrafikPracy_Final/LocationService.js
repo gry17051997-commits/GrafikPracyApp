@@ -97,19 +97,28 @@ async function saveLocationInternal(location) {
     }
   }
   if(!saved) throw lastError || new Error('Nie udało się zapisać pozycji GPS.');
+
+  // Bieżąca pozycja jest źródłem prawdy dla podglądu live. Awaria zapisu
+  // historii nie może blokować jej lokalnego cache ani kolejnych punktów.
   let last=null;
   try {
     const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);
     last=raw?JSON.parse(raw):null;
   } catch(e) {}
+
   const moved=last?distanceMeters(last,payload):Infinity;
   const lastHistoryAt=Number(last?.historyAt||0);
-  if (!last || moved>=80 || now-lastHistoryAt>=120000) {
-    await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
-    payload.historyAt=now;
-  } else {
-    payload.historyAt=lastHistoryAt;
+  const shouldStoreHistory=!last || moved>=80 || now-lastHistoryAt>=120000;
+  payload.historyAt=shouldStoreHistory?now:lastHistoryAt;
+
+  if (shouldStoreHistory) {
+    try {
+      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
+    } catch(e) {
+      console.log('LOCATION_HISTORY_WRITE_ERROR',e);
+    }
   }
+
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
   // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
   // zapytań i deleteDoc przy każdym punkcie GPS.
