@@ -90,17 +90,19 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence uses an atomic Firestore transaction', async () => {
+test('schedule cloud persistence uses delta updates on a stable shift map', async () => {
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   const start = source.indexOf("const scheduleRef=doc(db,'schedules',wkKey);");
   const end = source.indexOf("    },250);", start);
   assert.ok(start >= 0 && end > start);
   const block = source.slice(start, end);
-  assert.match(block, /runTransaction\(db,async tx=>/);
-  assert.match(block, /const scheduleSnap=await tx\.get\(scheduleRef\)/);
-  assert.match(block, /tx\.set\(scheduleRef/);
-  assert.match(block, /tx\.set\(settingsRef/);
-  assert.doesNotMatch(block, /await setDoc\(scheduleRef/);
+  assert.match(block, /runTransaction\\(db,async tx=>/);
+  assert.match(block, /const scheduleSnap=await tx\\.get\\(scheduleRef\\)/);
+  assert.match(block, /weekToMap\\(currentWeekForSave\\)/);
+  assert.match(block, /updates\\[.*week\\.\\$\\{shiftId\\}.*\\]/);
+  assert.match(block, /tx\\.update\\(scheduleRef,updates\\)/);
+  assert.doesNotMatch(source, /cloudDirtyRef/);
+  assert.doesNotMatch(source, /cloudPending:cloudDirtyRef/);
 });
 
