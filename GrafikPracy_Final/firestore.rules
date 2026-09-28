@@ -23,17 +23,27 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
 
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['email','role','createdAt'])
-        && request.resource.data.role == 'employee'
-        && request.resource.data.email is string;
+      allow create: if isAdmin()
+        && uid == request.resource.data.uid
+        && request.resource.data.keys().hasOnly([
+          'uid','email','displayName','personKey','role',
+          'disabled','createdAt','updatedAt','createdBy'
+        ])
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.role in ['admin','employee','locator']
+        && request.resource.data.personKey in ['', 'P', 'M', 'L']
+        && request.resource.data.disabled == false
+        && request.resource.data.createdBy == request.auth.uid;
 
       allow update: if isAdmin()
         && uid != request.auth.uid
         && request.resource.data.uid == uid
-        && validRole(request.resource.data.role)
-        && validPersonKey(request.resource.data.personKey);
+        && request.resource.data.email is string
+        && request.resource.data.displayName is string
+        && request.resource.data.role in ['admin','employee','locator']
+        && request.resource.data.personKey in ['', 'P', 'M', 'L']
+        && request.resource.data.disabled is bool;
 
       allow delete: if false;
     }
