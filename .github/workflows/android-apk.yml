@@ -70,14 +70,17 @@ jobs:
       - name: Start Android emulator and run real app
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          cores: 4
+          force-avd-creation: true
+          emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
           disable-animations: true
           script: |
             set +e
+            adb wait-for-device
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             INSTALL_RC=$?
             adb logcat -c
