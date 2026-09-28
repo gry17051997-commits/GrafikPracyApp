@@ -97,11 +97,11 @@ test('schedule cloud persistence uses delta updates on a stable shift map', asyn
   const end = source.indexOf("    },250);", start);
   assert.ok(start >= 0 && end > start);
   const block = source.slice(start, end);
-  assert.match(block, /runTransaction\\(db,async tx=>/);
-  assert.match(block, /const scheduleSnap=await tx\\.get\\(scheduleRef\\)/);
-  assert.match(block, /weekToMap\\(currentWeekForSave\\)/);
-  assert.match(block, /updates\\[.*week\\.\\$\\{shiftId\\}.*\\]/);
-  assert.match(block, /tx\\.update\\(scheduleRef,updates\\)/);
+  assert.match(block, /runTransaction\(db,async tx=>/);
+  assert.match(block, /const scheduleSnap=await tx\.get\(scheduleRef\)/);
+  assert.match(block, /weekToMap\(currentWeekForSave\)/);
+  assert.match(block, /updates\[.*week\.\$\{shiftId\}.*\]/);
+  assert.match(block, /tx\.update\(scheduleRef,updates\)/);
   assert.doesNotMatch(source, /cloudDirtyRef/);
   assert.doesNotMatch(source, /cloudPending:cloudDirtyRef/);
 });
