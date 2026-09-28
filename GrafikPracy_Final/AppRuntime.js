@@ -640,7 +640,7 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(collection(db,'schedules'), async snap => {
+    const unsub = onSnapshot(collection(db,'schedules'), {includeMetadataChanges:true}, async snap => {
       const weekDocs = snap.docs.filter(d => d.id !== 'main');
       if (cloudRole === 'admin' && !legacyMigrationRef.current && weekDocs.length === 0) {
         legacyMigrationRef.current = true;
@@ -687,7 +687,10 @@ export default function App() {
           remoteWeeks[d.id] = normalized;
           cloudWeekBaselineRef.current[d.id] = normalized;
         }
-        if (data.config) remoteConfigs[d.id] = data.config;
+        if (data.config) {
+          remoteConfigs[d.id] = data.config;
+          cloudWeekBaselineRef.current[`${d.id}:config`] = data.config;
+        }
         cloudUpdatedAtByWeekRef.current[d.id] = data.updatedAt?.toMillis?.() ?? null;
       });
       cloudApplying.current = true;
@@ -701,7 +704,7 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
+    const unsub = onSnapshot(doc(db,'settings','main'), {includeMetadataChanges:true}, snap => {
       if (!snap.exists()) return;
       const data = snap.data() || {};
       cloudApplying.current = true;
