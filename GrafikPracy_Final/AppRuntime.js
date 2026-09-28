@@ -614,7 +614,7 @@ export default function App() {
     const map = {};
     (week || []).forEach((day, di) => {
       (day.shifts || []).forEach((shift, si) => {
-        const date = iso(addDays(new Date(weekKey + 'T00:00:00'), di));
+        const date = weekDateKey(weekKey, di);
         map[`shift_${date}_${si + 1}`] = {
           id: shift.id || `${di}-${si+1}`,
           shift: si + 1,
