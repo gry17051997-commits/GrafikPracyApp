@@ -25,7 +25,7 @@ jobs:
   runtime_test:
     name: Real app Android smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
 
     defaults:
       run:
@@ -70,11 +70,12 @@ jobs:
       - name: Start Android emulator and run real app
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_2
           cores: 4
+          disable-spellchecker: true
           force-avd-creation: true
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect
           disable-animations: true
