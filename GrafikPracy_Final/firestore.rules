@@ -142,7 +142,7 @@ service cloud.firestore {
           && request.resource.data.longitude <= 180);
 
       allow update: if isAdmin()
-        || (signedIn()
+        || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
           && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
           && resource.data.ownerUid == request.auth.uid
@@ -177,7 +177,7 @@ service cloud.firestore {
             && request.resource.data.longitude <= 180);
 
         allow update: if isAdmin()
-          || (signedIn()
+          || (activeUser()
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
             && resource.data.ownerUid == request.auth.uid
