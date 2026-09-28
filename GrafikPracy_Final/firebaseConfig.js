@@ -34,4 +34,4 @@ export const auth = firebaseApp
 
 export const db = firebaseApp ? getFirestore(firebaseApp) : null;
 
-export const functions = firebaseApp ? getFunctions(firebaseApp) : null;
+export const functions = firebaseApp ? getFunctions(firebaseApp,'us-central1') : null;
