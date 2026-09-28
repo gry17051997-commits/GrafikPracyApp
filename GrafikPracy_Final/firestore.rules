@@ -6,9 +6,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
+    function activeUser() {
       return signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('disabled', false) != true;
+    }
+
+    function isAdmin() {
+      return activeUser()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
@@ -64,7 +69,7 @@ service cloud.firestore {
     }
 
     match /schedules/{weekId} {
-      allow read: if signedIn() && weekId != 'main';
+      allow read: if activeUser() && weekId != 'main';
       allow create, update: if isAdmin()
         && weekId != 'main'
         && request.resource.data.weekId == weekId;
@@ -72,13 +77,13 @@ service cloud.firestore {
     }
 
     match /settings/main {
-      allow read: if signedIn();
+      allow read: if activeUser();
       allow write: if isAdmin();
     }
 
     match /proposals/{proposalId} {
-      allow read: if isAdmin() || (signedIn() && resource.data.fromUid == request.auth.uid);
-      allow create: if signedIn()
+      allow read: if isAdmin() || (activeUser() && resource.data.fromUid == request.auth.uid);
+      allow create: if activeUser()
         && request.resource.data.fromUid == request.auth.uid
         && request.resource.data.status == 'pending'
         && (isAdmin()
@@ -89,8 +94,8 @@ service cloud.firestore {
     }
 
     match /chatMessages/{messageId} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+      allow read: if activeUser();
+      allow create: if activeUser()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
@@ -99,7 +104,7 @@ service cloud.firestore {
     }
 
     match /whatsappReports/{reportId} {
-      allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isAdmin() || (activeUser() && resource.data.uid == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.text is string
@@ -109,13 +114,13 @@ service cloud.firestore {
     }
 
     match /locationConfig/main {
-      allow read: if signedIn();
+      allow read: if activeUser();
       allow write: if isAdmin();
     }
 
     match /vehicleTracking/{vehicleId} {
       allow read: if isAdmin()
-        || (signedIn()
+        || (activeUser()
           && (get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
             || resource.data.ownerUid == request.auth.uid));
 
@@ -124,7 +129,7 @@ service cloud.firestore {
       // nie może utworzyć dokumentu pod innym vehicleId tylko przez zmianę
       // lokalnej konfiguracji telefonu.
       allow create: if isAdmin()
-        || (signedIn()
+        || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
           && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
           && request.resource.data.vehicleId == vehicleId
@@ -137,7 +142,7 @@ service cloud.firestore {
           && request.resource.data.longitude <= 180);
 
       allow update: if isAdmin()
-        || (signedIn()
+        || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
           && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
           && resource.data.ownerUid == request.auth.uid
@@ -154,12 +159,12 @@ service cloud.firestore {
 
       match /locations/{locationId} {
         allow read: if isAdmin()
-          || (signedIn()
+          || (activeUser()
             && (get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
               || resource.data.ownerUid == request.auth.uid));
 
         allow create: if isAdmin()
-          || (signedIn()
+          || (activeUser()
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
             && request.resource.data.vehicleId == vehicleId
@@ -172,7 +177,7 @@ service cloud.firestore {
             && request.resource.data.longitude <= 180);
 
         allow update: if isAdmin()
-          || (signedIn()
+          || (activeUser()
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
             && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
             && resource.data.ownerUid == request.auth.uid
