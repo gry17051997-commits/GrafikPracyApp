@@ -68,3 +68,24 @@ test('week payload cannot accidentally carry the complete multi-week state', () 
   );
   assert.deepEqual(Object.keys(payload).sort(), ['config','week','weekId']);
 });
+
+test('runtime dashboards do not use interval-driven React tickers', async () => {
+  const fs = await import('node:fs/promises');
+  const paths = [
+    '../Dashboard.js',
+    '../NowDashboard.js',
+    '../LiveLocationDashboard.js'
+  ];
+  for (const relative of paths) {
+    const source = await fs.readFile(new URL(relative, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /setInterval\s*\(/);
+    assert.match(source, /useSecondTicker\(/);
+  }
+});
+
+test('shared ticker uses requestAnimationFrame and cancels on unmount', async () => {
+  const fs = await import('node:fs/promises');
+  const source = await fs.readFile(new URL('../hooks/useSecondTicker.js', import.meta.url), 'utf8');
+  assert.match(source, /requestAnimationFrame\(/);
+  assert.match(source, /cancelAnimationFrame\(/);
+});
