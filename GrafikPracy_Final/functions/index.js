@@ -44,7 +44,7 @@ async function writeAudit(db,entry,action) {
   }
 }
 
-exports.deleteUserAccount = onCall(async request => {
+exports.deleteUserAccount = onCall({region:'us-central1'}, async request => {
   const db = getFirestore();
   const auth = getAuth();
   if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
@@ -85,7 +85,7 @@ exports.deleteUserAccount = onCall(async request => {
   return {ok:true,uid};
 });
 
-exports.createUserAccount = onCall(async request => {
+exports.createUserAccount = onCall({region:'us-central1'}, async request => {
   const db = getFirestore();
   const auth = getAuth();
   if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
@@ -158,7 +158,7 @@ exports.createUserAccount = onCall(async request => {
   return {ok:true,uid:user.uid,email:user.email};
 });
 
-exports.updateUserProfile = onCall(async request => {
+exports.updateUserProfile = onCall({region:'us-central1'}, async request => {
   const db = getFirestore();
   const auth = getAuth();
   if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
