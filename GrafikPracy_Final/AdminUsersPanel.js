@@ -31,7 +31,7 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!modal)return;
     setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
     try{
-      const fn=httpsCallable(getFunctions(firebaseApp),modal.mode==='create'?'createUserAccount':'updateUserProfile');
+      const fn=httpsCallable(getFunctions(firebaseApp,'us-central1'),modal.mode==='create'?'createUserAccount':'updateUserProfile');
       await fn(modal.mode==='create'?form:{...form,uid:modal.user.uid});
       setModal(null);
       Alert.alert('Gotowe',modal.mode==='create'?(form.role==='locator'?'Lokalizator został dodany.':form.role==='admin'?'Administrator został dodany.':'Pracownik został dodany.'):(form.role==='locator'?'Dane lokalizatora zapisane.':form.role==='admin'?'Dane administratora zapisane.':'Dane pracownika zapisane.'));
