@@ -29,13 +29,6 @@ service cloud.firestore {
         && request.resource.data.role == 'employee'
         && request.resource.data.email is string;
 
-      allow update: if signedIn()
-        && request.auth.uid == uid
-        && !isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['personKey'])
-        && validPersonKey(request.resource.data.personKey)
-        && request.resource.data.role == resource.data.role;
-
       allow update: if isAdmin()
         && uid != request.auth.uid
         && request.resource.data.uid == uid
@@ -45,7 +38,22 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Legacy monolithic schedule is retained read-only for administrators during migration.
+    // New clients must use schedules/{weekId}.
     match /schedules/main {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /schedules/{weekId} {
+      allow read: if signedIn() && weekId != 'main';
+      allow create, update: if isAdmin()
+        && weekId != 'main'
+        && request.resource.data.weekId == weekId;
+      allow delete: if isAdmin() && weekId != 'main';
+    }
+
+    match /settings/main {
       allow read: if signedIn();
       allow write: if isAdmin();
     }

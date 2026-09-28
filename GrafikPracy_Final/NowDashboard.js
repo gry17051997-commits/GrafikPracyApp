@@ -16,6 +16,7 @@ const fallbackWeek=(rotation,warehouse)=>{const a=rotation==='P'?'P':'M',b=a==='
 const fmt=d=>d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
 const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec%3600/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
 const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
+const serverMillis=ts=>Number.isFinite(Number(ts))?Number(ts):(typeof ts?.toMillis==='function'?ts.toMillis():0);
 const idFor=v=>String(v||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
 const mapHtml=loc=>{
  const points=JSON.stringify(loc||null);
@@ -41,11 +42,11 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        const rows=exactMode
          ? (snap.exists() ? [{id:snap.id,...snap.data()}] : [])
          : snap.docs.map(d=>({id:d.id,...d.data()}));
-       const valid=rows.filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&Number(x.updatedAt)>0);
+       const valid=rows.filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&serverMillis(x.updatedAt)>0);
        if(!valid.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
        const exact=exactMode ? valid[0] : requested&&valid.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
-       const fresh=valid.filter(x=>Date.now()-Number(x.updatedAt)<=180000).sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt));
-       const selected=requested ? ((exact&&Date.now()-Number(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>Number(b.updatedAt)-Number(a.updatedAt))[0]);
+       const fresh=valid.filter(x=>Date.now()-serverMillis(x.updatedAt)<=180000).sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt));
+       const selected=requested ? ((exact&&Date.now()-serverMillis(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt))[0]);
        setLocation(selected||null);
        setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
      };
@@ -118,7 +119,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.sectionHeader}><Text style={S.sectionTitle}>📍 Lokalizacja auta</Text></View>
    <View style={S.locationCard}>
      <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:'🟢 AUTO ONLINE'):'🔴 BRAK LOKALIZACJI'}</Text>
-     {location&&<><Text style={S.locationCoords}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}</Text><Text style={S.locationMeta}>Aktualizacja {new Date(Number(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
+     {location&&<><Text style={S.locationCoords}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}</Text><Text style={S.locationMeta}>Aktualizacja {new Date(serverMillis(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
      <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} loading="lazy" src={webMapSrc(location)}/>:<WebView originWhitelist={['*']} source={{html:mapHtml(location)}} style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
    </View>
  </ScrollView>;
