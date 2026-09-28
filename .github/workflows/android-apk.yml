@@ -18,17 +18,14 @@ concurrency:
 
 env:
   EXPO_NO_DOCTOR: "1"
+  EXPO_NO_TELEMETRY: "1"
   CI: "1"
 
 jobs:
   runtime_test:
-    name: Runtime TEST ${{ matrix.test }}
+    name: Real app Android smoke test
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        test: [1, 2, 3, 4]
+    timeout-minutes: 40
 
     defaults:
       run:
@@ -52,128 +49,25 @@ jobs:
           java-version: "17"
 
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
-      - name: Select controlled App.js test
-        env:
-          TEST_ID: ${{ matrix.test }}
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-
-          test = os.environ["TEST_ID"]
-
-          common = """import React from 'react';
-          import { View, Text, StyleSheet } from 'react-native';
-
-          const S = StyleSheet.create({
-            root: { flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center', padding: 20 },
-            text: { color: '#fff', fontSize: 28, fontWeight: '900', textAlign: 'center' },
-            sub: { color: '#9db9ff', fontSize: 14, marginTop: 8, textAlign: 'center' }
-          });
-          """
-
-          tests = {
-            "1": common + """
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 1: ENTRY POINT</Text>
-              <Text style={S.sub}>Native + JS render OK</Text>
-            </View>;
-          }
-          """,
-            "2": common + """
-          import { FIREBASE_ENABLED, auth, db } from './firebaseConfig';
-
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 2: FIREBASE</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>Auth: {auth ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>Firestore: {db ? 'OK' : 'FAIL'}</Text>
-            </View>;
-          }
-          """,
-            "3": common + """
-          import { FIREBASE_ENABLED } from './firebaseConfig';
-          import './LocationService';
-
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 3: LOCATION</Text>
-              <Text style={S.sub}>LocationService loaded OK</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-            </View>;
-          }
-          """,
-            "4": common + """
-          import AsyncStorage from '@react-native-async-storage/async-storage';
-          import * as Sharing from 'expo-sharing';
-          import * as Print from 'expo-print';
-          import * as Notifications from 'expo-notifications';
-          import * as Clipboard from 'expo-clipboard';
-          import { captureRef } from 'react-native-view-shot';
-          import * as Location from 'expo-location';
-          import { FIREBASE_ENABLED } from './firebaseConfig';
-          import './LocationService';
-          import { onAuthStateChanged } from 'firebase/auth';
-          import { doc, onSnapshot, collection, query } from 'firebase/firestore';
-
-          Notifications.setNotificationHandler({
-            handleNotification: async () => ({
-              shouldShowBanner: true,
-              shouldShowList: true,
-              shouldPlaySound: true,
-              shouldSetBadge: false
-            })
-          });
-
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 4: ALL IMPORTS</Text>
-              <Text style={S.sub}>All imports loaded</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>AsyncStorage: OK</Text>
-              <Text style={S.sub}>Notifications: OK</Text>
-            </View>;
-          }
-          """
-          }
-
-          Path("App.js").write_text(tests[test], encoding="utf-8")
-          PY
-
-      - name: Verify selected source
-        run: |
-          echo "=== TEST ${{ matrix.test }} App.js ==="
-          sed -n '1,220p' App.js
+      - name: Run hardening tests
+        run: npm test
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
-      - name: Configure embedded JS bundling
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("android/app/build.gradle")
-          text = path.read_text()
-          marker = "react {\n"
-          if marker not in text:
-              raise SystemExit("React Gradle configuration block not found")
-          block = '''react {
-              cliFile = new File(["node", "--print", "require.resolve('@expo/cli')"].execute(null, rootDir).text.trim())
-              bundleCommand = "export:embed"
-              debuggableVariants = []
-          '''
-          path.write_text(text.replace(marker, block, 1))
-          PY
-
-      - name: Build APK
+      - name: Build real debug APK
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
 
-      - name: Start Android emulator and run app
+      - name: Verify APK
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t android/app/build/outputs/apk/debug/app-debug.apk >/dev/null
+          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Start Android emulator and run real app
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -190,33 +84,40 @@ jobs:
             adb logcat -c
             adb shell monkey -p pl.grafikpracy.app 1
             LAUNCH_RC=$?
-            sleep 8
+            sleep 10
+            adb shell pidof pl.grafikpracy.app > runtime-pid.txt
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
             adb pull /sdcard/window.xml runtime-window.xml >/dev/null 2>&1
             adb logcat -d > runtime-logcat.txt
-            adb shell pidof pl.grafikpracy.app > runtime-pid.txt
+
             echo "INSTALL_RC=$INSTALL_RC"
             echo "LAUNCH_RC=$LAUNCH_RC"
-            echo "=== UI DUMP ==="
-            cat runtime-window.xml 2>/dev/null
             echo "=== PROCESS ==="
             cat runtime-pid.txt 2>/dev/null
             echo "=== FATAL/ERROR LOGS ==="
             grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" runtime-logcat.txt | tail -200
-            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi
-            if grep -q "TEST ${{ matrix.test }}" runtime-window.xml; then
-              echo "TEST ${{ matrix.test }} UI marker FOUND"
-              exit 0
+
+            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then
+              exit 1
             fi
-            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
-            exit 2
+
+            if ! grep -q '[0-9]' runtime-pid.txt; then
+              echo "Application process is not running after launch."
+              exit 2
+            fi
+
+            if grep -E -q "FATAL EXCEPTION|Unable to load script|Could not connect to development server" runtime-logcat.txt; then
+              echo "Fatal runtime error detected."
+              exit 3
+            fi
 
       - name: Upload runtime diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: runtime-test-${{ matrix.test }}
+          name: grafik-pracy-real-android-runtime
           path: |
+            GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
             GrafikPracy_Final/runtime-logcat.txt
             GrafikPracy_Final/runtime-window.xml
             GrafikPracy_Final/runtime-pid.txt
