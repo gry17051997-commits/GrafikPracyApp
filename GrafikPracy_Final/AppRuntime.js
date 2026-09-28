@@ -697,31 +697,39 @@ export default function App() {
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
     cloudSaveTimerRef.current=setTimeout(async()=>{
       const scheduleRef=doc(db,'schedules',wkKey);
+      const settingsRef=doc(db,'settings','main');
       const expectedUpdatedAt=cloudUpdatedAtByWeekRef.current[wkKey] ?? null;
       try {
-        const before=await getDoc(scheduleRef);
-        const remoteUpdatedAt=before.exists()?before.data()?.updatedAt?.toMillis?.() ?? null:null;
-        if (expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
-          throw new Error('schedule-conflict');
-        }
-        await setDoc(scheduleRef,{
-          weekId:wkKey,
-          week:weeks[wkKey] || currentWeek,
-          config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
-          updatedAt:serverTimestamp(),
-          updatedBy:cloudUser.uid
-        },{merge:true});
+        await runTransaction(db,async tx=>{
+          const scheduleSnap=await tx.get(scheduleRef);
+          const settingsSnap=await tx.get(settingsRef);
+          const remoteUpdatedAt=scheduleSnap.exists()?scheduleSnap.data()?.updatedAt?.toMillis?.() ?? null:null;
 
-        await setDoc(doc(db,'settings','main'),{
-          hours,rotation,warehouse,autoGenerateWeeks,allow24h,
-          times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
-          personColors,conditions,recoveryBalances,recoveryLedger,
-          updatedAt:serverTimestamp(),updatedBy:cloudUser.uid
-        },{merge:true});
+          if (expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
+            throw new Error('schedule-conflict');
+          }
+
+          tx.set(scheduleRef,{
+            weekId:wkKey,
+            week:weeks[wkKey] || currentWeek,
+            config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
+            updatedAt:serverTimestamp(),
+            updatedBy:cloudUser.uid
+          },{merge:true});
+
+          tx.set(settingsRef,{
+            hours,rotation,warehouse,autoGenerateWeeks,allow24h,
+            times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
+            personColors,conditions,recoveryBalances,recoveryLedger,
+            updatedAt:serverTimestamp(),updatedBy:cloudUser.uid
+          },{merge:true});
+        });
 
         cloudDirtyRef.current=false;
         const latest=await getDoc(scheduleRef);
-        cloudUpdatedAtByWeekRef.current[wkKey]=latest.exists()?latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtByWeekRef.current[wkKey]:cloudUpdatedAtByWeekRef.current[wkKey];
+        cloudUpdatedAtByWeekRef.current[wkKey]=latest.exists()
+          ? latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtByWeekRef.current[wkKey]
+          : cloudUpdatedAtByWeekRef.current[wkKey];
       } catch(e) {
         if(e?.message==='schedule-conflict'){
           cloudDirtyRef.current=false;
