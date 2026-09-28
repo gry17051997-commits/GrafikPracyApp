@@ -920,3 +920,23 @@ test('notification response handling ignores duplicate or stale last-response de
   assert.match(app, /handledReportNotificationRef\.current === id/);
   assert.match(app, /AsyncStorage\.getItem\(REPORT_LAST_HANDLED_NOTIFICATION_KEY\)/);
 });
+
+test('locator restarts GPS after an active vehicle reassignment', () => {
+  const app = read('AppRuntime.js');
+  const start = app.indexOf('if (localAssigned !== assigned)');
+  const end = app.indexOf('\n            return;', start);
+  const block = app.slice(start, end);
+  assert.match(block, /const wasTracking = local\.enabled === true/);
+  assert.match(block, /await saveVehicleLocationAssignment\(assigned\)/);
+  assert.match(block, /await ensureVehicleLocationTracking\(\)/);
+  assert.match(block, /setLocationTracking\(true\)/);
+});
+
+test('live GPS cache is not blocked by history write failure', () => {
+  const service = read('LocationService.js');
+  const start = service.indexOf('if(!saved) throw lastError');
+  const end = service.indexOf('// Retencją 7 dni', start);
+  const block = service.slice(start, end);
+  assert.match(block, /LOCATION_HISTORY_WRITE_ERROR/);
+  assert.match(block, /await AsyncStorage\.setItem\(LOCATION_CURRENT_KEY/);
+});

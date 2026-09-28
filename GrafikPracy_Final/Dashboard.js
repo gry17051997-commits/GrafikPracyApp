@@ -1,5 +1,6 @@
-import React,{useEffect,useMemo,useState} from 'react';
+import React,{useMemo} from 'react';
 import {View,Text,StyleSheet} from 'react-native';
+import useSecondTicker from './hooks/useSecondTicker';
 
 const PEOPLE={P:'Paweł',M:'Mateusz',L:'Łukasz'};
 const DAYS=['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
@@ -13,8 +14,7 @@ const fmt=d=>d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec%3600/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
 
 export default function Dashboard({weeks,rotation,warehouse,times,now=new Date()}){
- const [,tick]=useState(0);
- useEffect(()=>{const id=setInterval(()=>tick(x=>x+1),1000);return()=>clearInterval(id);},[]);
+ useSecondTicker(1000);
  const info=useMemo(()=>{
   const base=monday(now),all=[];
   [0,1].forEach(wo=>{const ws=addDays(base,wo*7),w=weeks?.[iso(ws)]||fallbackWeek(rotation,warehouse);(w||[]).forEach((d,di)=>(d.shifts||[]).forEach((s,si)=>{if(!s.person)return;const start=dateTime(addDays(ws,di),si===0?times?.s1:times?.s2),end=dateTime(addDays(ws,di),si===0?times?.e1:times?.e2);if(end<=start)end.setDate(end.getDate()+1);all.push({person:s.person,warehouse:s.warehouse||d.warehouse||warehouse,start,end,day:di,date:addDays(ws,di),shift:si+1});}));});

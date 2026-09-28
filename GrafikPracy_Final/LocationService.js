@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, deleteDoc, doc, getDocs, limit, query, where, setDoc} from 'firebase/firestore';
+import {collection, doc, setDoc, serverTimestamp} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
@@ -81,7 +81,9 @@ async function saveLocationInternal(location) {
     altitude:Number(c.altitude||0),
     speed:Number.isFinite(c.speed)?Number(c.speed):null,
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
-    updatedAt:now
+    // Server time is authoritative for freshness; clientObservedAt is only diagnostic/local fallback.
+    updatedAt:serverTimestamp(),
+    clientObservedAt:now
   };
   let saved=false;
   let lastError=null;
@@ -95,28 +97,31 @@ async function saveLocationInternal(location) {
     }
   }
   if(!saved) throw lastError || new Error('Nie udało się zapisać pozycji GPS.');
+
+  // Bieżąca pozycja jest źródłem prawdy dla podglądu live. Awaria zapisu
+  // historii nie może blokować jej lokalnego cache ani kolejnych punktów.
   let last=null;
   try {
     const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);
     last=raw?JSON.parse(raw):null;
   } catch(e) {}
+
   const moved=last?distanceMeters(last,payload):Infinity;
   const lastHistoryAt=Number(last?.historyAt||0);
-  if (!last || moved>=80 || now-lastHistoryAt>=120000) {
-    await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
-    payload.historyAt=now;
-  } else {
-    payload.historyAt=lastHistoryAt;
+  const shouldStoreHistory=!last || moved>=80 || now-lastHistoryAt>=120000;
+  payload.historyAt=shouldStoreHistory?now:lastHistoryAt;
+
+  if (shouldStoreHistory) {
+    try {
+      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
+    } catch(e) {
+      console.log('LOCATION_HISTORY_WRITE_ERROR',e);
+    }
   }
+
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
-  // Historia ma być utrzymywana deterministycznie w oknie 7 dni.
-  // Nie uzależniamy sprzątania od losowania, bo przy rzadszych zapisach
-  // stare punkty mogłyby pozostać w Firestore znacznie dłużej.
-  try {
-    const cutoff=Date.now()-7*24*60*60*1000;
-    const old=await getDocs(query(collection(db,'vehicleTracking',vehicleId,'locations'),where('updatedAt','<',cutoff),limit(100)));
-    await Promise.all(old.docs.map(d=>deleteDoc(d.ref)));
-  } catch(e) {}
+  // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
+  // zapytań i deleteDoc przy każdym punkcie GPS.
 }
 
 // Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie

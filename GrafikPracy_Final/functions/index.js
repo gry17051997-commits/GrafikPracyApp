@@ -1,4 +1,5 @@
 const {onCall,HttpsError} = require('firebase-functions/v2/https');
+const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {initializeApp} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
 const {getFirestore} = require('firebase-admin/firestore');
@@ -33,6 +34,14 @@ function validatePersonKey(value) {
 
 function validateRole(value) {
   return VALID_ROLES.has(value);
+}
+
+async function writeAudit(db,entry,action) {
+  try {
+    await db.collection('audit').add(entry);
+  } catch (error) {
+    console.error(action+' audit error', error);
+  }
 }
 
 exports.deleteUserAccount = onCall(async request => {
@@ -71,17 +80,7 @@ exports.deleteUserAccount = onCall(async request => {
     );
   }
 
-  try {
-    await db.collection('audit').add({
-      action:'delete-user',
-      targetUid:uid,
-      actorUid:request.auth.uid,
-      createdAt:new Date()
-    });
-  } catch (auditError) {
-    console.error('deleteUserAccount audit error', auditError);
-    throw new HttpsError('internal','Konto zostało usunięte, ale nie udało się zapisać audytu.');
-  }
+  await writeAudit(db,{action:'delete-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'deleteUserAccount');
 
   return {ok:true,uid};
 });
@@ -113,6 +112,11 @@ exports.createUserAccount = onCall(async request => {
   }
   if (!validateRole(role)) {
     throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  }
+
+  if (personKey) {
+    const existing = await db.collection('users').where('personKey','==',personKey).limit(1).get();
+    if (!existing.empty) throw new HttpsError('already-exists','Ten identyfikator pracownika jest już przypisany do innego konta.');
   }
 
   let user;
@@ -149,17 +153,7 @@ exports.createUserAccount = onCall(async request => {
     throw new HttpsError('internal','Nie udało się utworzyć profilu pracownika. Konto logowania zostało wycofane.');
   }
 
-  try {
-    await db.collection('audit').add({
-      action:'create-user',
-      targetUid:user.uid,
-      actorUid:request.auth.uid,
-      createdAt:new Date()
-    });
-  } catch (auditError) {
-    console.error('createUserAccount audit error', auditError);
-    throw new HttpsError('internal','Konto zostało utworzone, ale nie udało się zapisać audytu.');
-  }
+  await writeAudit(db,{action:'create-user',targetUid:user.uid,actorUid:request.auth.uid,createdAt:new Date()},'createUserAccount');
 
   return {ok:true,uid:user.uid,email:user.email};
 });
@@ -202,6 +196,12 @@ exports.updateUserProfile = onCall(async request => {
     throw new HttpsError('failed-precondition','Nie możesz odebrać sobie roli administratora.');
   }
 
+  if (personKey && personKey !== current.personKey) {
+    const existing = await db.collection('users').where('personKey','==',personKey).limit(2).get();
+    const conflict = existing.docs.find(item => item.id !== uid);
+    if (conflict) throw new HttpsError('already-exists','Ten identyfikator pracownika jest już przypisany do innego konta.');
+  }
+
   const update = {
     uid,
     displayName,
@@ -240,17 +240,34 @@ exports.updateUserProfile = onCall(async request => {
     throw new HttpsError('internal','Nie udało się zaktualizować konta logowania. Zmiany profilu zostały wycofane.');
   }
 
-  try {
-    await db.collection('audit').add({
-      action:'update-user',
-      targetUid:uid,
-      actorUid:request.auth.uid,
-      createdAt:new Date()
-    });
-  } catch (auditError) {
-    console.error('updateUserProfile audit error', auditError);
-    throw new HttpsError('internal','Użytkownik został zaktualizowany, ale nie udało się zapisać audytu.');
-  }
+  await writeAudit(db,{action:'update-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'updateUserProfile');
 
   return {ok:true,uid};
 });
+
+
+exports.cleanupVehicleLocationHistory = onSchedule(
+  {schedule:'0 3 * * *',timeZone:'Europe/Warsaw',retryCount:2},
+  async () => {
+    const db = getFirestore();
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const vehicles = await db.collection('vehicleTracking').get();
+    let deleted = 0;
+
+    for (const vehicle of vehicles.docs) {
+      const old = await vehicle.ref
+        .collection('locations')
+        .where('updatedAt','<',cutoff)
+        .limit(500)
+        .get();
+
+      if (old.empty) continue;
+      const batch = db.batch();
+      old.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+      deleted += old.size;
+    }
+
+    console.log('cleanupVehicleLocationHistory', {vehicles:vehicles.size, deleted});
+  }
+);

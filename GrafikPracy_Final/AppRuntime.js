@@ -31,6 +31,7 @@ import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, orderBy, limit, runTransaction} from 'firebase/firestore';
+import {canAssignPersonToDay} from './scheduleEngine';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
@@ -42,14 +43,6 @@ const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false
-  })
-});
 const PEOPLE = {
   P: {name: 'Paweł', color: '#4f8cff'},
   M: {name: 'Mateusz', color: '#8f6cff'},
@@ -119,6 +112,20 @@ function generateWeek(rotation='P', warehouse='PNT B') {
   return w;
 }
 
+function ChatComposer({busy,onSend}) {
+  const [text,setText]=useState('');
+  const submit=async()=>{
+    const body=text.trim();
+    if(!body || busy) return;
+    const ok=await onSend(body);
+    if(ok) setText('');
+  };
+  return <View style={S.chatComposer}>
+    <TextInput value={text} onChangeText={setText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>
+    <TouchableOpacity disabled={busy || !text.trim()} style={[S.generate,S.chatSend]} onPress={submit}><Text style={S.btnText}>{busy?'…':'WYŚLIJ'}</Text></TouchableOpacity>
+  </View>;
+}
+
 function cloneWeek(w) {
   return (w || []).map(d => ({
     ...d,
@@ -153,6 +160,7 @@ export default function App() {
   const [weekStart,setWeekStart] = useState(monday(new Date()));
   const [weekConfigs,setWeekConfigs] = useState({});
   const [autoGenerateWeeks,setAutoGenerateWeeks] = useState(false);
+  const [allow24h,setAllow24h] = useState(false);
   const [weekSetup,setWeekSetup] = useState(null);
   const [dismissedWeekSetupKey,setDismissedWeekSetupKey] = useState('');
   const [weekSetupHours,setWeekSetupHours] = useState(10);
@@ -181,6 +189,8 @@ export default function App() {
   const cloudDirtyRef = useRef(false);
   const scheduleHydratedRef = useRef(false);
   const scheduleDirtyTrackingStartedRef = useRef(false);
+  const legacyMigrationRef = useRef(false);
+  const cloudUpdatedAtByWeekRef = useRef({});
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
@@ -211,7 +221,6 @@ export default function App() {
   const [locationBusy,setLocationBusy] = useState(false);
   const locationConfigLoaded = useRef(false);
   const [chatMessages,setChatMessages] = useState([]);
-  const [chatText,setChatText] = useState('');
   const [chatBusy,setChatBusy] = useState(false);
   const [cloudUpdated,setCloudUpdated] = useState(false);
   const [sharePerson,setSharePerson] = useState('all');
@@ -347,6 +356,7 @@ export default function App() {
           setWeeks(data.weeks || {});
           setWeekConfigs(data.weekConfigs || {});
           setAutoGenerateWeeks(!!data.autoGenerateWeeks);
+          setAllow24h(!!data.allow24h);
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
@@ -386,13 +396,13 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
@@ -458,11 +468,16 @@ export default function App() {
               return;
             }
             if (localAssigned !== assigned) {
-              if (local.enabled === true) {
+              const wasTracking = local.enabled === true;
+              if (wasTracking) {
                 await stopVehicleLocationTracking();
                 setLocationTracking(false);
               }
               await saveVehicleLocationAssignment(assigned);
+              if (wasTracking) {
+                const restarted = await ensureVehicleLocationTracking();
+                if (restarted.ok) setLocationTracking(true);
+              }
               return;
             }
             if (local.enabled === true) {
@@ -564,42 +579,81 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(doc(db,'schedules','main'), {includeMetadataChanges:true}, snap => {
-      if (!snap.exists()) return;
-      const data = snap.data() || {};
-      const remoteUpdatedAt = data.updatedAt?.toMillis?.() ?? null;
-      if (cloudDirtyRef.current) {
-        if (remoteUpdatedAt === cloudUpdatedAtRef.current) {
-          if (!snap.metadata.fromCache) setCloudRetryTick(v => v + 1);
-          return;
+    const unsub = onSnapshot(collection(db,'schedules'), async snap => {
+      const weekDocs = snap.docs.filter(d => d.id !== 'main');
+      if (cloudRole === 'admin' && !legacyMigrationRef.current && weekDocs.length === 0) {
+        legacyMigrationRef.current = true;
+        try {
+          const legacy = await getDoc(doc(db,'schedules','main'));
+          if (legacy.exists()) {
+            const data = legacy.data() || {};
+            const entries = Object.entries(data.weeks || {});
+            await Promise.all(entries.map(([weekId, week]) =>
+              setDoc(doc(db,'schedules',weekId), {
+                weekId,
+                week,
+                config: data.weekConfigs?.[weekId] || null,
+                updatedAt: serverTimestamp(),
+                updatedBy: cloudUser.uid
+              }, {merge:true})
+            ));
+            await setDoc(doc(db,'settings','main'), {
+              hours:data.hours || 10,
+              rotation:data.rotation || 'P',
+              warehouse:data.warehouse || 'PNT B',
+              autoGenerateWeeks:!!data.autoGenerateWeeks,
+              allow24h:!!data.allow24h,
+              times:data.times || DEFAULT_TIMES,
+              personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
+              conditions:data.conditions || [],
+              recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
+              recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
+              migratedFromLegacyAt:serverTimestamp(),
+              migratedBy:cloudUser.uid
+            }, {merge:true});
+          }
+        } catch (e) {
+          setCloudError('Nie udało się zmigrować starego grafiku. Kod: ' + (e?.code || e?.message || 'unknown'));
         }
-        if (snap.metadata.fromCache) return;
-        cloudDirtyRef.current = false;
-        AsyncStorage.getItem(KEY).then(raw => {
-          if (!raw) return;
-          const local = JSON.parse(raw);
-          return AsyncStorage.setItem(KEY,JSON.stringify({...local,cloudPending:false,cloudBaseUpdatedAt:remoteUpdatedAt}));
-        }).catch(()=>{});
       }
+
+      const remoteWeeks = {};
+      const remoteConfigs = {};
+      weekDocs.forEach(d => {
+        const data = d.data() || {};
+        if (data.week) remoteWeeks[d.id] = data.week;
+        if (data.config) remoteConfigs[d.id] = data.config;
+        cloudUpdatedAtByWeekRef.current[d.id] = data.updatedAt?.toMillis?.() ?? null;
+      });
+      if (cloudDirtyRef.current) return;
       cloudApplying.current = true;
-      cloudUpdatedAtRef.current = data.updatedAt?.toMillis?.() ?? null;
-      if (data.hours) setHours(data.hours);
-      if (data.rotation) setRotation(data.rotation);
-      if (data.warehouse) setWarehouse(data.warehouse);
-      if (data.weeks) setWeeks(data.weeks);
-      if (data.weekConfigs) setWeekConfigs(data.weekConfigs);
-      if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
-      if (data.personColors) setPersonColors(data.personColors);
-      if (data.conditions) setConditions(data.conditions);
-      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
-      setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
-      if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+      if (Object.keys(remoteWeeks).length) setWeeks(prev => ({...prev,...remoteWeeks}));
+      if (Object.keys(remoteConfigs).length) setWeekConfigs(prev => ({...prev,...remoteConfigs}));
       setCloudUpdated(true);
       setTimeout(() => setCloudUpdated(false), 2500);
     }, err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany')));
     return unsub;
-  },[cloudUser,guestMode]);
+  },[cloudUser,guestMode,cloudRole]);
 
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
+      if (!snap.exists() || cloudDirtyRef.current) return;
+      const data = snap.data() || {};
+      cloudApplying.current = true;
+      if (data.hours) setHours(data.hours);
+      if (data.rotation) setRotation(data.rotation);
+      if (data.warehouse) setWarehouse(data.warehouse);
+      if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
+      if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
+      if (data.personColors) setPersonColors(data.personColors);
+      if (data.conditions) setConditions(data.conditions);
+      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
+      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+      if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+    }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
+    return unsub;
+  },[cloudUser,guestMode]);
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
@@ -637,7 +691,7 @@ export default function App() {
         cloudBaseUpdatedAt:cloudUpdatedAtRef.current
       }));
     }).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
@@ -646,63 +700,49 @@ export default function App() {
       return;
     }
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
-    cloudSaveTimerRef.current=setTimeout(()=>{
-        const payload = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},personColors,conditions,recoveryBalances,recoveryLedger,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
-        const scheduleRef=doc(db,'schedules','main');
-        const expectedUpdatedAt=cloudUpdatedAtRef.current;
-        runTransaction(db,async tx=>{
-          const snap=await tx.get(scheduleRef);
-          const remoteUpdatedAt=snap.exists()?snap.data()?.updatedAt?.toMillis?.() ?? null:null;
-          if (snap.exists() && (expectedUpdatedAt === null || remoteUpdatedAt !== expectedUpdatedAt)) {
+    cloudSaveTimerRef.current=setTimeout(async()=>{
+      const scheduleRef=doc(db,'schedules',wkKey);
+      const settingsRef=doc(db,'settings','main');
+      const expectedUpdatedAt=cloudUpdatedAtByWeekRef.current[wkKey] ?? null;
+      try {
+        await runTransaction(db,async tx=>{
+          const scheduleSnap=await tx.get(scheduleRef);
+          const settingsSnap=await tx.get(settingsRef);
+          const remoteUpdatedAt=scheduleSnap.exists()?scheduleSnap.data()?.updatedAt?.toMillis?.() ?? null:null;
+
+          if (expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
             throw new Error('schedule-conflict');
           }
-          tx.set(scheduleRef,payload,{merge:true});
-        }).then(async ()=>{
-          cloudDirtyRef.current = false;
-          try {
-            const latest = await getDoc(scheduleRef);
-            const committedAt = latest.exists() ? (latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtRef.current) : cloudUpdatedAtRef.current;
-            cloudUpdatedAtRef.current = committedAt;
-            const raw = await AsyncStorage.getItem(KEY);
-            if (raw) {
-              const local = JSON.parse(raw);
-              await AsyncStorage.setItem(KEY,JSON.stringify({...local,cloudPending:false,cloudBaseUpdatedAt:committedAt}));
-            }
-          } catch(e) {}
-        }).catch(async e=>{
-          if(e?.message==='schedule-conflict'){
-            // The realtime listener will usually deliver the newer snapshot, but do
-            // not rely on that timing. Read the authoritative document immediately
-            // so this device cannot remain on the stale local schedule after a
-            // conflict is detected.
-            try {
-              const latest=await getDoc(scheduleRef);
-              if(latest.exists()){
-                const data=latest.data() || {};
-                cloudApplying.current=true;
-                cloudUpdatedAtRef.current=data.updatedAt?.toMillis?.() ?? null;
-                if(data.hours) setHours(data.hours);
-                if(data.rotation) setRotation(data.rotation);
-                if(data.warehouse) setWarehouse(data.warehouse);
-                if(data.weeks) setWeeks(data.weeks);
-                if(data.weekConfigs) setWeekConfigs(data.weekConfigs);
-                if(typeof data.autoGenerateWeeks==='boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
-                if(data.personColors) setPersonColors(data.personColors);
-                if(data.conditions) setConditions(data.conditions);
-                if(data.recoveryBalances) setRecoveryBalances({...{P:0,M:0,L:0},...data.recoveryBalances});
-                if(Array.isArray(data.recoveryLedger)) setRecoveryLedger(data.recoveryLedger);
-                if(data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
-              }
-              cloudDirtyRef.current = false;
-              setCloudError('Grafik został zmieniony na innym urządzeniu. Pobrano najnowszą wersję bez jej nadpisania.');
-            } catch(reloadError) {
-              setCloudError('Grafik został zmieniony na innym urządzeniu, ale nie udało się pobrać najnowszej wersji. Kod: ' + (reloadError?.code || 'unknown'));
-            }
-            return;
-          }
-          setCloudError('Nie udało się zapisać grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+
+          tx.set(scheduleRef,{
+            weekId:wkKey,
+            week:weeks[wkKey] || currentWeek,
+            config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
+            updatedAt:serverTimestamp(),
+            updatedBy:cloudUser.uid
+          },{merge:true});
+
+          tx.set(settingsRef,{
+            hours,rotation,warehouse,autoGenerateWeeks,allow24h,
+            times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
+            personColors,conditions,recoveryBalances,recoveryLedger,
+            updatedAt:serverTimestamp(),updatedBy:cloudUser.uid
+          },{merge:true});
         });
-      },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole,cloudRetryTick]);
+
+        cloudDirtyRef.current=false;
+        const latest=await getDoc(scheduleRef);
+        cloudUpdatedAtByWeekRef.current[wkKey]=latest.exists()
+          ? latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtByWeekRef.current[wkKey]
+          : cloudUpdatedAtByWeekRef.current[wkKey];
+      } catch(e) {
+        if(e?.message==='schedule-conflict'){
+          cloudDirtyRef.current=false;
+          setCloudError('Ten tydzień został zmieniony na innym urządzeniu. Nie nadpisano cudzych zmian. Odświeżenie pobierze wersję serwerową.');
+        } else {
+          setCloudError('Nie udało się zapisać tygodnia online. Kod: ' + (e?.code || e?.message || 'unknown'));
+        }
+      }
     },250);
     return () => {
       if (cloudSaveTimerRef.current) {
@@ -710,7 +750,7 @@ export default function App() {
         cloudSaveTimerRef.current=null;
       }
     };
-
+  },[ready,wkKey,weeks,weekConfigs,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger,cloudUser,cloudRole,cloudRetryTick]);
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
@@ -861,16 +901,16 @@ export default function App() {
     }
   };
 
-  const sendChatMessage = async () => {
-    const body = chatText.trim();
-    if (!body || chatBusy) return;
+  const sendChatMessage = async body => {
+    const normalized=String(body||'').trim();
+    if (!normalized || chatBusy) return false;
     setChatBusy(true);
-    const message = {text:body,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    const message = {text:normalized,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
     try {
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
       else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
-      setChatText('');
-    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); }
+      return true;
+    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); return false; }
     finally { setChatBusy(false); }
   };
 
@@ -923,11 +963,10 @@ export default function App() {
   };
 
   const cancelReportNotifications = async () => {
-    try {
-      const raw = await AsyncStorage.getItem(REPORT_NOTIFICATION_IDS_KEY);
-      const ids = raw ? JSON.parse(raw) : [];
-      await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
-    } catch(e) {}
+    // AsyncStorage is only a recovery/audit record. The OS scheduler is authoritative.
+    // Clear all scheduled notifications before rebuilding the report schedule so a
+    // killed process cannot leave orphaned alarms from an older shift plan.
+    try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch(e) {}
     await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
   };
 
@@ -973,7 +1012,7 @@ export default function App() {
           first.setMinutes(40,0,0);
           if (first <= shiftStart) first.setHours(first.getHours()+1);
 
-          for (let t = new Date(first); t < shiftEnd; t.setHours(t.getHours()+1)) {
+          for (let t = new Date(first); t < shiftEnd; t = new Date(t.getTime() + 3600000)) {
             if (t <= new Date()) continue;
             const notification = await Notifications.scheduleNotificationAsync({
               content: {
@@ -1235,7 +1274,7 @@ export default function App() {
       for (const slot of slots) {
         const slotState=result[slot.di].shifts[slot.si];
         if (slotState.person) continue;
-        if (result[slot.di].shifts.some(x=>x.person===p)) continue;
+        if (!canAssignPersonToDay(result[slot.di].shifts,p,allow24h)) continue;
         if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,slot.di,slot.si))) continue;
         if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,slot.di,slot.si))) continue;
         if (slot.offOriginalPerson && p===slot.offOriginalPerson) continue;
@@ -1264,7 +1303,7 @@ export default function App() {
         if(slot.offOriginalPerson && person === slot.offOriginalPerson) return false;
         if(targets[person]!==null && counts[person]>=targets[person]) return false;
         // Don't put the same person twice in a day unless explicitly forced.
-        if(result[slot.di].shifts.some(x=>x.person===person)) return false;
+        if(!canAssignPersonToDay(result[slot.di].shifts,person,allow24h)) return false;
         return true;
       });
       candidates.sort((a,b)=>{
@@ -1501,30 +1540,28 @@ export default function App() {
     try {
       if(FIREBASE_ENABLED && db) {
         const proposalRef=doc(db,'proposals',proposal.id);
-        const scheduleRef=doc(db,'schedules','main');
-        const committedWeeks=await runTransaction(db,async tx=>{
+        const scheduleRef=doc(db,'schedules',proposalWeekKey);
+        const committedWeek=await runTransaction(db,async tx=>{
           const proposalSnap=await tx.get(proposalRef);
           if(!proposalSnap.exists() || proposalSnap.data()?.status !== 'pending') {
             throw new Error('proposal-not-pending');
           }
           const scheduleSnap=await tx.get(scheduleRef);
           if(!scheduleSnap.exists()) throw new Error('schedule-missing');
-          const remoteWeeks=scheduleSnap.data()?.weeks || {};
-          const source=remoteWeeks[proposalWeekKey];
+          const source=scheduleSnap.data()?.week;
           const x=source?.[fromDay]?.shifts?.[fromShift-1];
           const y=source?.[toDay]?.shifts?.[toShift-1];
           if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
             throw new Error('proposal-stale');
           }
-          const nextWeeks={...remoteWeeks,[proposalWeekKey]:cloneWeek(source)};
-          const next=nextWeeks[proposalWeekKey];
+          const next=cloneWeek(source);
           const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
           const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
-          tx.update(scheduleRef,{weeks:nextWeeks,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
+          tx.update(scheduleRef,{week:next,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
           tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
-          return nextWeeks;
+          return next;
         });
-        setWeeks(nextWeeks=>committedWeeks);
+        setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
       } else {
         const source=weeks[proposalWeekKey];
         if(!source) throw new Error('schedule-missing');
@@ -1998,10 +2035,7 @@ export default function App() {
         }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}
       </View>
       {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (
-        <View style={S.chatComposer}>
-          <TextInput value={chatText} onChangeText={setChatText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>
-          <TouchableOpacity disabled={chatBusy || !chatText.trim()} style={[S.generate,S.chatSend]} onPress={sendChatMessage}><Text style={S.btnText}>{chatBusy?'…':'WYŚLIJ'}</Text></TouchableOpacity>
-        </View>
+        <ChatComposer busy={chatBusy} onSend={sendChatMessage}/>
       )}
       <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>
       <Text style={S.helpLine}>Każdy raport jest zapisywany w historii. Ponowne wysłanie kopiuje tekst i otwiera WhatsApp lub ustawioną grupę.</Text>
@@ -2328,9 +2362,9 @@ export default function App() {
       </TouchableOpacity>
 
       <Text style={S.section}>Mój profil</Text>
-      <Text style={S.helpLine}>Wybierz osobę przypisaną do tego konta. Dzięki temu pracownik może składać propozycje zamian ze swojej zmiany.</Text>
+      <Text style={S.helpLine}>Przypisanie P/M/L jest kontrolowane przez administratora i nie może być zmieniane przez pracownika.</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
-        {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)}]} onPress={async()=>{setMyPerson(k); if(FIREBASE_ENABLED&&db&&cloudUser){try{await updateDoc(doc(db,'users',cloudUser.uid),{personKey:k})}catch(e){setCloudError('Nie udało się zapisać profilu.')}}}}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+        {PERSON_KEYS.map(k=><TouchableOpacity key={k} disabled={FIREBASE_ENABLED} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)},FIREBASE_ENABLED&&{opacity:myPerson===k?1:0.45}]} onPress={()=>!FIREBASE_ENABLED&&setMyPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
       </ScrollView>
 
       <Text style={S.section}>⚡ Warunki generatora</Text>
@@ -2343,6 +2377,10 @@ export default function App() {
         <View style={S.option}>
           <View style={{flex:1}}><Text style={S.optionText}>Generuj kolejne tygodnie automatycznie</Text><Text style={S.muted}>{autoGenerateWeeks?'🟢 WŁĄCZONE':'🔴 WYŁĄCZONE'}</Text></View>
           <TouchableOpacity style={[S.btn,autoGenerateWeeks&&S.active]} onPress={()=>setAutoGenerateWeeks(v=>!v)}><Text style={S.btnText}>{autoGenerateWeeks?'WŁĄCZONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Zezwalaj na 24h / dwie zmiany tej samej osoby</Text><Text style={S.muted}>{allow24h?'🟢 DOZWOLONE':'🔴 ZABLOKOWANE'}</Text></View>
+          <TouchableOpacity style={[S.btn,allow24h&&S.active]} onPress={()=>setAllow24h(v=>!v)}><Text style={S.btnText}>{allow24h?'DOZWOLONE':'WŁĄCZ'}</Text></TouchableOpacity>
         </View>
         <Text style={S.section}>🔔 Propozycje zamian {proposals.filter(p=>p.status==='pending').length ? `(${proposals.filter(p=>p.status==='pending').length})` : ''}</Text>
         {proposals.filter(p=>p.status==='pending').slice(0,10).map(p=><View key={p.id} style={S.proposalCard}>
