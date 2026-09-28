@@ -89,3 +89,17 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /requestAnimationFrame\(/);
   assert.match(source, /cancelAnimationFrame\(/);
 });
+
+test('schedule cloud persistence uses an atomic Firestore transaction', async () => {
+  const fs = await import('node:fs/promises');
+  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const start = source.indexOf("const scheduleRef=doc(db,'schedules',wkKey);");
+  const end = source.indexOf("    },250);", start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+  assert.match(block, /runTransaction\(db,async tx=>/);
+  assert.match(block, /const scheduleSnap=await tx\.get\(scheduleRef\)/);
+  assert.match(block, /tx\.set\(scheduleRef/);
+  assert.match(block, /tx\.set\(settingsRef/);
+  assert.doesNotMatch(block, /await setDoc\(scheduleRef/);
+});
