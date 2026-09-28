@@ -25,7 +25,7 @@ import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
-import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, LOCATION_CONFIG_KEY} from './LocationService';
+import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, LOCATION_CONFIG_KEY} from './LocationService';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
@@ -2282,7 +2282,7 @@ export default function App() {
           await saveVehicleLocationAssignment(reg);
           if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
             await setDoc(doc(db,'locationConfig','main'),{
-              vehicleId:reg,
+              vehicleId:normalizeVehicleId(reg),
               registration:reg,
               updatedAt:serverTimestamp(),
               updatedBy:cloudUser.uid
