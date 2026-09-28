@@ -194,6 +194,8 @@ export default function App() {
   const remoteShiftMapByWeekRef = useRef({});
   const remoteWeekConfigByWeekRef = useRef({});
   const localDirtyShiftKeysRef = useRef({});
+  const weeksRef = useRef({});
+  weeksRef.current = weeks;
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
@@ -697,9 +699,9 @@ export default function App() {
           );
           const remoteWeek = shiftMapToWeek(shiftMap, fallback, key);
           const dirtyKeys = new Set(localDirtyShiftKeysRef.current[key] || []);
-          if (dirtyKeys.size > 0 && weeks[key]) {
+          if (dirtyKeys.size > 0 && weeksRef.current[key]) {
             const preserved = cloneWeek(remoteWeek);
-            weeks[key].forEach((day, di) => {
+            weeksRef.current[key].forEach((day, di) => {
               (day.shifts || []).forEach((shift, si) => {
                 const slotKey = `shift_${iso(addDays(new Date(key + 'T00:00:00'), di))}_${si + 1}`;
                 if (dirtyKeys.has(slotKey) && preserved[di]?.shifts?.[si]) {
