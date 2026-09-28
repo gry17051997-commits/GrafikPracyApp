@@ -126,6 +126,60 @@ function ChatComposer({busy,onSend}) {
   </View>;
 }
 
+function shiftIdFor(dayIndex, shiftNumber) {
+  return `shift_${Number(dayIndex)}_${Number(shiftNumber)}`;
+}
+
+function normalizeWeekIds(week) {
+  const source = Array.isArray(week) ? week : [];
+  return source.map((day, dayIndex) => ({
+    ...day,
+    dayIndex,
+    shifts: (day?.shifts || []).map((shift, shiftIndex) => ({
+      ...shift,
+      id: shiftIdFor(dayIndex, Number(shift?.shift) || shiftIndex + 1)
+    }))
+  }));
+}
+
+function weekToMap(week) {
+  const result = {};
+  normalizeWeekIds(week).forEach((day, dayIndex) => {
+    (day.shifts || []).forEach((shift, shiftIndex) => {
+      const id = shiftIdFor(dayIndex, Number(shift?.shift) || shiftIndex + 1);
+      result[id] = {...shift, id, dayIndex};
+    });
+  });
+  return result;
+}
+
+function weekFromMap(value, warehouse='PNT B') {
+  if (Array.isArray(value)) return normalizeWeekIds(value);
+  const map = value && typeof value === 'object' ? value : {};
+  return DAYS.map((_, dayIndex) => ({
+    dayIndex,
+    warehouse,
+    shifts: [1,2].map(shiftNumber => {
+      const id = shiftIdFor(dayIndex, shiftNumber);
+      return {id,shift:shiftNumber,person:null,warehouse,locked:false,manual:false,...(map[id] || {})};
+    })
+  }));
+}
+
+function diffWeekMaps(previousWeek, nextWeek) {
+  const previous = weekToMap(previousWeek);
+  const next = weekToMap(nextWeek);
+  const changed = {};
+  const removed = [];
+  const ids = new Set([...Object.keys(previous), ...Object.keys(next)]);
+  ids.forEach(id => {
+    if (JSON.stringify(previous[id]) === JSON.stringify(next[id])) return;
+    if (next[id] === undefined) removed.push(id);
+    else changed[id] = next[id];
+  });
+  return {changed, removed};
+}
+
 function cloneWeek(w) {
   return (w || []).map(d => ({
     ...d,
@@ -186,7 +240,7 @@ export default function App() {
   const cloudApplying = useRef(false);
   const cloudUpdatedAtRef = useRef(null);
   const cloudSaveTimerRef = useRef(null);
-  const cloudDirtyRef = useRef(false);
+  const cloudWeekBaselineRef = useRef({});
   const scheduleHydratedRef = useRef(false);
   const scheduleDirtyTrackingStartedRef = useRef(false);
   const legacyMigrationRef = useRef(false);
@@ -353,7 +407,7 @@ export default function App() {
           setHours(data.hours || 10);
           setRotation(data.rotation || 'P');
           setWarehouse(data.warehouse || 'PNT B');
-          setWeeks(data.weeks || {});
+          setWeeks(Object.fromEntries(Object.entries(data.weeks || {}).map(([key,value]) => [key,normalizeWeekIds(value)])));
           setWeekConfigs(data.weekConfigs || {});
           setAutoGenerateWeeks(!!data.autoGenerateWeeks);
           setAllow24h(!!data.allow24h);
@@ -381,7 +435,6 @@ export default function App() {
           setChatMessages(data.chatMessages || []);
           const h = data.hours || 10;
           setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
-          cloudDirtyRef.current = data.cloudPending === true;
           cloudUpdatedAtRef.current = data.cloudBaseUpdatedAt ?? null;
         }
       } catch(e) {
@@ -396,7 +449,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -587,7 +640,7 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(collection(db,'schedules'), async snap => {
+    const unsub = onSnapshot(collection(db,'schedules'), {includeMetadataChanges:true}, async snap => {
       const weekDocs = snap.docs.filter(d => d.id !== 'main');
       if (cloudRole === 'admin' && !legacyMigrationRef.current && weekDocs.length === 0) {
         legacyMigrationRef.current = true;
@@ -629,11 +682,17 @@ export default function App() {
       const remoteConfigs = {};
       weekDocs.forEach(d => {
         const data = d.data() || {};
-        if (data.week) remoteWeeks[d.id] = data.week;
-        if (data.config) remoteConfigs[d.id] = data.config;
+        if (data.week) {
+          const normalized = weekFromMap(data.week, data.config?.warehouse || warehouse);
+          remoteWeeks[d.id] = normalized;
+          cloudWeekBaselineRef.current[d.id] = normalized;
+        }
+        if (data.config) {
+          remoteConfigs[d.id] = data.config;
+          cloudWeekBaselineRef.current[`${d.id}:config`] = data.config;
+        }
         cloudUpdatedAtByWeekRef.current[d.id] = data.updatedAt?.toMillis?.() ?? null;
       });
-      if (cloudDirtyRef.current) return;
       cloudApplying.current = true;
       if (Object.keys(remoteWeeks).length) setWeeks(prev => ({...prev,...remoteWeeks}));
       if (Object.keys(remoteConfigs).length) setWeekConfigs(prev => ({...prev,...remoteConfigs}));
@@ -645,8 +704,8 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
-      if (!snap.exists() || cloudDirtyRef.current) return;
+    const unsub = onSnapshot(doc(db,'settings','main'), {includeMetadataChanges:true}, snap => {
+      if (!snap.exists()) return;
       const data = snap.data() || {};
       cloudApplying.current = true;
       if (data.hours) setHours(data.hours);
@@ -683,75 +742,69 @@ export default function App() {
   },[cloudUser]);
 
   useEffect(() => {
-    if (!ready || !scheduleHydratedRef.current) return;
-    if (!scheduleDirtyTrackingStartedRef.current) {
-      scheduleDirtyTrackingStartedRef.current = true;
-      return;
-    }
-    if (cloudApplying.current) return;
-    cloudDirtyRef.current = true;
-    AsyncStorage.getItem(KEY).then(raw => {
-      if (!raw) return;
-      const local = JSON.parse(raw);
-      return AsyncStorage.setItem(KEY,JSON.stringify({
-        ...local,
-        cloudPending:true,
-        cloudBaseUpdatedAt:cloudUpdatedAtRef.current
-      }));
-    }).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
-
-  useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
     if (cloudApplying.current) {
       cloudApplying.current = false;
       return;
     }
+
+    const currentWeekForSave = weeks[wkKey] || currentWeek;
+    const baselineWeek = cloudWeekBaselineRef.current[wkKey] || [];
+    const {changed,removed} = diffWeekMaps(baselineWeek,currentWeekForSave);
+    const configChanged = JSON.stringify(weekConfigs[wkKey] || null) !== JSON.stringify((cloudWeekBaselineRef.current[`${wkKey}:config`] || null));
+    if (!Object.keys(changed).length && !removed.length && !configChanged) return;
+
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
     cloudSaveTimerRef.current=setTimeout(async()=>{
       const scheduleRef=doc(db,'schedules',wkKey);
       const settingsRef=doc(db,'settings','main');
-      const expectedUpdatedAt=cloudUpdatedAtByWeekRef.current[wkKey] ?? null;
       try {
         await runTransaction(db,async tx=>{
           const scheduleSnap=await tx.get(scheduleRef);
-          const settingsSnap=await tx.get(settingsRef);
-          const remoteUpdatedAt=scheduleSnap.exists()?scheduleSnap.data()?.updatedAt?.toMillis?.() ?? null:null;
+          const remoteData=scheduleSnap.exists() ? scheduleSnap.data() || {} : {};
 
-          if (expectedUpdatedAt !== null && remoteUpdatedAt !== expectedUpdatedAt) {
-            throw new Error('schedule-conflict');
+          if (!scheduleSnap.exists()) {
+            tx.set(scheduleRef,{
+              weekId:wkKey,
+              week:weekToMap(currentWeekForSave),
+              config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
+              updatedAt:serverTimestamp(),
+              updatedBy:cloudUser.uid
+            });
+            return;
           }
 
-          tx.set(scheduleRef,{
-            weekId:wkKey,
-            week:weeks[wkKey] || currentWeek,
-            config:weekConfigs[wkKey] || {hours,rotation,warehouse,times},
-            updatedAt:serverTimestamp(),
-            updatedBy:cloudUser.uid
-          },{merge:true});
+          const updates={updatedAt:serverTimestamp(),updatedBy:cloudUser.uid};
+          if (Array.isArray(remoteData.week)) {
+            const migratedRemote=weekToMap(remoteData.week);
+            Object.entries(changed).forEach(([shiftId,shift])=>{ migratedRemote[shiftId]=shift; });
+            removed.forEach(shiftId=>{ delete migratedRemote[shiftId]; });
+            updates.week=migratedRemote;
+            updates.config=weekConfigs[wkKey] || remoteData.config || null;
+            tx.update(scheduleRef,updates);
+            return;
+          }
 
-          tx.set(settingsRef,{
-            hours,rotation,warehouse,autoGenerateWeeks,allow24h,
-            times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
-            personColors,conditions,recoveryBalances,recoveryLedger,
-            updatedAt:serverTimestamp(),updatedBy:cloudUser.uid
-          },{merge:true});
+          Object.entries(changed).forEach(([shiftId,shift])=>{ updates[`week.${shiftId}`] = shift; });
+          removed.forEach(shiftId=>{ updates[`week.${shiftId}`] = null; });
+          if (configChanged) updates.config=weekConfigs[wkKey] || null;
+          tx.update(scheduleRef,updates);
         });
 
-        cloudDirtyRef.current=false;
-        const latest=await getDoc(scheduleRef);
-        cloudUpdatedAtByWeekRef.current[wkKey]=latest.exists()
-          ? latest.data()?.updatedAt?.toMillis?.() ?? cloudUpdatedAtByWeekRef.current[wkKey]
-          : cloudUpdatedAtByWeekRef.current[wkKey];
+        await setDoc(settingsRef,{
+          hours,rotation,warehouse,autoGenerateWeeks,allow24h,
+          times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
+          personColors,conditions,recoveryBalances,recoveryLedger,
+          updatedAt:serverTimestamp(),updatedBy:cloudUser.uid
+        },{merge:true});
+
+        cloudWeekBaselineRef.current[wkKey]=weekFromMap(weekToMap(currentWeekForSave),weekConfigs[wkKey]?.warehouse || warehouse);
+        cloudWeekBaselineRef.current[`${wkKey}:config`]=weekConfigs[wkKey] || null;
       } catch(e) {
-        if(e?.message==='schedule-conflict'){
-          cloudDirtyRef.current=false;
-          setCloudError('Ten tydzień został zmieniony na innym urządzeniu. Nie nadpisano cudzych zmian. Odświeżenie pobierze wersję serwerową.');
-        } else {
-          setCloudError('Nie udało się zapisać tygodnia online. Kod: ' + (e?.code || e?.message || 'unknown'));
-        }
+        setCloudError('Nie udało się zsynchronizować grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
       }
     },250);
+
     return () => {
       if (cloudSaveTimerRef.current) {
         clearTimeout(cloudSaveTimerRef.current);
