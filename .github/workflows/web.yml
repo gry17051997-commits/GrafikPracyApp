@@ -49,11 +49,16 @@ jobs:
           index = Path('dist/index.html')
           css = Path('web-mobile.css').read_text(encoding='utf-8')
           marker = '<style id="grafik-pracy-mobile">'
-          if index.exists():
-              html = index.read_text(encoding='utf-8')
-              if marker not in html:
-                  html = html.replace('</head>', marker + '\n' + css + '\n</style>\n</head>', 1)
-                  index.write_text(html, encoding='utf-8')
+          if not index.exists():
+              raise SystemExit('dist/index.html nie istnieje po eksporcie Expo')
+          html = index.read_text(encoding='utf-8')
+          if marker not in html:
+              if '</head>' not in html:
+                  raise SystemExit('Nie znaleziono </head> w dist/index.html; layout mobilny nie został wstrzyknięty')
+              html = html.replace('</head>', marker + '\n' + css + '\n</style>\n</head>', 1)
+              index.write_text(html, encoding='utf-8')
+          if marker not in index.read_text(encoding='utf-8'):
+              raise SystemExit('Nie udało się potwierdzić wstrzyknięcia layoutu mobilnego')
           PY
 
       - name: Prepare Firebase Hosting configuration
