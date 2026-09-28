@@ -587,12 +587,12 @@ export default function App() {
     return unsub;
   },[cloudUser,cloudRole]);
 
-  const shiftMapToWeek = (shiftMap, fallbackWeek) => {
+  const shiftMapToWeek = (shiftMap, fallbackWeek, weekKey) => {
     const base = cloneWeek(fallbackWeek || []);
     if (!shiftMap || typeof shiftMap !== 'object') return base;
     base.forEach((day, di) => {
       day.shifts = (day.shifts || []).map((fallbackShift, si) => {
-        const date = iso(addDays(weekStart, di));
+        const date = iso(addDays(new Date(weekKey + 'T00:00:00'), di));
         const key = `shift_${date}_${si + 1}`;
         return shiftMap[key] ? {...fallbackShift, ...shiftMap[key], id:fallbackShift.id || `${di}-${si+1}`, shift:si+1} : fallbackShift;
       });
@@ -692,7 +692,7 @@ export default function App() {
             remoteWeekConfigByWeekRef.current[key]?.rotation || rotation,
             remoteWeekConfigByWeekRef.current[key]?.warehouse || warehouse
           );
-          remoteWeeks[key] = shiftMapToWeek(shiftMap, fallback);
+          remoteWeeks[key] = shiftMapToWeek(shiftMap, fallback, key);
         });
 
         if (Object.keys(remoteWeeks).length) setWeeks(prev => ({...prev,...remoteWeeks}));
