@@ -468,11 +468,16 @@ export default function App() {
               return;
             }
             if (localAssigned !== assigned) {
-              if (local.enabled === true) {
+              const wasTracking = local.enabled === true;
+              if (wasTracking) {
                 await stopVehicleLocationTracking();
                 setLocationTracking(false);
               }
               await saveVehicleLocationAssignment(assigned);
+              if (wasTracking) {
+                const restarted = await ensureVehicleLocationTracking();
+                if (restarted.ok) setLocationTracking(true);
+              }
               return;
             }
             if (local.enabled === true) {
