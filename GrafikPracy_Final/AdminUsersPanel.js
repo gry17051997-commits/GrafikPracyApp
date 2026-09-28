@@ -43,7 +43,7 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!u?.uid||u.uid===cloudUser?.uid)return;
     Alert.alert('Usuń konto','Usunąć '+(u.displayName||u.email||u.uid)+'?',[{text:'Anuluj',style:'cancel'},{text:'USUŃ',style:'destructive',onPress:async()=>{
       setBusy(u.uid);setError('');
-      try{await httpsCallable(getFunctions(firebaseApp),'deleteUserAccount')({uid:u.uid});Alert.alert('Gotowe','Konto zostało usunięte.');}
+      try{await httpsCallable(getFunctions(firebaseApp,'us-central1'),'deleteUserAccount')({uid:u.uid});Alert.alert('Gotowe','Konto zostało usunięte.');}
       catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
       finally{setBusy('');}
     }}]);
