@@ -193,6 +193,7 @@ export default function App() {
   const cloudUpdatedAtByWeekRef = useRef({});
   const remoteShiftMapByWeekRef = useRef({});
   const remoteWeekConfigByWeekRef = useRef({});
+  const localDirtyShiftKeysRef = useRef({});
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
@@ -672,13 +673,15 @@ export default function App() {
 
         const remoteWeeks = {};
         const remoteConfigs = {};
+        remoteShiftMapByWeekRef.current = {};
+        remoteWeekConfigByWeekRef.current = {};
+
         weekDocs.forEach(d => {
           const data = d.data() || {};
           const shiftMap = data.shifts && typeof data.shifts === 'object'
             ? data.shifts
             : weekToShiftMap(data.week || [], d.id);
           remoteShiftMapByWeekRef.current[d.id] = shiftMap;
-          if (data.week) remoteWeeks[d.id] = data.week;
           if (data.config) {
             remoteConfigs[d.id] = data.config;
             remoteWeekConfigByWeekRef.current[d.id] = data.config;
@@ -692,7 +695,22 @@ export default function App() {
             remoteWeekConfigByWeekRef.current[key]?.rotation || rotation,
             remoteWeekConfigByWeekRef.current[key]?.warehouse || warehouse
           );
-          remoteWeeks[key] = shiftMapToWeek(shiftMap, fallback, key);
+          const remoteWeek = shiftMapToWeek(shiftMap, fallback, key);
+          const dirtyKeys = new Set(localDirtyShiftKeysRef.current[key] || []);
+          if (dirtyKeys.size > 0 && weeks[key]) {
+            const preserved = cloneWeek(remoteWeek);
+            weeks[key].forEach((day, di) => {
+              (day.shifts || []).forEach((shift, si) => {
+                const slotKey = `shift_${iso(addDays(new Date(key + 'T00:00:00'), di))}_${si + 1}`;
+                if (dirtyKeys.has(slotKey) && preserved[di]?.shifts?.[si]) {
+                  preserved[di].shifts[si] = {...shift};
+                }
+              });
+            });
+            remoteWeeks[key] = preserved;
+          } else {
+            remoteWeeks[key] = remoteWeek;
+          }
         });
 
         if (Object.keys(remoteWeeks).length) setWeeks(prev => ({...prev,...remoteWeeks}));
@@ -750,7 +768,20 @@ export default function App() {
       return;
     }
     if (cloudApplying.current) return;
-    cloudDirtyRef.current = true;
+
+    Object.keys(weeks || {}).forEach(key => {
+      const localMap = weekToShiftMap(weeks[key], key);
+      const remoteMap = remoteShiftMapByWeekRef.current[key] || {};
+      const dirty = new Set(localDirtyShiftKeysRef.current[key] || []);
+      Object.keys(localMap).forEach(shiftKey => {
+        if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) {
+          dirty.add(shiftKey);
+        }
+      });
+      localDirtyShiftKeysRef.current[key] = Array.from(dirty);
+    });
+
+    cloudDirtyRef.current = Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0);
   },[ready,weeks,weekConfigs]);
 
   useEffect(() => {
@@ -767,6 +798,7 @@ export default function App() {
       const localWeek=weeks[wkKey] || currentWeek;
       const localMap=weekToShiftMap(localWeek,wkKey);
       const previousMap=remoteShiftMapByWeekRef.current[wkKey] || {};
+      const dirtyAtSave=new Set(localDirtyShiftKeysRef.current[wkKey] || []);
 
       const updates={};
       Object.keys(localMap).forEach(key => {
@@ -826,7 +858,16 @@ export default function App() {
           ? latestData.shifts
           : localMap;
         cloudUpdatedAtByWeekRef.current[wkKey]=latestData.updatedAt?.toMillis?.() ?? null;
-        cloudDirtyRef.current=false;
+
+        const currentMap=weekToShiftMap(weeks[wkKey] || currentWeek,wkKey);
+        const remaining=new Set(localDirtyShiftKeysRef.current[wkKey] || []);
+        dirtyAtSave.forEach(key => {
+          if (JSON.stringify(currentMap[key]) === JSON.stringify(localMap[key])) {
+            remaining.delete(key);
+          }
+        });
+        localDirtyShiftKeysRef.current[wkKey]=Array.from(remaining);
+        cloudDirtyRef.current=Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0);
       } catch(e) {
         setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
       }
