@@ -113,6 +113,8 @@ async function saveLocationInternal(location) {
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
   // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
   // zapytań i deleteDoc przy każdym punkcie GPS.
+}
+
 // Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
 // odczytały tego samego LOCATION_CURRENT_KEY i nie ominęły progu historii.
 function saveLocation(location) {
