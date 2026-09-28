@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react';
+import useSecondTicker from './hooks/useSecondTicker';
 import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
 import {collection, doc, onSnapshot} from 'firebase/firestore';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
@@ -29,10 +30,9 @@ const webMapSrc=loc=>{
 };
 
 export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
- const [,tick]=useState(0);
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
- useEffect(()=>{const id=setInterval(()=>tick(v=>v+1),1000);return()=>clearInterval(id);},[]);
+ useSecondTicker(1000);
  useEffect(()=>{
    let unsub=null,configUnsub=null,cancelled=false;
    const subscribe=(cfg={})=>{
