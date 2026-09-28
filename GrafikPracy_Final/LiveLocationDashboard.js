@@ -4,6 +4,7 @@ import {collection, doc, limit, onSnapshot, orderBy, query} from 'firebase/fires
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {getVehicleLocationConfig} from './LocationService';
 import {WebView} from 'react-native-webview';
+import useSecondTicker from './hooks/useSecondTicker';
 
 const distanceMeters=(a,b)=>{
   if(!a||!b) return Infinity;
@@ -141,7 +142,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
     return()=>{cancelled=true; if(configUnsub) configUnsub(); if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
   },[vehicleRegistration,cloudUser?.uid]);
 
-  useEffect(()=>{const t=setInterval(()=>setTick(x=>x+1),10000);return()=>clearInterval(t)},[]);
+  useSecondTicker(10000);
 
   const warehouses=Object.entries(warehouseGeo||{}).map(([name,v])=>({name,...v}));
   const nearby=useMemo(()=>{
