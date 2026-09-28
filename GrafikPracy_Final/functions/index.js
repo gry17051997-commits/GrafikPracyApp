@@ -36,6 +36,14 @@ function validateRole(value) {
   return VALID_ROLES.has(value);
 }
 
+async function writeAudit(db,entry,action) {
+  try {
+    await db.collection('audit').add(entry);
+  } catch (error) {
+    console.error(action+' audit error', error);
+  }
+}
+
 exports.deleteUserAccount = onCall(async request => {
   const db = getFirestore();
   const auth = getAuth();
@@ -72,17 +80,7 @@ exports.deleteUserAccount = onCall(async request => {
     );
   }
 
-  try {
-    await db.collection('audit').add({
-      action:'delete-user',
-      targetUid:uid,
-      actorUid:request.auth.uid,
-      createdAt:new Date()
-    });
-  } catch (auditError) {
-    console.error('deleteUserAccount audit error', auditError);
-    throw new HttpsError('internal','Konto zostało usunięte, ale nie udało się zapisać audytu.');
-  }
+  await writeAudit(db,{action:'delete-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'deleteUserAccount');
 
   return {ok:true,uid};
 });
@@ -155,17 +153,7 @@ exports.createUserAccount = onCall(async request => {
     throw new HttpsError('internal','Nie udało się utworzyć profilu pracownika. Konto logowania zostało wycofane.');
   }
 
-  try {
-    await db.collection('audit').add({
-      action:'create-user',
-      targetUid:user.uid,
-      actorUid:request.auth.uid,
-      createdAt:new Date()
-    });
-  } catch (auditError) {
-    console.error('createUserAccount audit error', auditError);
-    throw new HttpsError('internal','Konto zostało utworzone, ale nie udało się zapisać audytu.');
-  }
+  await writeAudit(db,{action:'create-user',targetUid:user.uid,actorUid:request.auth.uid,createdAt:new Date()},'createUserAccount');
 
   return {ok:true,uid:user.uid,email:user.email};
 });
@@ -252,17 +240,7 @@ exports.updateUserProfile = onCall(async request => {
     throw new HttpsError('internal','Nie udało się zaktualizować konta logowania. Zmiany profilu zostały wycofane.');
   }
 
-  try {
-    await db.collection('audit').add({
-      action:'update-user',
-      targetUid:uid,
-      actorUid:request.auth.uid,
-      createdAt:new Date()
-    });
-  } catch (auditError) {
-    console.error('updateUserProfile audit error', auditError);
-    throw new HttpsError('internal','Użytkownik został zaktualizowany, ale nie udało się zapisać audytu.');
-  }
+  await writeAudit(db,{action:'update-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'updateUserProfile');
 
   return {ok:true,uid};
 });
