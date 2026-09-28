@@ -109,6 +109,11 @@ function generateWeek(rotation='P', warehouse='PNT B') {
     w[day].shifts[1].person = b;
   });
 
+  // Łukasz obsługuje obie niedzielne zmiany w bazowym tygodniu.
+  // Pozostałe dni zachowują naprzemienną rotację P/M.
+  w[6].shifts[0].person = 'L';
+  w[6].shifts[1].person = 'L';
+
   return w;
 }
 
