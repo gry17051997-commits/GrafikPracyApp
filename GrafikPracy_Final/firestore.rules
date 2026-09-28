@@ -17,7 +17,7 @@ service cloud.firestore {
     }
 
     function validPersonKey(value) {
-      return value == 'P' || value == 'M' || value == 'L';
+      return value == '' || value == 'P' || value == 'M' || value == 'L';
     }
 
     match /users/{uid} {
@@ -98,7 +98,8 @@ service cloud.firestore {
     match /vehicleTracking/{vehicleId} {
       allow read: if isAdmin()
         || (signedIn()
-          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId);
+          && (get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+            || resource.data.ownerUid == request.auth.uid));
 
       // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
       // jest ustalany przez administratora w locationConfig/main. Pracownik
@@ -136,7 +137,8 @@ service cloud.firestore {
       match /locations/{locationId} {
         allow read: if isAdmin()
           || (signedIn()
-            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId);
+            && (get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+              || resource.data.ownerUid == request.auth.uid));
 
         allow create: if isAdmin()
           || (signedIn()
