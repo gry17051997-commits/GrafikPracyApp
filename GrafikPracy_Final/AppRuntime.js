@@ -590,12 +590,19 @@ export default function App() {
     return unsub;
   },[cloudUser,cloudRole]);
 
+  const weekDateKey = (weekKey, dayOffset) => {
+    const match = String(weekKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) throw new Error('Invalid week key: ' + weekKey);
+    const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + dayOffset));
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+  };
+
   const shiftMapToWeek = (shiftMap, fallbackWeek, weekKey) => {
     const base = cloneWeek(fallbackWeek || []);
     if (!shiftMap || typeof shiftMap !== 'object') return base;
     base.forEach((day, di) => {
       day.shifts = (day.shifts || []).map((fallbackShift, si) => {
-        const date = iso(addDays(new Date(weekKey + 'T00:00:00'), di));
+        const date = weekDateKey(weekKey, di);
         const key = `shift_${date}_${si + 1}`;
         return shiftMap[key] ? {...fallbackShift, ...shiftMap[key], id:fallbackShift.id || `${di}-${si+1}`, shift:si+1} : fallbackShift;
       });
