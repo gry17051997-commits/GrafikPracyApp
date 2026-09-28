@@ -194,6 +194,7 @@ export default function App() {
   const remoteShiftMapByWeekRef = useRef({});
   const remoteWeekConfigByWeekRef = useRef({});
   const localDirtyShiftKeysRef = useRef({});
+  const localDirtyWeekConfigRef = useRef({});
   const weeksRef = useRef({});
   weeksRef.current = weeks;
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
@@ -616,15 +617,11 @@ export default function App() {
       (day.shifts || []).forEach((shift, si) => {
         const date = weekDateKey(weekKey, di);
         map[`shift_${date}_${si + 1}`] = {
+          ...shift,
           id: shift.id || `${di}-${si+1}`,
           shift: si + 1,
           person: shift.person || null,
-          warehouse: shift.warehouse || day.warehouse || warehouse,
-          locked: shift.locked === true,
-          manual: shift.manual === true,
-          off: shift.off === true,
-          offOriginalPerson: shift.offOriginalPerson || null,
-          recoverPerson: shift.recoverPerson || null
+          warehouse: shift.warehouse || day.warehouse || warehouse
         };
       });
     });
@@ -642,8 +639,6 @@ export default function App() {
 
         // Never use a local optimistic snapshot as authoritative remote state.
         // Firestore exposes hasPendingWrites specifically for this distinction.
-        if (snap.docs.some(d => d.metadata.hasPendingWrites)) return;
-
         if (cloudRole === 'admin' && !legacyMigrationRef.current && weekDocs.length === 0) {
           legacyMigrationRef.current = true;
           try {
@@ -686,6 +681,7 @@ export default function App() {
         remoteWeekConfigByWeekRef.current = {};
 
         weekDocs.forEach(d => {
+          if (d.metadata.hasPendingWrites) return;
           const data = d.data() || {};
           const shiftMap = data.shifts && typeof data.shifts === 'object'
             ? data.shifts
@@ -723,7 +719,13 @@ export default function App() {
         });
 
         if (Object.keys(remoteWeeks).length) setWeeks(prev => ({...prev,...remoteWeeks}));
-        if (Object.keys(remoteConfigs).length) setWeekConfigs(prev => ({...prev,...remoteConfigs}));
+        if (Object.keys(remoteConfigs).length) setWeekConfigs(prev => {
+          const next = {...prev};
+          Object.entries(remoteConfigs).forEach(([key, remoteConfig]) => {
+            if (!localDirtyWeekConfigRef.current[key]) next[key] = remoteConfig;
+          });
+          return next;
+        });
         setCloudUpdated(true);
         setTimeout(() => setCloudUpdated(false), 2500);
       },
@@ -783,14 +785,19 @@ export default function App() {
       const remoteMap = remoteShiftMapByWeekRef.current[key] || {};
       const dirty = new Set(localDirtyShiftKeysRef.current[key] || []);
       Object.keys(localMap).forEach(shiftKey => {
-        if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) {
-          dirty.add(shiftKey);
-        }
+        if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) dirty.add(shiftKey);
       });
       localDirtyShiftKeysRef.current[key] = Array.from(dirty);
+
+      const localConfig = weekConfigs[key] || null;
+      const remoteConfig = remoteWeekConfigByWeekRef.current[key] || null;
+      if (JSON.stringify(localConfig) !== JSON.stringify(remoteConfig)) localDirtyWeekConfigRef.current[key] = true;
+      else delete localDirtyWeekConfigRef.current[key];
     });
 
-    cloudDirtyRef.current = Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0);
+    cloudDirtyRef.current =
+      Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
+      || Object.keys(localDirtyWeekConfigRef.current).length > 0;
   },[ready,weeks,weekConfigs]);
 
   useEffect(() => {
@@ -821,7 +828,7 @@ export default function App() {
 
       const config=weekConfigs[wkKey] || {hours,rotation,warehouse,times};
       try {
-        if (Object.keys(updates).length === 0) {
+        if (Object.keys(updates).length === 0 && !configDirtyAtSave) {
           cloudDirtyRef.current=false;
           return;
         }
@@ -848,17 +855,16 @@ export default function App() {
           // Only fields that changed locally are sent; other device changes survive.
           const rebased={};
           Object.keys(updates).forEach(path => {
-            const key=path.replace(/^shifts\./,'');
-            if (path.endsWith('.__delete__')) return;
             rebased[path]=updates[path];
           });
 
-          tx.update(scheduleRef,{
+          const transactionUpdate={
             ...rebased,
-            config,
             updatedAt:serverTimestamp(),
             updatedBy:cloudUser.uid
-          });
+          };
+          if (configDirtyAtSave) transactionUpdate.config=config;
+          tx.update(scheduleRef,transactionUpdate);
         });
 
         const latest=await getDoc(scheduleRef);
