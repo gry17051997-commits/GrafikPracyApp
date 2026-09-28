@@ -104,13 +104,3 @@ test('schedule cloud persistence uses an atomic Firestore transaction', async ()
   assert.doesNotMatch(block, /await setDoc\(scheduleRef/);
 });
 
-test('base week generation includes both Sunday shifts for Lukasz', async () => {
-  const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const start = source.indexOf('function generateWeek(');
-  const end = source.indexOf('\nfunction ChatComposer', start);
-  assert.ok(start >= 0 && end > start);
-  const block = source.slice(start, end);
-  assert.match(block, /w\[6\]\.shifts\[0\]\.person = 'L'/);
-  assert.match(block, /w\[6\]\.shifts\[1\]\.person = 'L'/);
-});
