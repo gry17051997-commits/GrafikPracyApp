@@ -99,9 +99,9 @@ test('schedule cloud persistence updates only changed shift map fields', async (
   const block = source.slice(blockStart, blockEnd);
   assert.match(block, /const localMap=weekToShiftMap\(localWeek,wkKey\)/);
   assert.match(block, /updates\[.*shifts\..*\]/);
-  assert.match(block, /runTransaction\(db, async tx=>/);
-  assert.match(block, /tx\.get\(scheduleRef\)/);
-  assert.match(block, /tx\.update\(scheduleRef/);
+  assert.ok(block.includes('runTransaction(db, async tx =>'));
+  assert.ok(block.includes('tx.get(scheduleRef)'));
+  assert.ok(block.includes('tx.update(scheduleRef'));
   assert.doesNotMatch(block, /tx\.set\(settingsRef/);
 });
 
@@ -113,4 +113,3 @@ test('schedule listener ignores optimistic local snapshots and hydrates flat shi
   assert.match(source, /shiftMapToWeek/);
   assert.match(source, /weekToShiftMap/);
 });
-
