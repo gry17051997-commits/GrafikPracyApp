@@ -53,7 +53,6 @@ const mapHtml=(loc,warehouses)=>{
 export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',warehouseGeo={},reportHistory=[],onApplySuggestion,cloudUser=null}) {
   const [location,setLocation]=useState(null);
   const [config,setConfig]=useState({});
-  const [tick,setTick]=useState(0);
   const [history,setHistory]=useState([]);
   const [locationError,setLocationError]=useState('');
   const [isAdmin,setIsAdmin]=useState(false);
@@ -148,7 +147,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
   const nearby=useMemo(()=>{
     if(!location) return null;
     return warehouses.filter(w=>w.latitude&&w.longitude).map(w=>({...w,distance:distanceMeters(location,w)})).sort((a,b)=>a.distance-b.distance)[0]||null;
-  },[location,warehouseGeo,tick]);
+  },[location,warehouseGeo]);
 
   const speed=location&&Number(location.speed)>0?Math.round(Number(location.speed)*3.6):0;
   const stale=location?Date.now()-serverMillis(location.updatedAt)>180000:true;
