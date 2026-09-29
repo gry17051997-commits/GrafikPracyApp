@@ -151,6 +151,15 @@ function contrastText(hex) {
   return lum > 0.62 ? '#11151c' : '#ffffff';
 }
 
+
+const timestampMillis = value => {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') return Date.parse(value) || 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (Number.isFinite(Number(value?.seconds))) return Number(value.seconds) * 1000;
+  return 0;
+};
 export default function App() {
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
@@ -585,7 +594,7 @@ export default function App() {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const q = query(collection(db,'chatMessages'), orderBy('createdAt','desc'), limit(100));
     const unsub = onSnapshot(q, snap => {
-      const rows = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+      const rows = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b)=>timestampMillis(b.createdAt)-timestampMillis(a.createdAt));
       setChatMessages(rows);
     }, err => setCloudError('Brak dostępu do czatu. Kod: ' + (err?.code || 'unknown')));
     return unsub;
