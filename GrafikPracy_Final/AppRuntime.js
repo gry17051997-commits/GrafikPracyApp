@@ -997,6 +997,12 @@ export default function App() {
           Alert.alert('Lokalizacja','Android nie przyznał dostępu do lokalizacji w tle. Włącz „Zawsze zezwalaj” w ustawieniach aplikacji.');
         } else if (result.reason === 'foreground-permission') {
           Alert.alert('Lokalizacja','Brak zgody na lokalizację.');
+        } else if (result.reason === 'vehicle-assignment-mismatch') {
+          Alert.alert('Lokalizacja','Ten telefon ma przypisany inny pojazd niż ustawiony centralnie przez administratora. Odśwież przypisanie pojazdu i spróbuj ponownie.');
+        } else if (result.reason === 'central-config') {
+          Alert.alert('Lokalizacja','Nie udało się odczytać centralnego przypisania pojazdu z Firebase. Sprawdź połączenie z internetem i uprawnienia konta.');
+        } else if (result.reason === 'vehicle-assignment') {
+          Alert.alert('Lokalizacja','Brak centralnego przypisania pojazdu. Administrator musi najpierw przypisać numer rejestracyjny.');
         } else {
           Alert.alert('Lokalizacja','Do działania potrzebne jest połączenie z Firebase.');
         }
