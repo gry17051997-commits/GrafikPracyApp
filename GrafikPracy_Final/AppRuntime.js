@@ -793,9 +793,12 @@ export default function App() {
     Object.keys(weeks || {}).forEach(key => {
       const localMap = weekToShiftMap(weeks[key], key);
       const remoteMap = remoteShiftMapByWeekRef.current[key] || {};
-      const dirty = new Set(localDirtyShiftKeysRef.current[key] || []);
+      const dirty = new Set();
       Object.keys(localMap).forEach(shiftKey => {
         if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) dirty.add(shiftKey);
+      });
+      Object.keys(remoteMap).forEach(shiftKey => {
+        if (!Object.prototype.hasOwnProperty.call(localMap, shiftKey)) dirty.add(shiftKey);
       });
       localDirtyShiftKeysRef.current[key] = Array.from(dirty);
 
@@ -812,10 +815,6 @@ export default function App() {
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
-    if (cloudApplying.current) {
-      cloudApplying.current = false;
-      return;
-    }
     if (!cloudDirtyRef.current) return;
 
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
@@ -892,7 +891,7 @@ export default function App() {
           }
         });
         localDirtyShiftKeysRef.current[weekKeyAtSave]=Array.from(remaining);
-        if (configDirtyAtSave) delete localDirtyWeekConfigRef.current[weekKeyAtSave];
+        if (configDirtyAtSave && JSON.stringify(weekConfigs[weekKeyAtSave] || null) === JSON.stringify(config)) delete localDirtyWeekConfigRef.current[weekKeyAtSave];
         cloudDirtyRef.current=
           Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
           || Object.keys(localDirtyWeekConfigRef.current).length > 0;
