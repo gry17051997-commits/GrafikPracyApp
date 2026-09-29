@@ -83,64 +83,83 @@ jobs:
           wipe-data: true
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -no-metrics
           disable-animations: true
-          script: >-
-            bash -lc 'set +e;
-            APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk";
-            DIAG_DIR="${{ github.workspace }}/GrafikPracy_Final";
-            echo "Installing APK: $APK_PATH";
-            test -s "$APK_PATH";
-            echo "Waiting for ADB transport...";
-            ADB_READY=0;
+          script: |
+            set +e
+            APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk"
+            DIAG_DIR="${{ github.workspace }}/GrafikPracy_Final"
+
+            echo "Installing APK: $APK_PATH"
+            test -s "$APK_PATH"
+
+            echo "Waiting for ADB transport..."
+            ADB_READY=0
             for i in $(seq 1 90); do
-              STATE=$(adb -s emulator-5554 get-state 2>/dev/null || true);
+              STATE=$(adb -s emulator-5554 get-state 2>/dev/null || true)
               if [ "$STATE" = "device" ]; then
-                ADB_READY=1;
-                echo "ADB transport is ready after ${i} checks.";
-                break;
-              fi;
-              adb reconnect offline >/dev/null 2>&1 || true;
-              sleep 2;
-            done;
+                ADB_READY=1
+                echo "ADB transport is ready after $i checks."
+                break
+              fi
+              adb reconnect offline >/dev/null 2>&1 || true
+              sleep 2
+            done
+
             if [ "$ADB_READY" -ne 1 ]; then
-              echo "ADB transport did not become ready.";
-              adb devices -l || true;
-              exit 9;
-            fi;
-            echo "Waiting for Android framework services...";
-            READY=0;
+              echo "ADB transport did not become ready."
+              adb devices -l || true
+              exit 9
+            fi
+
+            echo "Waiting for Android framework services..."
+            READY=0
             for i in $(seq 1 90); do
               if adb shell cmd package list packages >/dev/null 2>&1 && adb shell cmd activity get-config >/dev/null 2>&1; then
-                READY=1;
-                echo "Android framework services are ready after ${i} checks.";
-                break;
-              fi;
-              sleep 2;
-            done;
+                READY=1
+                echo "Android framework services are ready after $i checks."
+                break
+              fi
+              sleep 2
+            done
+
             if [ "$READY" -ne 1 ]; then
-              echo "Android framework services did not become ready.";
-              adb shell getprop | grep -E "sys.boot_completed|dev.bootcomplete|init.svc.system_server|init.svc.bootanim" || true;
-              adb shell service list || true;
-              exit 10;
-            fi;
-            adb install -r "$APK_PATH";
-            INSTALL_RC=$?;
-            adb logcat -c;
-            adb shell monkey -p pl.grafikpracy.app 1;
-            LAUNCH_RC=$?;
-            sleep 10;
-            adb shell pidof pl.grafikpracy.app > "$DIAG_DIR/runtime-pid.txt";
-            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1;
-            adb pull /sdcard/window.xml "$DIAG_DIR/runtime-window.xml" >/dev/null 2>&1;
-            adb logcat -d > "$DIAG_DIR/runtime-logcat.txt";
-            echo "INSTALL_RC=$INSTALL_RC";
-            echo "LAUNCH_RC=$LAUNCH_RC";
-            echo "=== PROCESS ===";
-            cat "$DIAG_DIR/runtime-pid.txt" 2>/dev/null;
-            echo "=== FATAL/ERROR LOGS ===";
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$DIAG_DIR/runtime-logcat.txt" | tail -200;
-            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi;
-            if ! grep -q "[0-9]" "$DIAG_DIR/runtime-pid.txt"; then echo "Application process is not running after launch."; exit 2; fi;
-            if grep -E -q "FATAL EXCEPTION|Unable to load script|Could not connect to development server" "$DIAG_DIR/runtime-logcat.txt"; then echo "Fatal runtime error detected."; exit 3; fi'
+              echo "Android framework services did not become ready."
+              adb shell getprop | grep -E "sys.boot_completed|dev.bootcomplete|init.svc.system_server|init.svc.bootanim" || true
+              adb shell service list || true
+              exit 10
+            fi
+
+            adb install -r "$APK_PATH"
+            INSTALL_RC=$?
+            adb logcat -c
+            adb shell monkey -p pl.grafikpracy.app 1
+            LAUNCH_RC=$?
+            sleep 10
+
+            adb shell pidof pl.grafikpracy.app > "$DIAG_DIR/runtime-pid.txt"
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+            adb pull /sdcard/window.xml "$DIAG_DIR/runtime-window.xml" >/dev/null 2>&1
+            adb logcat -d > "$DIAG_DIR/runtime-logcat.txt"
+
+            echo "INSTALL_RC=$INSTALL_RC"
+            echo "LAUNCH_RC=$LAUNCH_RC"
+            echo "=== PROCESS ==="
+            cat "$DIAG_DIR/runtime-pid.txt" 2>/dev/null
+            echo "=== FATAL/ERROR LOGS ==="
+            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$DIAG_DIR/runtime-logcat.txt" | tail -200
+
+            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then
+              exit 1
+            fi
+
+            if ! grep -q "[0-9]" "$DIAG_DIR/runtime-pid.txt"; then
+              echo "Application process is not running after launch."
+              exit 2
+            fi
+
+            if grep -E -q "FATAL EXCEPTION|Unable to load script|Could not connect to development server" "$DIAG_DIR/runtime-logcat.txt"; then
+              echo "Fatal runtime error detected."
+              exit 3
+            fi
 
       - name: Upload runtime diagnostics
         if: always()
