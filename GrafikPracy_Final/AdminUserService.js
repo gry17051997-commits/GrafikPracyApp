@@ -21,9 +21,11 @@ function validateInput(form) {
   return { email, password, displayName, personKey, role };
 }
 
-export async function createUserWithoutFunctions(form) {
+export async function createUserWithoutFunctions(form, createdByUid) {
   if (!db) throw new Error('Firebase Firestore jest niedostępny.');
   const data = validateInput(form);
+  const adminUid = String(createdByUid || '').trim();
+  if (!adminUid) throw new Error('Brak identyfikatora administratora.');
 
   const secondaryApp = initializeApp(firebaseConfig, SECONDARY_APP_NAME);
   let secondaryAuth;
@@ -46,7 +48,7 @@ export async function createUserWithoutFunctions(form) {
       disabled: false,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-      createdBy: 'admin-client'
+      createdBy: adminUid
     });
 
     await signOut(secondaryAuth);
