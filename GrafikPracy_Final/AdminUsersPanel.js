@@ -31,7 +31,7 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!modal)return;
     setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
     try{
-      if(modal.mode==='create') await createUserWithoutFunctions(form);
+      if(modal.mode==='create') await createUserWithoutFunctions(form, cloudUser?.uid);
       else await updateUserProfileWithoutFunctions(modal.user.uid,form);
       setModal(null);
       Alert.alert('Gotowe',modal.mode==='create'?(form.role==='locator'?'Lokalizator został dodany.':form.role==='admin'?'Administrator został dodany.':'Pracownik został dodany.'):(form.role==='locator'?'Dane lokalizatora zapisane.':form.role==='admin'?'Dane administratora zapisane.':'Dane pracownika zapisane.'));
