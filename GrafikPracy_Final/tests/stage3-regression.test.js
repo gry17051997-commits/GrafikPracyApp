@@ -23,7 +23,7 @@ test('native lifecycle registrations remain in global entrypoint scope', () => {
 
 test('notification handler is configured globally before React root registration', () => {
   const index = read('index.js');
-  assert.ok(index.indexOf('Notifications.setNotificationHandler') < index.indexOf('registerRootComponent'));
+  assert.ok(index.indexOf('Notifications.setNotificationHandler') < index.indexOf('registerRootComponent(App)'));
 });
 
 test('GPS payload carries authenticated locator identity', () => {
