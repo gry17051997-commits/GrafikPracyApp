@@ -67,7 +67,7 @@ export default function AdminUsersPanel({cloudUser}) {
 
   return <View style={{marginTop:16}}>
     <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-      <View style={{flex:1}}><Text style={{color:'#fff',fontSize:19,fontWeight:'900'}}>👥 Pracownicy i konta</Text><Text style={{color:'#9299a8',fontSize:13,marginTop:3}}>Dodawanie, edycja, role, przypisanie i usuwanie.</Text></View>
+      <View style={{flex:1}}><Text style={{color:'#fff',fontSize:19,fontWeight:'900'}}>👥 Pracownicy i konta</Text><Text style={{color:'#9299a8',fontSize:13,marginTop:3}}>Dodawanie, edycja, role, przypisanie i dezaktywacja kont.</Text></View>
       <TouchableOpacity onPress={create} disabled={!!busy} style={{backgroundColor:'#3f78ed',borderRadius:11,paddingVertical:10,paddingHorizontal:12}}><Text style={{color:'#fff',fontWeight:'900'}}>＋ DODAJ</Text></TouchableOpacity>
     </View>
     {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>⚠️ {error}</Text>}
