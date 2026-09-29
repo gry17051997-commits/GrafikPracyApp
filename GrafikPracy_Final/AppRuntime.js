@@ -706,7 +706,7 @@ export default function App() {
             const preserved = cloneWeek(remoteWeek);
             weeksRef.current[key].forEach((day, di) => {
               (day.shifts || []).forEach((shift, si) => {
-                const slotKey = `shift_${iso(addDays(new Date(key + 'T00:00:00'), di))}_${si + 1}`;
+                const slotKey = `shift_${weekDateKey(key, di)}_${si + 1}`;
                 if (dirtyKeys.has(slotKey) && preserved[di]?.shifts?.[si]) {
                   preserved[di].shifts[si] = {...shift};
                 }
