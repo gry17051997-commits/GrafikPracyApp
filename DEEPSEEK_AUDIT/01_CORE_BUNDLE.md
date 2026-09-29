@@ -1,0 +1,4118 @@
+# DeepSeek Audit Bundle 1/3
+
+
+===== FILE: GrafikPracy_Final/App.js =====
+
+```text
+import React from 'react';
+import AppRuntime from './AppRuntime';
+
+export default function App() {
+  return <AppRuntime />;
+}
+
+```
+
+===== FILE: GrafikPracy_Final/index.js =====
+
+```text
+import React from 'react';
+import {registerRootComponent} from 'expo';
+import * as Notifications from 'expo-notifications';
+import './LocationService';
+import App from './App';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false
+  })
+});
+
+registerRootComponent(App);
+
+```
+
+===== FILE: GrafikPracy_Final/AppRuntime.js =====
+
+```text
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {
+  SafeAreaView,
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  TextInput,
+  Modal,
+  ImageBackground,
+  Share,
+  Platform,
+  Dimensions,
+  Linking,
+  AppState,
+  Vibration
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Sharing from 'expo-sharing';
+import * as Print from 'expo-print';
+import * as Notifications from 'expo-notifications';
+import * as Clipboard from 'expo-clipboard';
+import {captureRef} from 'react-native-view-shot';
+import * as Location from 'expo-location';
+import LiveLocationDashboard from './LiveLocationDashboard';
+import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, LOCATION_CONFIG_KEY} from './LocationService';
+import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
+import NowDashboard from './NowDashboard';
+import AdminUsersPanel from './AdminUsersPanel';
+import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
+import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, deleteField, orderBy, limit, runTransaction} from 'firebase/firestore';
+import {canAssignPersonToDay} from './scheduleEngine';
+
+const KEY = 'grafik-pracy-v5';
+const LEGACY_KEY = 'grafik-pracy-v4';
+const REPORT_PREFS_KEY = 'grafik-pracy-reports-v1';
+const REPORT_NOTIFICATION_IDS_KEY = 'grafik-pracy-report-notification-ids-v1';
+const REPORT_LAST_HANDLED_NOTIFICATION_KEY = 'grafik-pracy-report-last-handled-notification-v1';
+const REPORT_NOTIFICATION_CHANNEL_ID = 'work-report-alarm';
+const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
+const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
+const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
+
+const PEOPLE = {
+  P: {name: 'Paweł', color: '#4f8cff'},
+  M: {name: 'Mateusz', color: '#8f6cff'},
+  L: {name: 'Łukasz', color: '#35c98a'}
+};
+const COLOR_PALETTE = [
+  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
+  '#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899',
+  '#f43f5e','#fb7185','#a16207','#65a30d','#15803d','#0f766e','#0369a1','#1d4ed8',
+  '#4338ca','#7e22ce','#be185d','#78716c','#64748b','#334155'
+];
+const PERSON_KEYS = Object.keys(PEOPLE);
+const WAREHOUSES = ['PNT B','PNT C','UNICO','SP3','DC2','DC1','ECE','PNT A','GLP B','GLP C'];
+const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
+const RATES = {10: 300, 12: 360};
+const DEFAULT_TIMES = {
+  10: {s1:'06:00',e1:'16:00',s2:'16:00',e2:'02:00'},
+  12: {s1:'06:00',e1:'18:00',s2:'18:00',e2:'06:00'}
+};
+
+const monday = d => {
+  const x = new Date(d);
+  const n = x.getDay();
+  x.setDate(x.getDate() + (n === 0 ? -6 : 1 - n));
+  x.setHours(0,0,0,0);
+  return x;
+};
+const addDays = (d,n) => {
+  const x = new Date(d);
+  x.setDate(x.getDate()+n);
+  return x;
+};
+const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const shortDate = d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`;
+const fullDate = d => `${shortDate(d)}.${d.getFullYear()}`;
+
+function emptyWeek(warehouse='PNT B') {
+  return DAYS.map((_,i) => ({
+    dayIndex:i,
+    warehouse,
+    shifts:[
+      {id:`${i}-1`,shift:1,person:null,warehouse,locked:false,manual:false},
+      {id:`${i}-2`,shift:2,person:null,warehouse,locked:false,manual:false}
+    ]
+  }));
+}
+
+function generateWeek(rotation='P', warehouse='PNT B') {
+  const first = rotation === 'P' ? 'P' : 'M';
+  const second = first === 'P' ? 'M' : 'P';
+  const w = emptyWeek(warehouse);
+
+  const pairs = [
+    [0, first, second],
+    [1, second, first],
+    [2, first, second],
+    [3, second, first],
+    [4, first, second],
+    [5, second, first]
+  ];
+
+  pairs.forEach(([day,a,b]) => {
+    w[day].shifts[0].person = a;
+    w[day].shifts[1].person = b;
+  });
+
+  return w;
+}
+
+function ChatComposer({busy,onSend}) {
+  const [text,setText]=useState('');
+  const submit=async()=>{
+    const body=text.trim();
+    if(!body || busy) return;
+    const ok=await onSend(body);
+    if(ok) setText('');
+  };
+  return <View style={S.chatComposer}>
+    <TextInput value={text} onChangeText={setText} multiline maxLength={500} placeholder="Napisz wiadomość…" placeholderTextColor="#777" style={S.chatInput}/>
+    <TouchableOpacity disabled={busy || !text.trim()} style={[S.generate,S.chatSend]} onPress={submit}><Text style={S.btnText}>{busy?'…':'WYŚLIJ'}</Text></TouchableOpacity>
+  </View>;
+}
+
+function cloneWeek(w) {
+  return (w || []).map(d => ({
+    ...d,
+    shifts:(d.shifts || []).map(s => ({...s}))
+  }));
+}
+
+function shiftTime(times, slot) {
+  return slot === 1
+    ? `${times.s1}–${times.e1}`
+    : `${times.s2}–${times.e2}`;
+}
+
+function hexToRgb(hex) {
+  const h = hex.replace('#','');
+  const n = parseInt(h,16);
+  return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
+}
+
+function contrastText(hex) {
+  const {r,g,b} = hexToRgb(hex);
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.62 ? '#11151c' : '#ffffff';
+}
+
+export default function App() {
+  const [ready,setReady] = useState(false);
+  const [tab,setTab] = useState('grafik');
+  const [hours,setHours] = useState(10);
+  const [rotation,setRotation] = useState('P');
+  const [warehouse,setWarehouse] = useState('PNT B');
+  const [weekStart,setWeekStart] = useState(monday(new Date()));
+  const [weekConfigs,setWeekConfigs] = useState({});
+  const [autoGenerateWeeks,setAutoGenerateWeeks] = useState(false);
+  const [allow24h,setAllow24h] = useState(false);
+  const [weekSetup,setWeekSetup] = useState(null);
+  const [dismissedWeekSetupKey,setDismissedWeekSetupKey] = useState('');
+  const [weekSetupHours,setWeekSetupHours] = useState(10);
+  const [weekSetupRotation,setWeekSetupRotation] = useState('P');
+  const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');
+  const [weeks,setWeeks] = useState({});
+  const [times,setTimes] = useState(DEFAULT_TIMES[10]);
+  const [edit,setEdit] = useState(null);
+  const [help,setHelp] = useState(false);
+  const [pinModal,setPinModal] = useState(false);
+  const [pin,setPin] = useState('');
+  const [pinEntry,setPinEntry] = useState('');
+  const [pinEnabled,setPinEnabled] = useState(false);
+  const [backupModal,setBackupModal] = useState(false);
+  const [backupText,setBackupText] = useState('');
+  const [dark,setDark] = useState(true);
+  const [personColors,setPersonColors] = useState({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+  const [colorPerson,setColorPerson] = useState(null);
+  const [summaryPerson,setSummaryPerson] = useState('all');
+  const [viewMode,setViewMode] = useState('cards');
+  const [exportModal,setExportModal] = useState(false);
+  const exportRef = useRef(null);
+  const cloudApplying = useRef(false);
+  const cloudUpdatedAtRef = useRef(null);
+  const cloudSaveTimerRef = useRef(null);
+  const cloudDirtyRef = useRef(false);
+  const scheduleHydratedRef = useRef(false);
+  const scheduleDirtyTrackingStartedRef = useRef(false);
+  const legacyMigrationRef = useRef(false);
+  const cloudUpdatedAtByWeekRef = useRef({});
+  const remoteShiftMapByWeekRef = useRef({});
+  const remoteWeekConfigByWeekRef = useRef({});
+  const localDirtyShiftKeysRef = useRef({});
+  const localDirtyWeekConfigRef = useRef({});
+  const weeksRef = useRef({});
+  weeksRef.current = weeks;
+  const [cloudRetryTick,setCloudRetryTick] = useState(0);
+  const [cloudUser,setCloudUser] = useState(null);
+  const [cloudRole,setCloudRole] = useState('employee');
+  const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
+  const [authEmail,setAuthEmail] = useState('');
+  const [authPassword,setAuthPassword] = useState('');
+  const [authBusy,setAuthBusy] = useState(false);
+  const [cloudError,setCloudError] = useState('');
+  const [rememberLogin,setRememberLogin] = useState(true);
+  const [reportsEnabled,setReportsEnabled] = useState(true);
+  const [vehicleRegistration,setVehicleRegistration] = useState('');
+  const [reportGroupLink,setReportGroupLink] = useState('');
+  const [reportModal,setReportModal] = useState(false);
+  const [reportAlarm,setReportAlarm] = useState(false);
+  const [reportStatus,setReportStatus] = useState('Czekam na załadunek');
+  const [reportWarehouse,setReportWarehouse] = useState('PNT B');
+  const [reportFromWarehouse,setReportFromWarehouse] = useState('PNT B');
+  const [reportToWarehouse,setReportToWarehouse] = useState('ECE');
+  const [reportRamp,setReportRamp] = useState('');
+  const [reportDuration,setReportDuration] = useState('10 min');
+  const [reportLoaded,setReportLoaded] = useState('załadowany');
+  const [reportBusy,setReportBusy] = useState(false);
+  const [reportHistory,setReportHistory] = useState([]);
+  const reportStatusRef = useRef(reportStatus);
+  const handledReportNotificationRef = useRef(null);
+  const [warehouseGeo,setWarehouseGeo] = useState({});
+  const [locationTracking,setLocationTracking] = useState(false);
+  const [locationBusy,setLocationBusy] = useState(false);
+  const locationConfigLoaded = useRef(false);
+  const [chatMessages,setChatMessages] = useState([]);
+  const [chatBusy,setChatBusy] = useState(false);
+  const [cloudUpdated,setCloudUpdated] = useState(false);
+  const [sharePerson,setSharePerson] = useState('all');
+  const [shareFormat,setShareFormat] = useState('table');
+  const [conditionModal,setConditionModal] = useState(false);
+  const [conditions,setConditions] = useState([]);
+  const [recoveryBalances,setRecoveryBalances] = useState({P:0,M:0,L:0});
+  const [recoveryLedger,setRecoveryLedger] = useState([]);
+  const recoveryConfirmLockRef = useRef({});
+  const [conditionPerson,setConditionPerson] = useState('P');
+  const [conditionType,setConditionType] = useState('must');
+  const [conditionDay,setConditionDay] = useState(0);
+  const [conditionShift,setConditionShift] = useState(1);
+  const [conditionValue,setConditionValue] = useState('');
+  const [offModal,setOffModal] = useState(null);
+  const [offMode,setOffMode] = useState('plain');
+  const [offReplacement,setOffReplacement] = useState('');
+  const [recoveryCorrection,setRecoveryCorrection] = useState(null);
+  const [recoveryCorrectionValue,setRecoveryCorrectionValue] = useState('1');
+  const [recoveryCorrectionReason,setRecoveryCorrectionReason] = useState('');
+  const [swapModal,setSwapModal] = useState(null);
+  const [swapTarget,setSwapTarget] = useState('');
+  const [swapTargetDay,setSwapTargetDay] = useState(0);
+  const [swapTargetShift,setSwapTargetShift] = useState(1);
+  const [proposals,setProposals] = useState([]);
+  const [myPerson,setMyPerson] = useState('P');
+  const [guestMode,setGuestMode] = useState(false);
+  const normalizeRecoveryBalances = value => {
+    const source = value && typeof value === 'object' ? value : {};
+    return Object.fromEntries(PERSON_KEYS.map(key => {
+      const n = Number(source[key] ?? 0);
+      return [key, Number.isFinite(n) && n >= 0 ? n : 0];
+    }));
+  };
+
+  const normalizeRecoveryLedger = value => {
+    if (!Array.isArray(value)) return [];
+    return value.filter(entry =>
+      entry && typeof entry === 'object'
+      && PERSON_KEYS.includes(entry.person)
+      && Number.isFinite(Number(entry.delta))
+      && Number(entry.delta) !== 0
+      && typeof entry.reason === 'string'
+      && String(entry.id || '').length > 0
+    ).slice(0,500);
+  };
+
+  const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
+
+  const wkKey = iso(weekStart);
+  const DEFAULT_BUSINESS_CONDITIONS = [
+    {id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1,source:'business-default'},
+    {id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2,source:'business-default'}
+  ];
+  const emptyWeek = wh => generateWeek(rotation,wh).map(d=>({...d,shifts:d.shifts.map(s=>({...s,person:null,manual:false,locked:false}))}));
+  useEffect(()=>{
+    if(!ready || !autoGenerateWeeks || cloudRole!=='admin' || readOnly) return;
+    const base=monday(weekStart);
+    const baseKey=iso(base);
+    const baseCfg=weekConfigs[baseKey]||{hours,rotation,warehouse,times};
+    const additions={};
+    for(let i=1;i<=4;i++){
+      const d=addDays(base,i*7),key=iso(d);
+      if(!weeks[key]){
+        additions[key]=generateWeek(baseCfg.rotation||rotation,baseCfg.warehouse||warehouse).map(day=>({...day,shifts:day.shifts.map(s=>({...s,warehouse:s.warehouse||baseCfg.warehouse||warehouse}))}));
+      }
+    }
+    if(Object.keys(additions).length){
+      setWeeks(prev=>{const next={...prev};Object.keys(additions).forEach(k=>{if(!next[k])next[k]=additions[k];});return next;});
+      setWeekConfigs(prev=>{const next={...prev};Object.keys(additions).forEach(k=>{if(!next[k])next[k]={hours:baseCfg.hours||hours,rotation:baseCfg.rotation||rotation,warehouse:baseCfg.warehouse||warehouse,times:DEFAULT_TIMES[baseCfg.hours||hours]};});return next;});
+    }
+  },[ready,autoGenerateWeeks,cloudRole,readOnly,weekStart,weeks,weekConfigs,hours,rotation,warehouse,times]);
+
+  const clearCurrentWeek = () => {
+    if (readOnly) return;
+    Alert.alert('Wyczyść tydzień','Usunąć wszystkich pracowników z całego aktualnie wyświetlanego tygodnia?', [
+      {text:'Anuluj',style:'cancel'},
+      {text:'Wyczyść cały tydzień',style:'destructive',onPress:()=>{
+        const wh=weekConfigs[wkKey]?.warehouse || warehouse;
+        setWeeks(prev=>({...prev,[wkKey]:emptyWeek(wh)}));
+      }}
+    ]);
+  };
+
+  const clearWholeWeekShift = shiftNumber => {
+    if (readOnly) return;
+    const label = shiftNumber === 1 ? 'pierwszej' : 'drugiej';
+    Alert.alert(
+      'Wyczyść zmianę',
+      'Usunąć wszystkich pracowników z ' + label + ' zmiany we wszystkich dniach aktualnego tygodnia?',
+      [
+        {text:'Anuluj',style:'cancel'},
+        {text:'Wyczyść zmianę',style:'destructive',onPress:()=>{
+          setWeeks(prev=>{
+            const source = prev[wkKey] || emptyWeek(weekConfigs[wkKey]?.warehouse || warehouse);
+            const next = cloneWeek(source);
+            next.forEach(day=>{
+              const index = shiftNumber - 1;
+              if (day.shifts?.[index]) {
+                day.shifts[index] = {
+                  ...day.shifts[index],
+                  person:null,
+                  manual:false,
+                  locked:false
+                };
+              }
+            });
+            return {...prev,[wkKey]:next};
+          });
+        }}
+      ]
+    );
+  };
+  const currentWeekConfig = weekConfigs[wkKey] || {};
+  const currentWeekHours = currentWeekConfig.hours || hours;
+  const currentWeekTimes = currentWeekConfig.times || DEFAULT_TIMES[currentWeekHours] || times;
+  const currentWeekWarehouse = currentWeekConfig.warehouse || warehouse;
+  const currentWeek = weeks[wkKey] || emptyWeek(currentWeekWarehouse);
+  const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
+  const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
+  const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
+  const freeShifts = Math.max(0,14 - occupiedShifts);
+
+  useEffect(() => {
+    (async() => {
+      try {
+        const raw = (await AsyncStorage.getItem(KEY)) || (await AsyncStorage.getItem(LEGACY_KEY));
+        if (raw) {
+          const data = JSON.parse(raw);
+          setHours(data.hours || 10);
+          setRotation(data.rotation || 'P');
+          setWarehouse(data.warehouse || 'PNT B');
+          setWeeks(data.weeks || {});
+          setWeekConfigs(data.weekConfigs || {});
+          setAutoGenerateWeeks(!!data.autoGenerateWeeks);
+          setAllow24h(!!data.allow24h);
+          setPin(data.pin || '');
+          setPinEnabled(!!data.pinEnabled);
+          setDark(data.dark !== false);
+          setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+          const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
+          const hasSundayL1 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
+          const hasSundayL2 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
+          setConditions([
+            ...(hasSundayL1 ? [] : [DEFAULT_BUSINESS_CONDITIONS[0]]),
+            ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
+            ...savedConditions
+          ]);
+          setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
+          setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+          setProposals(data.proposals || []);
+          setMyPerson(data.myPerson || 'P');
+          setVehicleRegistration(data.vehicleRegistration || '');
+          setReportGroupLink(data.reportGroupLink || '');
+          setReportsEnabled(data.reportsEnabled !== false);
+          setReportHistory(data.reportHistory || []);
+          setWarehouseGeo(data.warehouseGeo || {});
+          setChatMessages(data.chatMessages || []);
+          const h = data.hours || 10;
+          setTimes(data.times?.[h] || DEFAULT_TIMES[h]);
+          cloudDirtyRef.current = data.cloudPending === true;
+          cloudUpdatedAtRef.current = data.cloudBaseUpdatedAt ?? null;
+        }
+      } catch(e) {
+        console.log(e);
+      } finally {
+        scheduleHydratedRef.current = true;
+        setReady(true);
+      }
+    })();
+  },[]);
+
+
+  useEffect(() => {
+    if (!ready) return;
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+      10: DEFAULT_TIMES[10],
+      12: DEFAULT_TIMES[12],
+      [hours]: times
+    },personColors,conditions,proposals,myPerson};
+    AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web') return;
+    let mounted=true;
+    const refreshLocationState=async()=>{
+      try {
+        const c=await getVehicleLocationConfig();
+        if (!mounted) return;
+        // Lokalizator może wznowić nadajnik dopiero po odczytaniu centralnego
+        // przypisania pojazdu. Chroni to przed startem GPS na starym aucie
+        // zapisanym lokalnie, zanim Firestore zdąży dostarczyć nowe przypisanie.
+        if (cloudRole === 'locator') {
+          setLocationTracking(false);
+          return;
+        }
+        setLocationTracking(c.enabled === true && !!c.vehicleId);
+        if (c.enabled === true && c.vehicleId && auth?.currentUser?.uid) {
+          const result=await ensureVehicleLocationTracking();
+          if (mounted && result.restarted) setLocationTracking(true);
+        }
+      } catch(e) {}
+    };
+    refreshLocationState();
+    const sub=AppState.addEventListener('change',state=>{
+      if(state==='active') refreshLocationState();
+    });
+    return ()=>{mounted=false; sub?.remove?.();};
+  },[ready,cloudRole]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const unsub = onSnapshot(doc(db,'locationConfig','main'), snap => {
+      locationConfigLoaded.current = true;
+      if (!snap.exists()) {
+        if (cloudRole === 'locator') {
+          setVehicleRegistration('');
+          (async () => {
+            try {
+              const local = await getVehicleLocationConfig();
+              if (local.enabled === true) {
+                await stopVehicleLocationTracking();
+                setLocationTracking(false);
+              }
+            } catch (e) {}
+          })();
+        }
+        return;
+      }
+      const data = snap.data() || {};
+      setWarehouseGeo(data.warehouseGeo || {});
+      if (cloudRole === 'locator') {
+        const assigned = String(data.registration || data.vehicleId || '').trim().toUpperCase();
+        setVehicleRegistration(assigned);
+        (async () => {
+          try {
+            const local = await getVehicleLocationConfig();
+            const localAssigned = String(local.registration || local.vehicleId || '').trim().toUpperCase();
+            if (!assigned) {
+              if (local.enabled === true) {
+                await stopVehicleLocationTracking();
+                setLocationTracking(false);
+              }
+              return;
+            }
+            if (localAssigned !== assigned) {
+              const wasTracking = local.enabled === true;
+              if (wasTracking) {
+                await stopVehicleLocationTracking();
+                setLocationTracking(false);
+              }
+              await saveVehicleLocationAssignment(assigned);
+              if (wasTracking) {
+                const restarted = await ensureVehicleLocationTracking();
+                if (restarted.ok) setLocationTracking(true);
+              }
+              return;
+            }
+            if (local.enabled === true) {
+              const result = await ensureVehicleLocationTracking();
+              if (result.ok) setLocationTracking(true);
+            }
+          } catch (e) {}
+        })();
+      }
+    });
+    return () => unsub();
+  },[cloudUser,cloudRole]);
+
+  useEffect(() => {
+    if (!ready || !FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !locationConfigLoaded.current) return;
+    setDoc(doc(db,'locationConfig','main'),{warehouseGeo,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid},{merge:true}).catch(() => {});
+  },[warehouseGeo,ready,cloudUser]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !auth || !db) return;
+
+    let roleUnsub = null;
+
+    const authUnsub = onAuthStateChanged(auth, async user => {
+      const storedRemember = await AsyncStorage.getItem(REMEMBER_LOGIN_KEY);
+      const remember = storedRemember === null ? true : storedRemember !== '0';
+      setRememberLogin(remember);
+
+      setCloudUser(user || null);
+      if (user) setGuestMode(false);
+      setCloudError('');
+      setCloudReady(false);
+
+      if (roleUnsub) {
+        roleUnsub();
+        roleUnsub = null;
+      }
+
+      if (!user) {
+        try { await stopVehicleLocationTracking(); } catch(e) {}
+        setLocationTracking(false);
+        setCloudRole('employee');
+        setCloudReady(true);
+        return;
+      }
+
+      roleUnsub = onSnapshot(
+        doc(db, 'users', user.uid),
+        async snap => {
+          if (!snap.exists() || snap.data()?.disabled === true) {
+            try { await signOut(auth); } catch (e) {}
+            setCloudUser(null);
+            setCloudRole('employee');
+            setCloudReady(true);
+            setCloudError('To konto zostało wyłączone przez administratora.');
+            return;
+          }
+          const role = snap.data()?.role || null;
+          setCloudRole(role === 'admin' ? 'admin' : role === 'locator' ? 'locator' : 'employee');
+          setCloudReady(true);
+        },
+        error => {
+          console.error('Błąd odczytu roli:', error);
+          setCloudRole('employee');
+          setCloudError('Nie udało się odczytać uprawnień użytkownika. Kod: ' + (error?.code || 'nieznany'));
+          setCloudReady(true);
+        }
+      );
+    });
+
+    return () => {
+      authUnsub();
+      if (roleUnsub) roleUnsub();
+    };
+  },[]);
+
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.getItem(REPORT_HISTORY_KEY).then(raw => { if (raw) setReportHistory(JSON.parse(raw)); }).catch(()=>{});
+    AsyncStorage.getItem(CHAT_LOCAL_KEY).then(raw => { if (raw && !FIREBASE_ENABLED) setChatMessages(JSON.parse(raw)); }).catch(()=>{});
+  },[ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.setItem(REPORT_HISTORY_KEY,JSON.stringify(reportHistory.slice(0,100))).catch(()=>{});
+    if (!FIREBASE_ENABLED) AsyncStorage.setItem(CHAT_LOCAL_KEY,JSON.stringify(chatMessages.slice(-100))).catch(()=>{});
+  },[ready,reportHistory,chatMessages]);
+
+  const timestampMillis = value => {
+    if (!value) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') return Date.parse(value) || 0;
+    if (typeof value?.toMillis === 'function') return value.toMillis();
+    if (Number.isFinite(Number(value?.seconds))) return Number(value.seconds) * 1000;
+    return 0;
+  };
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const q = query(collection(db,'chatMessages'), orderBy('createdAt','desc'), limit(100));
+    const unsub = onSnapshot(q, snap => {
+      const rows = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+      setChatMessages(rows);
+    }, err => setCloudError('Brak dostępu do czatu. Kod: ' + (err?.code || 'unknown')));
+    return unsub;
+  },[cloudUser,guestMode]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const q = cloudRole === 'admin'
+      ? query(collection(db,'whatsappReports'), orderBy('createdAt','desc'), limit(100))
+      : query(collection(db,'whatsappReports'), where('uid','==',cloudUser.uid), limit(50));
+    const unsub = onSnapshot(q, snap => {
+      const rows=snap.docs.map(d=>({id:d.id,...d.data()}));
+      rows.sort((a,b)=>timestampMillis(b.createdAt)-timestampMillis(a.createdAt));
+      setReportHistory(rows);
+    }, err => setCloudError('Brak dostępu do raportów WhatsApp. Kod: ' + (err?.code || 'unknown')));
+    return unsub;
+  },[cloudUser,cloudRole]);
+
+  const weekDateKey = (weekKey, dayOffset) => {
+    const match = String(weekKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) throw new Error('Invalid week key: ' + weekKey);
+    const d = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + dayOffset));
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + String(d.getUTCDate()).padStart(2,'0');
+  };
+
+  const shiftMapToWeek = (shiftMap, fallbackWeek, weekKey) => {
+    const base = cloneWeek(fallbackWeek || []);
+    if (!shiftMap || typeof shiftMap !== 'object') return base;
+    base.forEach((day, di) => {
+      day.shifts = (day.shifts || []).map((fallbackShift, si) => {
+        const date = weekDateKey(weekKey, di);
+        const key = `shift_${date}_${si + 1}`;
+        return shiftMap[key] ? {...fallbackShift, ...shiftMap[key], id:fallbackShift.id || `${di}-${si+1}`, shift:si+1} : fallbackShift;
+      });
+    });
+    return base;
+  };
+
+  const weekToShiftMap = (week, weekKey) => {
+    const map = {};
+    (week || []).forEach((day, di) => {
+      (day.shifts || []).forEach((shift, si) => {
+        const date = weekDateKey(weekKey, di);
+        map[`shift_${date}_${si + 1}`] = {
+          ...shift,
+          id: shift.id || `${di}-${si+1}`,
+          shift: si + 1,
+          person: shift.person || null,
+          warehouse: shift.warehouse || day.warehouse || warehouse
+        };
+      });
+    });
+    return map;
+  };
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+
+    const unsub = onSnapshot(
+      collection(db,'schedules'),
+      {includeMetadataChanges:true},
+      async snap => {
+        const weekDocs = snap.docs.filter(d => d.id !== 'main');
+
+        // Never use a local optimistic snapshot as authoritative remote state.
+        // Firestore exposes hasPendingWrites specifically for this distinction.
+        if (cloudRole === 'admin' && !legacyMigrationRef.current && weekDocs.length === 0) {
+          legacyMigrationRef.current = true;
+          try {
+            const legacy = await getDoc(doc(db,'schedules','main'));
+            if (legacy.exists()) {
+              const data = legacy.data() || {};
+              const entries = Object.entries(data.weeks || {});
+              await Promise.all(entries.map(([weekId, week]) =>
+                setDoc(doc(db,'schedules',weekId), {
+                  weekId,
+                  shifts: weekToShiftMap(week, weekId),
+                  config: data.weekConfigs?.[weekId] || null,
+                  updatedAt: serverTimestamp(),
+                  updatedBy: cloudUser.uid
+                }, {merge:true})
+              ));
+              await setDoc(doc(db,'settings','main'), {
+                hours:data.hours || 10,
+                rotation:data.rotation || 'P',
+                warehouse:data.warehouse || 'PNT B',
+                autoGenerateWeeks:!!data.autoGenerateWeeks,
+                allow24h:!!data.allow24h,
+                times:data.times || DEFAULT_TIMES,
+                personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
+                conditions:data.conditions || [],
+                recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
+                recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
+                migratedFromLegacyAt:serverTimestamp(),
+                migratedBy:cloudUser.uid
+              }, {merge:true});
+            }
+          } catch (e) {
+            setCloudError('Nie udało się zmigrować starego grafiku. Kod: ' + (e?.code || e?.message || 'unknown'));
+          }
+        }
+
+        const remoteWeeks = {};
+        const remoteConfigs = {};
+        remoteShiftMapByWeekRef.current = {};
+        remoteWeekConfigByWeekRef.current = {};
+
+        weekDocs.forEach(d => {
+          if (d.metadata.hasPendingWrites) return;
+          const data = d.data() || {};
+          const shiftMap = data.shifts && typeof data.shifts === 'object'
+            ? data.shifts
+            : weekToShiftMap(data.week || [], d.id);
+          remoteShiftMapByWeekRef.current[d.id] = shiftMap;
+          if (data.config) {
+            remoteConfigs[d.id] = data.config;
+            remoteWeekConfigByWeekRef.current[d.id] = data.config;
+          }
+          cloudUpdatedAtByWeekRef.current[d.id] = data.updatedAt?.toMillis?.() ?? null;
+        });
+
+        cloudApplying.current = true;
+        Object.entries(remoteShiftMapByWeekRef.current).forEach(([key, shiftMap]) => {
+          const fallback = weeks[key] || generateWeek(
+            remoteWeekConfigByWeekRef.current[key]?.rotation || rotation,
+            remoteWeekConfigByWeekRef.current[key]?.warehouse || warehouse
+          );
+          const remoteWeek = shiftMapToWeek(shiftMap, fallback, key);
+          const dirtyKeys = new Set(localDirtyShiftKeysRef.current[key] || []);
+          if (dirtyKeys.size > 0 && weeksRef.current[key]) {
+            const preserved = cloneWeek(remoteWeek);
+            weeksRef.current[key].forEach((day, di) => {
+              (day.shifts || []).forEach((shift, si) => {
+                const slotKey = `shift_${weekDateKey(key, di)}_${si + 1}`;
+                if (dirtyKeys.has(slotKey) && preserved[di]?.shifts?.[si]) {
+                  preserved[di].shifts[si] = {...shift};
+                }
+              });
+            });
+            remoteWeeks[key] = preserved;
+          } else {
+            remoteWeeks[key] = remoteWeek;
+          }
+        });
+
+        if (Object.keys(remoteWeeks).length) setWeeks(prev => ({...prev,...remoteWeeks}));
+        if (Object.keys(remoteConfigs).length) setWeekConfigs(prev => {
+          const next = {...prev};
+          Object.entries(remoteConfigs).forEach(([key, remoteConfig]) => {
+            if (!localDirtyWeekConfigRef.current[key]) next[key] = remoteConfig;
+          });
+          return next;
+        });
+        setCloudUpdated(true);
+        if (Object.keys(remoteWeeks).length === 0 && Object.keys(remoteConfigs).length === 0) {
+          cloudApplying.current = false;
+        }
+        setTimeout(() => setCloudUpdated(false), 2500);
+      },
+      err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany'))
+    );
+    return unsub;
+  },[cloudUser,guestMode,cloudRole]);
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
+      if (!snap.exists() || cloudDirtyRef.current) return;
+      const data = snap.data() || {};
+      cloudApplying.current = true;
+      if (data.hours) setHours(data.hours);
+      if (data.rotation) setRotation(data.rotation);
+      if (data.warehouse) setWarehouse(data.warehouse);
+      if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
+      if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
+      if (data.personColors) setPersonColors(data.personColors);
+      if (data.conditions) setConditions(data.conditions);
+      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
+      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+      if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
+    }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
+    return unsub;
+  },[cloudUser,guestMode]);
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const q = cloudRole === 'admin'
+      ? collection(db,'proposals')
+      : query(collection(db,'proposals'),where('fromUid','==',cloudUser.uid));
+    const unsub = onSnapshot(q, snap => {
+      setProposals(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))));
+    }, err => setCloudError('Brak dostępu do propozycji zamian. Kod: ' + (err?.code || 'unknown')));
+    return unsub;
+  },[cloudUser,cloudRole]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    const unsub=onSnapshot(doc(db,'users',cloudUser.uid), snap => {
+      const key=snap.exists()?snap.data()?.personKey:null;
+      if(key && PERSON_KEYS.includes(key)) setMyPerson(key);
+    });
+    return unsub;
+  },[cloudUser]);
+
+  useEffect(() => {
+    if (!ready || !scheduleHydratedRef.current) return;
+    if (!scheduleDirtyTrackingStartedRef.current) {
+      scheduleDirtyTrackingStartedRef.current = true;
+      return;
+    }
+    if (cloudApplying.current) {
+      cloudApplying.current = false;
+      return;
+    }
+
+    Object.keys(weeks || {}).forEach(key => {
+      const localMap = weekToShiftMap(weeks[key], key);
+      const remoteMap = remoteShiftMapByWeekRef.current[key] || {};
+      const dirty = new Set();
+      Object.keys(localMap).forEach(shiftKey => {
+        if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) dirty.add(shiftKey);
+      });
+      Object.keys(remoteMap).forEach(shiftKey => {
+        if (!Object.prototype.hasOwnProperty.call(localMap, shiftKey)) dirty.add(shiftKey);
+      });
+      localDirtyShiftKeysRef.current[key] = Array.from(dirty);
+
+      const localConfig = weekConfigs[key] || null;
+      const remoteConfig = remoteWeekConfigByWeekRef.current[key] || null;
+      if (JSON.stringify(localConfig) !== JSON.stringify(remoteConfig)) localDirtyWeekConfigRef.current[key] = true;
+      else delete localDirtyWeekConfigRef.current[key];
+    });
+
+    cloudDirtyRef.current =
+      Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
+      || Object.keys(localDirtyWeekConfigRef.current).length > 0;
+  },[ready,weeks,weekConfigs]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
+    if (!cloudDirtyRef.current) return;
+
+    if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+    cloudSaveTimerRef.current=setTimeout(async()=> {
+      const weekKeyAtSave=wkKey;
+      const weeksAtSave=weeks;
+      const configsAtSave=weekConfigs;
+      const scheduleRef=doc(db,'schedules',weekKeyAtSave);
+      const localWeek=weeksAtSave[weekKeyAtSave] || currentWeek;
+      const localMap=weekToShiftMap(localWeek,weekKeyAtSave);
+      const dirtyAtSave=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
+
+      const config=configsAtSave[weekKeyAtSave] || {hours,rotation,warehouse,times};
+      const configDirtyAtSave = localDirtyWeekConfigRef.current[weekKeyAtSave] === true;
+      try {
+        if (dirtyAtSave.size === 0 && !configDirtyAtSave) {
+          cloudDirtyRef.current=false;
+          return;
+        }
+
+        await runTransaction(db, async tx => {
+          const snap=await tx.get(scheduleRef);
+          if (!snap.exists()) {
+            tx.set(scheduleRef,{
+              weekId:weekKeyAtSave,
+              shifts:localMap,
+              config,
+              updatedAt:serverTimestamp(),
+              updatedBy:cloudUser.uid
+            });
+            return;
+          }
+
+          const current=snap.data() || {};
+          const currentMap=current.shifts && typeof current.shifts === 'object'
+            ? current.shifts
+            : weekToShiftMap(current.week || [],weekKeyAtSave);
+
+          // Rebase only the locally dirty slots onto the transaction's fresh
+          // server snapshot. Changes made by another device are preserved.
+          const transactionUpdate={
+            updatedAt:serverTimestamp(),
+            updatedBy:cloudUser.uid
+          };
+          dirtyAtSave.forEach(key => {
+            if (Object.prototype.hasOwnProperty.call(localMap,key)) {
+              transactionUpdate[`shifts.${key}`]=localMap[key];
+            } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
+              transactionUpdate[`shifts.${key}`]=deleteField();
+            }
+          });
+          if (configDirtyAtSave) transactionUpdate.config=config;
+
+          if (Object.keys(transactionUpdate).length > 2) {
+            tx.update(scheduleRef,transactionUpdate);
+          }
+        });
+
+        const latest=await getDoc(scheduleRef);
+        const latestData=latest.exists()?latest.data():{};
+        remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
+          ? latestData.shifts
+          : localMap;
+        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
+
+        const currentMap=weekToShiftMap(
+          weeksRef.current[weekKeyAtSave] || currentWeek,
+          weekKeyAtSave
+        );
+        const remaining=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
+        dirtyAtSave.forEach(key => {
+          if (JSON.stringify(currentMap[key]) === JSON.stringify(localMap[key])) {
+            remaining.delete(key);
+          }
+        });
+        localDirtyShiftKeysRef.current[weekKeyAtSave]=Array.from(remaining);
+        if (configDirtyAtSave && JSON.stringify(weekConfigs[weekKeyAtSave] || null) === JSON.stringify(config)) delete localDirtyWeekConfigRef.current[weekKeyAtSave];
+        cloudDirtyRef.current=
+          Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
+          || Object.keys(localDirtyWeekConfigRef.current).length > 0;
+      } catch(e) {
+        setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+      }
+    },250);
+
+    return () => {
+      if (cloudSaveTimerRef.current) {
+        clearTimeout(cloudSaveTimerRef.current);
+        cloudSaveTimerRef.current=null;
+      }
+    };
+  },[ready,wkKey,weeks,weekConfigs,hours,rotation,warehouse,times,cloudUser,cloudRole]);
+  const parseHM = value => {
+    const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+  };
+
+  const compactWarehouse = value => String(value || '').replace(/\s+/g,'').toUpperCase();
+
+  const parseReportDurationMinutes = value => {
+    const text = String(value || '').toLowerCase().replace(',', '.');
+    const hm = text.match(/(\d+(?:\.\d+)?)\s*h(?:\s*(\d+)\s*min)?/);
+    if (hm) return Math.round(Number(hm[1]) * 60 + Number(hm[2] || 0));
+    const mm = text.match(/(\d+)\s*min/);
+    return mm ? Number(mm[1]) : 0;
+  };
+
+  const formatReportDuration = minutes => {
+    const m = Math.max(0, Math.round(Number(minutes) || 0));
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    if (h && min) return h + ' h ' + min + ' min';
+    if (h) return h + ' h';
+    return min + ' min';
+  };
+
+  const getLastReportForStatus = status => {
+    return (reportHistory || [])
+      .filter(r => r && r.status === status && (!r.person || r.person === myPerson))
+      .sort((a,b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0] || null;
+  };
+
+  const applyReportContinuity = status => {
+    const last = getLastReportForStatus(status);
+    if (!last) return;
+
+    if (status !== 'W drodze') {
+      if (last.warehouse) setReportWarehouse(String(last.warehouse).split('->')[0] || reportWarehouse);
+      if (last.ramp) setReportRamp(last.ramp);
+    } else if (last.warehouse && String(last.warehouse).includes('->')) {
+      const parts = String(last.warehouse).split('->');
+      if (parts[0]) setReportFromWarehouse(parts[0]);
+      if (parts[1]) setReportToWarehouse(parts[1]);
+      if (last.loaded) setReportLoaded(last.loaded);
+    }
+
+    const baseMinutes = Number(last.durationMinutes) || parseReportDurationMinutes(last.text);
+    if (baseMinutes > 0) {
+      const elapsed = Math.max(0, Math.floor((Date.now() - new Date(last.createdAt || Date.now()).getTime()) / 60000));
+      setReportDuration(formatReportDuration(baseMinutes + elapsed));
+    }
+  };
+
+  const applyLocationSuggestion = suggestion => {
+    if (!suggestion) return;
+    setReportStatus(suggestion.status || 'W drodze');
+    if (suggestion.status === 'W drodze') {
+      setReportFromWarehouse(suggestion.from || reportFromWarehouse);
+      setReportToWarehouse(suggestion.to || reportToWarehouse);
+    } else if (suggestion.warehouse) {
+      setReportWarehouse(suggestion.warehouse);
+    }
+    setTab('ustawienia');
+    setTimeout(() => setReportModal(true), 80);
+  };
+
+  const toggleVehicleTracking = async () => {
+    if (locationBusy) return;
+    setLocationBusy(true);
+    try {
+      if (locationTracking) {
+        await stopVehicleLocationTracking();
+        setLocationTracking(false);
+        Alert.alert('Lokalizacja','Nadajnik GPS został wyłączony.');
+      } else {
+        const result = await startVehicleLocationTracking({vehicleId:vehicleRegistration,registration:vehicleRegistration});
+        if (result.ok) {
+          setLocationTracking(true);
+          Alert.alert('Lokalizacja aktywna','Służbowy telefon będzie wysyłał pozycję w tle.');
+        } else if (result.reason === 'background-permission') {
+          Alert.alert('Lokalizacja','Android nie przyznał dostępu do lokalizacji w tle. Włącz „Zawsze zezwalaj” w ustawieniach aplikacji.');
+        } else if (result.reason === 'foreground-permission') {
+          Alert.alert('Lokalizacja','Brak zgody na lokalizację.');
+        } else if (result.reason === 'vehicle-assignment-mismatch') {
+          Alert.alert('Lokalizacja','Ten telefon ma przypisany inny pojazd niż ustawiony centralnie przez administratora. Odśwież przypisanie pojazdu i spróbuj ponownie.');
+        } else if (result.reason === 'central-config') {
+          Alert.alert('Lokalizacja','Nie udało się odczytać centralnego przypisania pojazdu z Firebase. Sprawdź połączenie z internetem i uprawnienia konta.');
+        } else if (result.reason === 'vehicle-assignment') {
+          Alert.alert('Lokalizacja','Brak centralnego przypisania pojazdu. Administrator musi najpierw przypisać numer rejestracyjny.');
+        } else {
+          Alert.alert('Lokalizacja','Do działania potrzebne jest połączenie z Firebase.');
+        }
+      }
+    } catch(e) {
+      Alert.alert('Lokalizacja','Nie udało się uruchomić nadajnika: '+(e?.message||'nieznany błąd'));
+    } finally { setLocationBusy(false); }
+  };
+
+  const calibrateWarehouse = async name => {
+    if (Platform.OS === 'web') {
+      Alert.alert('GPS','Kalibrację wykonaj na służbowym telefonie z Androidem.');
+      return;
+    }
+    try {
+      const fg=await Location.requestForegroundPermissionsAsync();
+      if (fg.status!=='granted') { Alert.alert('GPS','Brak zgody na lokalizację.'); return; }
+      const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+      const accuracy=Number(pos.coords.accuracy||0);
+      setWarehouseGeo(prev=>({...prev,[name]:{latitude:pos.coords.latitude,longitude:pos.coords.longitude,radius:220,accuracy,updatedAt:Date.now()}}));
+      Alert.alert('Strefa ustawiona',name+' zapisany w bieżącej pozycji GPS.');
+    } catch(e) { Alert.alert('GPS','Nie udało się pobrać pozycji.'); }
+  };
+
+  const openReportModal = () => {
+    applyReportContinuity(reportStatus);
+    setReportModal(true);
+  };
+
+  const reportText = () => {
+    const reg = vehicleRegistration.trim().toUpperCase();
+    if (!reg) return '';
+    if (reportStatus === 'W drodze') {
+      return `${reg} w drodze ${compactWarehouse(reportFromWarehouse)}->${compactWarehouse(reportToWarehouse)} ${reportLoaded}`;
+    }
+    if (reportStatus === 'Zaczynam pracę, jestem na miejscu') {
+      return `${reg} ${compactWarehouse(reportWarehouse)} zaczynam pracę, jestem na miejscu`;
+    }
+    if (reportStatus === 'Koniec zmiany') {
+      return `${reg} ${compactWarehouse(reportWarehouse)} koniec zmiany`;
+    }
+    const ramp = reportRamp.trim();
+    const duration = reportDuration.trim();
+    return `${reg} ${compactWarehouse(reportWarehouse)}${ramp ? ` ${ramp}` : ''} ${reportStatus.toLowerCase()}${duration ? ` ${duration}` : ''}`;
+  };
+
+  const openWhatsAppReport = async () => {
+    const text = reportText();
+    if (!text) {
+      Alert.alert('Raport','Uzupełnij numer rejestracyjny w ustawieniach.');
+      return;
+    }
+    setReportBusy(true);
+    try {
+      await Clipboard.setStringAsync(text);
+      const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,ramp:reportRamp.trim(),loaded:reportLoaded,durationMinutes:parseReportDurationMinutes(reportDuration),createdAt:new Date().toISOString(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
+      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'whatsappReports'),reportEntry);
+      else setReportHistory(prev => [reportEntry,...prev].slice(0,100));
+      if (reportGroupLink.trim()) await Linking.openURL(reportGroupLink.trim());
+      else { try { await Linking.openURL('whatsapp://send?text=' + encodeURIComponent(text)); } catch(e) { await Linking.openURL('whatsapp://'); } }
+      setReportModal(false);
+      Alert.alert('Raport gotowy','Tekst raportu został skopiowany. W WhatsApp wklej go do grupy i naciśnij WYŚLIJ.');
+    } catch (e) {
+      Alert.alert('WhatsApp','Nie udało się otworzyć WhatsApp. Tekst raportu został skopiowany do schowka.');
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
+  const sendChatMessage = async body => {
+    const normalized=String(body||'').trim();
+    if (!normalized || chatBusy) return false;
+    setChatBusy(true);
+    const message = {text:normalized,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    try {
+      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
+      else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
+      return true;
+    } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); return false; }
+    finally { setChatBusy(false); }
+  };
+
+  const resendReport = async text => {
+    if (!text) return;
+    try {
+      await Clipboard.setStringAsync(text);
+      const waUrl = reportGroupLink.trim() ? reportGroupLink.trim() : 'whatsapp://send?text=' + encodeURIComponent(text);
+      await Linking.openURL(waUrl);
+    } catch(e) { Alert.alert('WhatsApp','Raport skopiowano do schowka, ale nie udało się otworzyć WhatsApp.'); }
+  };
+
+  useEffect(() => {
+    reportStatusRef.current = reportStatus;
+  },[reportStatus]);
+
+  useEffect(() => {
+    if (!reportAlarm) {
+      Vibration.cancel();
+      return;
+    }
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate([0,700,250,700,500], true);
+    }
+    return () => Vibration.cancel();
+  },[reportAlarm]);
+
+  const ensureReportNotificationChannel = async () => {
+    if (Platform.OS !== 'android') return;
+    await Notifications.setNotificationChannelAsync(REPORT_NOTIFICATION_CHANNEL_ID, {
+      name: 'Raport godzinowy',
+      description: 'Alarmy przypominające o raporcie WhatsApp 20 minut przed pełną godziną.',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0,700,250,700,500],
+      enableVibrate: true,
+      enableLights: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
+      sound: 'default',
+      showBadge: true
+    });
+  };
+
+  const requestReportNotifications = async () => {
+    if (Platform.OS === 'web') return false;
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) return true;
+    const requested = await Notifications.requestPermissionsAsync();
+    return requested.granted;
+  };
+
+  const cancelReportNotifications = async () => {
+    // AsyncStorage is only a recovery/audit record. The OS scheduler is authoritative.
+    // Clear all scheduled notifications before rebuilding the report schedule so a
+    // killed process cannot leave orphaned alarms from an older shift plan.
+    try { await Notifications.cancelAllScheduledNotificationsAsync(); } catch(e) {}
+    await AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY);
+  };
+
+  const scheduleReportNotifications = async () => {
+    if (Platform.OS === 'web' || !ready) return;
+    if (!reportsEnabled || !vehicleRegistration.trim()) {
+      await cancelReportNotifications();
+      return;
+    }
+    const granted = await requestReportNotifications();
+    if (!granted) return;
+    await ensureReportNotificationChannel();
+
+    await cancelReportNotifications();
+    const ids = [];
+    const today = new Date();
+    const startDay = monday(today);
+
+    for (let weekOffset = 0; weekOffset < 2; weekOffset++) {
+      const weekStart = addDays(startDay,weekOffset * 7);
+      const key = iso(weekStart);
+      const week = weeks[key] || null;
+      if (!week) continue;
+
+      for (let di = 0; di < week.length; di++) {
+        const day = week[di];
+        const shiftDate = addDays(weekStart,di);
+        for (let si = 0; si < (day.shifts || []).length; si++) {
+          const shift = day.shifts[si];
+          if (shift.person !== myPerson) continue;
+          const weekTimes = weekConfigs[key]?.times
+            || DEFAULT_TIMES[weekConfigs[key]?.hours || hours]
+            || times;
+          const shiftTimes = weekTimes;
+          const startMin = parseHM(si === 0 ? shiftTimes.s1 : shiftTimes.s2);
+          let endMin = parseHM(si === 0 ? shiftTimes.e1 : shiftTimes.e2);
+          if (endMin <= startMin) endMin += 24 * 60;
+          const shiftStart = new Date(shiftDate);
+          shiftStart.setHours(Math.floor(startMin/60),startMin%60,0,0);
+          const shiftEnd = new Date(shiftStart);
+          shiftEnd.setMinutes(endMin);
+          const first = new Date(shiftStart);
+          first.setMinutes(40,0,0);
+          if (first <= shiftStart) first.setHours(first.getHours()+1);
+
+          for (let t = new Date(first); t < shiftEnd; t = new Date(t.getTime() + 3600000)) {
+            if (t <= new Date()) continue;
+            const notification = await Notifications.scheduleNotificationAsync({
+              content: {
+                title: '🚨 RAPORT GODZINOWY',
+                body: `Za 20 min pełna godzina. ${PEOPLE[myPerson]?.name || ''}, przygotuj raport.`,
+                sound: 'default',
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                sticky: true,
+                vibrate: [0,700,250,700,500],
+                data: {type:'work-report', alarm:true}
+              },
+              trigger: {
+                type: Notifications.SchedulableTriggerInputTypes.DATE,
+                date: new Date(t),
+                channelId: REPORT_NOTIFICATION_CHANNEL_ID
+              }
+            });
+            ids.push(notification);
+            await AsyncStorage.setItem(REPORT_NOTIFICATION_IDS_KEY,JSON.stringify(ids));
+          }
+        }
+      }
+    }
+    await AsyncStorage.setItem(REPORT_NOTIFICATION_IDS_KEY,JSON.stringify(ids));
+  };
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web') return;
+    let mounted = true;
+    const openReportAlarm = async response => {
+      const notification = response?.notification?.request;
+      const type = notification?.content?.data?.type;
+      const id = notification?.identifier;
+      if (type !== 'work-report' || !mounted) return;
+      if (id && handledReportNotificationRef.current === id) return;
+      if (id) {
+        try {
+          const raw = await AsyncStorage.getItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY);
+          const handled = raw ? JSON.parse(raw) : [];
+          const handledIds = Array.isArray(handled) ? handled : (raw ? [raw] : []);
+          if (handledIds.includes(id) || handledReportNotificationRef.current === id) return;
+          const nextHandled = [id,...handledIds].filter(Boolean).slice(0,50);
+          handledReportNotificationRef.current = id;
+          await AsyncStorage.setItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY,JSON.stringify(nextHandled));
+        } catch(e) {
+          if (handledReportNotificationRef.current === id) return;
+          handledReportNotificationRef.current = id;
+        }
+      }
+      applyReportContinuity(reportStatusRef.current);
+      setReportModal(false);
+      setReportAlarm(true);
+    };
+    const sub = Notifications.addNotificationResponseReceivedListener(openReportAlarm);
+    Notifications.getLastNotificationResponseAsync?.().then(openReportAlarm).catch(()=>{});
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
+  },[ready]);
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web') return;
+    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);
+    return () => clearTimeout(timer);
+  },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);
+
+  const cloudLogin = async () => {
+    setAuthBusy(true); setCloudError('');
+    try {
+      await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'1');
+      setRememberLogin(true);
+      await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword);
+      setAuthPassword('');
+    }
+    catch(e) { setCloudError(e?.code === 'auth/invalid-credential' ? 'Nieprawidłowy e-mail lub hasło.' : 'Nie udało się zalogować.'); }
+    finally { setAuthBusy(false); }
+  };
+
+  const cloudRegister = async () => {
+    setAuthBusy(true); setCloudError('');
+    try {
+      const email = authEmail.trim();
+      if (!email) { setCloudError('Wpisz adres e-mail.'); return; }
+      if (authPassword.length < 6) { setCloudError('Hasło musi mieć co najmniej 6 znaków.'); return; }
+      const cred = await createUserWithEmailAndPassword(auth,email,authPassword);
+      await setDoc(doc(db,'users',cred.user.uid),{email:cred.user.email,role:'employee',createdAt:serverTimestamp()});
+      setAuthPassword('');
+    } catch(e) {
+      const code = e?.code || '';
+      if (code === 'auth/email-already-in-use') setCloudError('Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.');
+      else if (code === 'auth/invalid-email') setCloudError('Nieprawidłowy adres e-mail.');
+      else if (code === 'auth/weak-password') setCloudError('Hasło jest za słabe. Użyj co najmniej 6 znaków.');
+      else if (code === 'auth/operation-not-allowed') setCloudError('Logowanie e-mailem jest wyłączone w Firebase. Trzeba włączyć dostawcę E-mail/hasło w Authentication.');
+      else if (code === 'auth/network-request-failed') setCloudError('Brak połączenia z internetem.');
+      else setCloudError('Nie udało się utworzyć konta. Kod: ' + (code || 'nieznany błąd'));
+    } finally { setAuthBusy(false); }
+  };
+
+  const cloudLogout = async () => {
+    try {
+      await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'0');
+      setRememberLogin(false);
+      try { await stopVehicleLocationTracking(); } catch(e) {}
+      await signOut(auth);
+    } catch(e) {
+      setCloudError('Nie udało się bezpiecznie wylogować. Spróbuj ponownie.');
+    }
+  };
+
+  useEffect(() => {
+    if (!ready || cloudRole !== 'admin' || readOnly) return;
+    if (!weeks[wkKey] && !weekConfigs[wkKey] && !weekSetup && dismissedWeekSetupKey !== wkKey) {
+      setWeekSetup(weekStart);
+      setWeekSetupHours(hours);
+      setWeekSetupRotation(rotation);
+      setWeekSetupWarehouse(warehouse);
+    }
+  },[ready,cloudRole,readOnly,wkKey,weeks,weekConfigs,weekSetup,dismissedWeekSetupKey,hours,rotation,warehouse]);
+
+  const setWeek = updater => {
+    setWeeks(prev => ({
+      ...prev,
+      [wkKey]: typeof updater === 'function' ? updater(cloneWeek(prev[wkKey] || currentWeek)) : updater
+    }));
+  };
+
+  const changeHours = h => {
+    if (readOnly) return;
+    setWeekConfigs(prev=>({...prev,[wkKey]:{
+      ...(prev[wkKey]||{}),
+      hours:h,
+      times:DEFAULT_TIMES[h],
+      rotation:prev[wkKey]?.rotation||rotation,
+      warehouse:prev[wkKey]?.warehouse||warehouse
+    }}));
+  };
+
+  const dayHasPassed = dayIndex => {
+    const date = addDays(weekStart, dayIndex);
+    const now = new Date();
+    const today = new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const d = new Date(date.getFullYear(),date.getMonth(),date.getDate());
+    return d < today;
+  };
+
+  const conditionApplies = (c, person, dayIndex, shiftIndex) => {
+    if (c.person && c.person !== person) return false;
+    if (c.dayIndex !== undefined && c.dayIndex !== null && Number(c.dayIndex) !== dayIndex) return false;
+    if (c.shift && Number(c.shift) !== shiftIndex+1) return false;
+    return true;
+  };
+
+  const generateAdvancedWeek = () => {
+    const result = cloneWeek(currentWeek);
+    // Preserve completed days, manual assignments and explicit locked assignments.
+    // These are facts, not generator suggestions. The generator may only report
+    // rule conflicts against them - it must never silently overwrite them.
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if (dayHasPassed(di) || s.locked || s.manual) return;
+      s.person = null;
+    }));
+
+    const slots=[];
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if (dayHasPassed(di) || s.locked) return;
+      // A manually marked OFF vacancy is intentionally reopenable for the
+      // generator. A manual replacement remains immutable.
+      const autoFillOff = s.off === true && s.person === null && s.manual === true;
+      if (s.manual && !autoFillOff) return;
+      const forcedOff = conditions.some(c=>c.type==='off' && !c.person && conditionApplies(c,'',di,si));
+      if (!forcedOff) slots.push({di,si,offOriginalPerson:s.offOriginalPerson || s.recoverPerson || null});
+    }));
+
+    const counts={P:0,M:0,L:0};
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
+
+    // Targets must describe the intended clean week, not the current mutable state.
+    // Otherwise a locked/historical recovery shift becomes part of the next target
+    // and the same recover debt gets added again on every regeneration.
+    const baseWeek=generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
+    const baseTargetCounts={P:0,M:0,L:0};
+    baseWeek.forEach(d=>d.shifts.forEach(s=>{if(s.person) baseTargetCounts[s.person]++;}));
+
+    const targets={P:null,M:null,L:null};
+    conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
+    // Recovery debt is an independent business ledger. The generator is strictly
+    // read-only: it may consume the balance when calculating targets, but never
+    // creates, settles, clears or edits ledger entries.
+    const recoveryBalancesSnapshot={P:0,M:0,L:0,...recoveryBalances};
+    PERSON_KEYS.forEach(p=>{
+      const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
+      const recoveryTarget=Math.max(0,Number(recoveryBalancesSnapshot[p])||0);
+      targets[p]=baseTarget+recoveryTarget;
+    });
+
+    // Apply hard MUST assignments first. Conflicting MUST/OFF/FORBID rules are reported.
+    const mustErrors=[];
+    const mustSlots=new Map();
+    conditions.filter(c=>c.type==='must').forEach(c=>{
+      if(!c.person || c.dayIndex===undefined || !c.shift) return;
+      const si=Number(c.shift)-1, di=Number(c.dayIndex), s=result[di]?.shifts?.[si];
+      if(!s) return;
+      const slotKey=di + '-' + si;
+      const previous=mustSlots.get(slotKey);
+      if(previous && previous !== c.person){
+        mustErrors.push(`${DAYS[di]} ${si+1}: sprzeczne MUST (${PEOPLE[previous].name} / ${PEOPLE[c.person].name})`);
+        return;
+      }
+
+      // A manual/locked assignment is immutable. If a MUST disagrees with it,
+      // surface the contradiction instead of overwriting the user's decision.
+      if(s.locked || s.manual || dayHasPassed(di)){
+        if(s.person !== c.person){
+          mustErrors.push(`${DAYS[di]} ${si+1}: MUST dla ${PEOPLE[c.person].name} koliduje z istniejącą blokadą (${s.person ? PEOPLE[s.person].name : 'wolna zmiana'})`);
+        }
+        return;
+      }
+
+      if(conditions.some(x=>x.type==='off' && conditionApplies(x,c.person,di,si))){
+        mustErrors.push(`${PEOPLE[c.person].name}: ${DAYS[di]} ${si+1} ma jednocześnie OFF i MUST`);
+        return;
+      }
+      if(conditions.some(x=>x.type==='forbid' && conditionApplies(x,c.person,di,si))){
+        mustErrors.push(`${PEOPLE[c.person].name}: ${DAYS[di]} ${si+1} ma jednocześnie FORBID i MUST`);
+        return;
+      }
+      mustSlots.set(slotKey,c.person);
+      s.person=c.person;
+    });
+    // Validate immutable/manual facts against all hard OFF/FORBID rules.
+    // This is intentionally done after MUST processing so partially filled weeks
+    // cannot hide a contradiction behind a skipped slot.
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if(!s.person) return;
+      const globalOff = conditions.some(c=>c.type==='off' && !c.person && conditionApplies(c,'',di,si));
+      if(globalOff){
+        mustErrors.push(`${DAYS[di]} ${si+1}: ${PEOPLE[s.person].name} jest obsadzony mimo globalnego OFF`);
+      }
+      if(conditions.some(c=>c.type==='off' && conditionApplies(c,s.person,di,si))){
+        mustErrors.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1} ma OFF przy istniejącej obsadzie`);
+      }
+      if(conditions.some(c=>c.type==='forbid' && conditionApplies(c,s.person,di,si))){
+        mustErrors.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1} łamie NIE MOŻE`);
+      }
+    }));
+
+    // Rebuild counts after MUST assignments.
+    PERSON_KEYS.forEach(p=>{counts[p]=0;});
+    result.forEach(d=>d.shifts.forEach(s=>{if(s.person) counts[s.person]++;}));
+
+    // Determine the physical capacity for each person before filling.
+    // One employee can receive at most one automatically generated shift per day.
+    // Existing manual/locked/past assignments count toward the target, while only
+    // legal, still-open days contribute additional automatic capacity.
+    const capacityWarnings=[];
+    const effectiveTargets={...targets};
+    PERSON_KEYS.forEach(p=>{
+      const availableDays=new Set();
+      for (const slot of slots) {
+        const slotState=result[slot.di].shifts[slot.si];
+        if (slotState.person) continue;
+        if (!canAssignPersonToDay(result[slot.di].shifts,p,allow24h)) continue;
+        if (conditions.some(c=>c.type==='off' && conditionApplies(c,p,slot.di,slot.si))) continue;
+        if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,p,slot.di,slot.si))) continue;
+        if (slot.offOriginalPerson && p===slot.offOriginalPerson) continue;
+        availableDays.add(slot.di);
+      }
+      const maxAvailable=counts[p]+availableDays.size;
+      const requestedTarget=targets[p];
+      if(requestedTarget!==null && requestedTarget>maxAvailable){
+        effectiveTargets[p]=Math.max(counts[p],Math.min(requestedTarget,maxAvailable));
+        capacityWarnings.push(
+          `${PEOPLE[p].name}: wymagane ${requestedTarget} zmian, możliwe maksymalnie ${maxAvailable}. Zaplanowano ${effectiveTargets[p]}.`
+        );
+      } else if(requestedTarget!==null){
+        effectiveTargets[p]=Math.max(counts[p],requestedTarget);
+      }
+    });
+
+    // Fill remaining slots using target counts, respecting hard prohibitions.
+    for (const slot of slots) {
+      const s=result[slot.di].shifts[slot.si];
+      if (s.person) continue;
+      const candidates=PERSON_KEYS.filter(person=>{
+        if(conditions.some(c=>c.type==='off' && conditionApplies(c,person,slot.di,slot.si))) return false;
+        if(conditions.some(c=>c.type==='forbid' && conditionApplies(c,person,slot.di,slot.si))) return false;
+        // Never send the employee back onto the exact OFF vacancy they created.
+        if(slot.offOriginalPerson && person === slot.offOriginalPerson) return false;
+        if(targets[person]!==null && counts[person]>=targets[person]) return false;
+        // Don't put the same person twice in a day unless explicitly forced.
+        if(!canAssignPersonToDay(result[slot.di].shifts,person,allow24h)) return false;
+        return true;
+      });
+      candidates.sort((a,b)=>{
+        const ta=targets[a]===null?999:targets[a], tb=targets[b]===null?999:targets[b];
+        const pa=conditions.some(c=>c.type==='prefer' && conditionApplies(c,a,slot.di,slot.si))?1:0;
+        const pb=conditions.some(c=>c.type==='prefer' && conditionApplies(c,b,slot.di,slot.si))?1:0;
+        return (pb-pa) || ((counts[a]/Math.max(1,ta))-(counts[b]/Math.max(1,tb)));
+      });
+      if(candidates.length){
+        s.person=candidates[0];
+        s.manual=false;
+        // Keep the OFF metadata so the administrator can see why this slot
+        // was reopened, but the assigned replacement becomes the active person.
+        counts[candidates[0]]++;
+      }
+    }
+    const unmet=[];
+    Object.entries(effectiveTargets).forEach(([p,target])=>{if(target!==null && counts[p]!==target) unmet.push(`${PEOPLE[p].name}: ${counts[p]}/${target} zmian`);});
+    const forbiddenBroken=[];
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if(s.person && conditions.some(c=>c.type==='forbid' && conditionApplies(c,s.person,di,si))) forbiddenBroken.push(`${PEOPLE[s.person].name}: ${DAYS[di]} ${si+1}`);
+    }));
+    if(mustErrors.length || unmet.length || forbiddenBroken.length){
+      Alert.alert('Nie udało się spełnić wszystkich warunków', [...mustErrors,...unmet,...forbiddenBroken].join('\n') || 'Spróbuj zmienić warunki.');
+      return null;
+    }
+    if(capacityWarnings.length){
+      Alert.alert(
+        'Grafik wygenerowany z ostrzeżeniem',
+        ['Nie udało się zaplanować wszystkich wymaganych zmian.',...capacityWarnings].join('\n')
+      );
+    }
+    // Apply requested replacement for days off.
+    result.forEach((d,di)=>d.shifts.forEach((s,si)=>{
+      if(s.person===null) s.manual=false;
+    }));
+    return result;
+  };
+
+  const regenerate = () => {
+    if (readOnly) return;
+    Alert.alert('Wygenerować grafik?', 'Generator uwzględni blokady, dni wolne oraz ustawione warunki.', [
+      {text:'Anuluj',style:'cancel'},
+      {text:'Generuj',onPress:()=>{
+        const generated=generateAdvancedWeek();
+        if(generated) setWeek(generated);
+      }}
+    ]);
+  };
+
+  const updateShift = (dayIndex,shiftIndex,patch) => {
+    if (readOnly) return;
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({
+      ...day,
+      shifts:(day.shifts || []).map((shift,si) => si !== shiftIndex ? shift : ({
+        ...shift,
+        ...patch,
+        manual:true
+      }))
+    })));
+  };
+
+  const removeShift = (dayIndex,shiftIndex) => {
+    if (readOnly) return;
+    updateShift(dayIndex,shiftIndex,{person:null});
+  };
+
+  const toggleLock = (dayIndex,shiftIndex) => {
+    if (readOnly) return;
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({
+      ...day,
+      shifts:(day.shifts || []).map((shift,si) => si !== shiftIndex ? shift : ({
+        ...shift,
+        locked:!shift.locked
+      }))
+    })));
+  };
+
+  const openOff = (dayIndex,shiftIndex) => {
+    if(readOnly || dayHasPassed(dayIndex)) return;
+    const sh=currentWeek[dayIndex]?.shifts?.[shiftIndex];
+    setOffMode('plain'); setOffReplacement(''); setOffModal({dayIndex,shiftIndex,person:sh?.person||null});
+  };
+
+  const appendRecoveryLedger = (person, delta, reason, meta={}) => {
+    if (!person || !PERSON_KEYS.includes(person) || !Number.isFinite(Number(delta)) || Number(delta) === 0) return;
+    setRecoveryLedger(prev => [{id:`${Date.now()}-${Math.random().toString(36).slice(2,10)}`,person,delta:Number(delta),reason,...meta,createdAt:new Date().toISOString()},...prev].slice(0,500));
+  };
+
+  const confirmRecovery = person => {
+    if (readOnly || !PERSON_KEYS.includes(person)) return;
+    if (recoveryConfirmLockRef.current[person]) return;
+    const current = Number(recoveryBalances[person]) || 0;
+    if (current <= 0) return;
+    recoveryConfirmLockRef.current[person] = true;
+    setRecoveryBalances(prev => ({...prev,[person]:Math.max(0,(Number(prev[person])||0)-1)}));
+    appendRecoveryLedger(person,-1,'recovery-confirmed');
+    setTimeout(() => {
+      recoveryConfirmLockRef.current[person] = false;
+    }, 0);
+  };
+
+  const adjustRecoveryBalance = (person, delta, reasonText='') => {
+    if (readOnly || !PERSON_KEYS.includes(person)) return;
+    const change = Number(delta);
+    if (!Number.isFinite(change) || change === 0) return;
+    const current = Number(recoveryBalances[person]) || 0;
+    const next = Math.max(0,current + change);
+    const applied = next - current;
+    if (applied === 0) return;
+    setRecoveryBalances(prev => ({...prev,[person]:next}));
+    appendRecoveryLedger(person,applied,'manual-correction',{metaReason:reasonText});
+  };
+
+  const saveOff = () => {
+    if(!offModal) return;
+    const {dayIndex,shiftIndex}=offModal;
+    const previousShift=currentWeek[dayIndex]?.shifts?.[shiftIndex] || null;
+    const previousRecoveryPerson = previousShift?.off === true && previousShift?.offMode === 'recover'
+      ? (previousShift.offOriginalPerson || previousShift.recoverPerson || null)
+      : null;
+    // When editing an existing recovery OFF, the debt belongs to the original
+    // employee, not to a replacement currently displayed in the shift.
+    const recoveryPerson = offMode === 'recover'
+      ? (previousRecoveryPerson || previousShift?.person || null)
+      : null;
+    setWeek(w=>{
+      const sh=w[dayIndex].shifts[shiftIndex];
+      sh.person=offReplacement || null;
+      sh.off=true;
+      sh.offMode=offMode;
+      sh.replacement=offReplacement||null;
+      sh.offOriginalPerson=recoveryPerson || null;
+      sh.recoverPerson=recoveryPerson || null;
+      sh.manual=true;
+      return w;
+    });
+    if (previousRecoveryPerson && previousRecoveryPerson !== recoveryPerson) {
+      const currentDebt=Number(recoveryBalances[previousRecoveryPerson])||0;
+      if (currentDebt > 0) {
+        setRecoveryBalances(prev => ({...prev,[previousRecoveryPerson]:Math.max(0,(Number(prev[previousRecoveryPerson])||0)-1)}));
+        appendRecoveryLedger(previousRecoveryPerson,-1,'off-recover-reverted',{dayIndex,shiftIndex});
+      }
+    }
+    if (offMode === 'recover' && recoveryPerson && previousRecoveryPerson !== recoveryPerson) {
+      setRecoveryBalances(prev => ({...prev,[recoveryPerson]:(Number(prev[recoveryPerson])||0)+1}));
+      appendRecoveryLedger(recoveryPerson,1,'off-recover',{dayIndex,shiftIndex});
+    }
+    if(offReplacement){
+      Alert.alert('Zastępstwo zapisane', `${PEOPLE[offReplacement].name} zastępuje na tej zmianie.`);
+    }
+    setOffModal(null);
+  };
+
+  const submitSwap = async () => {
+    if(!swapModal || !swapTarget || !cloudUser) return;
+    const sourceDay=Number(swapModal.dayIndex);
+    const sourceShift=Number(swapModal.shiftIndex)+1;
+    if(sourceDay === Number(swapTargetDay) && sourceShift === Number(swapTargetShift)){
+      Alert.alert('Nieprawidłowa zamiana','Nie można zaproponować zamiany zmiany z nią samą.');
+      return;
+    }
+    const sourceShiftData=currentWeek[sourceDay]?.shifts?.[sourceShift-1];
+    if(!sourceShiftData || !sourceShiftData.person){
+      Alert.alert('Nieprawidłowa zamiana','Zmiana, z której tworzysz propozycję, nie ma przypisanego pracownika.');
+      return;
+    }
+    if(cloudRole !== 'admin' && (sourceShiftData.person !== myPerson || swapModal.person !== myPerson)){
+      Alert.alert('Nieprawidłowa zamiana','Pracownik może proponować zamianę tylko ze swojej zmiany.');
+      return;
+    }
+    const targetShift=currentWeek[swapTargetDay]?.shifts?.[swapTargetShift-1];
+    if(!targetShift || targetShift.person!==swapTarget){
+      Alert.alert('Nieprawidłowa zamiana','Wybierz zmianę, na której wybrany pracownik faktycznie pracuje.');
+      return;
+    }
+    if(dayHasPassed(swapModal.dayIndex) || dayHasPassed(swapTargetDay)){
+      Alert.alert('Nie można','Nie można proponować zamiany z dniem, który już minął.');
+      return;
+    }
+    const proposal={
+      fromUid:cloudUser.uid,
+      fromEmail:cloudUser.email || '',
+      weekKey:wkKey,
+      fromPerson:swapModal.person || null,
+      fromDay:swapModal.dayIndex,
+      fromShift:swapModal.shiftIndex+1,
+      fromExpectedPerson:swapModal.person || null,
+      toPerson:swapTarget,
+      toDay:swapTargetDay,
+      toShift:swapTargetShift,
+      toExpectedPerson:swapTarget,
+      status:'pending',
+      createdAt:new Date().toISOString()
+    };
+    try {
+      if(FIREBASE_ENABLED && db) await addDoc(collection(db,'proposals'),proposal);
+      else setProposals(p=>[{id:`${Date.now()}`,...proposal},...p]);
+      setSwapModal(null); setSwapTarget('');
+      Alert.alert('Wysłano','Propozycja zamiany czeka na zatwierdzenie administratora.');
+    } catch(e){ setCloudError('Nie udało się wysłać propozycji. Kod: ' + (e?.code || 'unknown')); }
+  };
+
+  const approveProposal = async proposal => {
+    if(readOnly || proposal.status !== 'pending') return;
+    const proposalWeekKey=proposal.weekKey || wkKey;
+    const proposalWeek=weeks[proposalWeekKey];
+    if(!proposalWeek){
+      Alert.alert('Nie można','Tydzień z propozycji zamiany nie jest już dostępny.');
+      return;
+    }
+    const fromDay=Number(proposal.fromDay), toDay=Number(proposal.toDay);
+    const fromShift=Number(proposal.fromShift), toShift=Number(proposal.toShift);
+    const parts=String(proposalWeekKey).split('-').map(Number);
+    const proposalWeekStart=new Date(parts[0],parts[1]-1,parts[2]);
+    const now=new Date();
+    const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const a=proposalWeek[fromDay]?.shifts?.[fromShift-1];
+    const b=proposalWeek[toDay]?.shifts?.[toShift-1];
+    const expectedA=proposal.fromExpectedPerson ?? proposal.fromPerson ?? null;
+    const expectedB=proposal.toExpectedPerson ?? proposal.toPerson ?? null;
+    const aMatches=a && a.person===expectedA;
+    const bMatches=b && b.person===expectedB;
+    const fromDate=new Date(proposalWeekStart); fromDate.setDate(fromDate.getDate()+fromDay);
+    const toDate=new Date(proposalWeekStart); toDate.setDate(toDate.getDate()+toDay);
+    if(!a || !b || !aMatches || !bMatches || fromDate < today || toDate < today){
+      Alert.alert('Propozycja nieaktualna','Grafik zmienił się od czasu wysłania propozycji. Zamiana nie została wykonana.');
+      return;
+    }
+    if(a.locked || b.locked){
+      Alert.alert('Nie można','Jedna ze zmian jest zablokowana.');
+      return;
+    }
+    try {
+      if(FIREBASE_ENABLED && db) {
+        const proposalRef=doc(db,'proposals',proposal.id);
+        const scheduleRef=doc(db,'schedules',proposalWeekKey);
+        const committedWeek=await runTransaction(db,async tx=>{
+          const proposalSnap=await tx.get(proposalRef);
+          if(!proposalSnap.exists() || proposalSnap.data()?.status !== 'pending') {
+            throw new Error('proposal-not-pending');
+          }
+          const scheduleSnap=await tx.get(scheduleRef);
+          if(!scheduleSnap.exists()) throw new Error('schedule-missing');
+          const scheduleData=scheduleSnap.data() || {};
+          const currentMap=scheduleData.shifts && typeof scheduleData.shifts === 'object'
+            ? scheduleData.shifts
+            : weekToShiftMap(scheduleData.week || [],proposalWeekKey);
+          const source=shiftMapToWeek(currentMap,proposalWeek,proposalWeekKey);
+          const x=source?.[fromDay]?.shifts?.[fromShift-1];
+          const y=source?.[toDay]?.shifts?.[toShift-1];
+          if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
+            throw new Error('proposal-stale');
+          }
+          const next=cloneWeek(source);
+          const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
+          const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
+          const nextMap=weekToShiftMap(next,proposalWeekKey);
+          tx.update(scheduleRef,{shifts:nextMap,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
+          tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
+          return next;
+        });
+        setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
+      } else {
+        const source=weeks[proposalWeekKey];
+        if(!source) throw new Error('schedule-missing');
+        const next=cloneWeek(source);
+        const x=next[fromDay]?.shifts?.[fromShift-1], y=next[toDay]?.shifts?.[toShift-1];
+        if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
+          Alert.alert('Propozycja nieaktualna','Grafik zmienił się od czasu wysłania propozycji. Zamiana nie została wykonana.');
+          return;
+        }
+        const xp=x.person; x.person=y.person; y.person=xp; x.manual=true; y.manual=true;
+        setWeeks(prev=>({...prev,[proposalWeekKey]:next}));
+        setProposals(p=>p.map(item=>item.id===proposal.id?{...item,status:'approved'}:item));
+      }
+    } catch(e){setCloudError('Nie udało się zatwierdzić zamiany. Kod: ' + (e?.code || 'unknown'));}
+  };
+
+  const rejectProposal = async id => {
+    if (readOnly) return;
+    try {
+      if(FIREBASE_ENABLED && db) {
+        const proposalRef=doc(db,'proposals',id);
+        await runTransaction(db,async tx=>{
+          const snap=await tx.get(proposalRef);
+          if(!snap.exists() || snap.data()?.status !== 'pending') throw new Error('proposal-not-pending');
+          tx.update(proposalRef,{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
+        });
+      } else {
+        setProposals(p=>p.map(x=>x.id===id && x.status==='pending'?{...x,status:'rejected'}:x));
+      }
+    } catch(e){setCloudError('Nie udało się odrzucić propozycji. Kod: ' + (e?.code || e?.message || 'unknown'));}
+  };
+
+  const changeRotation = k => {
+    if (readOnly) return;
+    const currentRotation = weekConfigs[wkKey]?.rotation || rotation;
+    if (k === currentRotation) return;
+    setRotation(k);
+    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours:prev[wkKey]?.hours||hours,times:prev[wkKey]?.times||times,rotation:k,warehouse:prev[wkKey]?.warehouse||warehouse}}));
+    setWeeks(prev => {
+      const existing = prev[wkKey];
+      if (!existing) return {...prev,[wkKey]:generateWeek(k,warehouse)};
+      const next = cloneWeek(existing);
+      next.forEach(d => d.shifts.forEach(s => {
+        if (s.manual || s.locked || s.person === 'L') return;
+        if (s.person === 'P') s.person = 'M';
+        else if (s.person === 'M') s.person = 'P';
+      }));
+      return {...prev,[wkKey]:next};
+    });
+  };
+
+  const openWeekSetup = next => {
+    setWeekSetup(next);
+    const key=iso(next), cfg=weekConfigs[key];
+    setWeekSetupHours(cfg?.hours || 10);
+    setWeekSetupRotation(cfg?.rotation || rotation);
+    setWeekSetupWarehouse(cfg?.warehouse || warehouse);
+  };
+  const confirmWeekSetup = () => {
+    if(!weekSetup || readOnly) return;
+    const setupDate = weekSetup instanceof Date ? weekSetup : new Date(weekSetup?.weekStart || weekSetup);
+    if (Number.isNaN(setupDate.getTime())) return;
+    const key=iso(setupDate);
+    const cfg={hours:weekSetupHours,rotation:weekSetupRotation,warehouse:weekSetupWarehouse,times:DEFAULT_TIMES[weekSetupHours]};
+    setWeekConfigs(prev=>({...prev,[key]:cfg}));
+    setHours(weekSetupHours);
+    setRotation(weekSetupRotation);
+    setWarehouse(weekSetupWarehouse);
+    setTimes(DEFAULT_TIMES[weekSetupHours]);
+    setWeeks(prev=>({...prev,[key]:prev[key]||generateWeek(weekSetupRotation,weekSetupWarehouse)}));
+    setWeekStart(weekSetup);
+    setDismissedWeekSetupKey(key);
+    setWeekSetup(null);
+  };
+  const moveWeek = n => { const next=addDays(weekStart,n*7); const key=iso(next); if(weeks[key]||weekConfigs[key]) { setWeekStart(next); return; } const currentKey=iso(monday(new Date())); const nextKey=iso(addDays(monday(new Date()),7)); if(cloudRole==='admin' && !readOnly && (key===currentKey || key===nextKey)) openWeekSetup(next); else setWeekStart(next); };
+  const todayWeek = () => { const next=monday(new Date()); const key=iso(next); if(weeks[key]||weekConfigs[key]) setWeekStart(next); else if(cloudRole==='admin' && !readOnly) openWeekSetup(next); else setWeekStart(next); };
+
+  const totals = useMemo(() => {
+    const result = {
+      all:{shifts:0,hours:0,money:0},
+      P:{shifts:0,hours:0,money:0},
+      M:{shifts:0,hours:0,money:0},
+      L:{shifts:0,hours:0,money:0}
+    };
+    currentWeek.forEach(d => d.shifts.forEach(s => {
+      if (!s.person) return;
+      result.all.shifts++;
+      result.all.hours += currentWeekHours;
+      const rate = RATES[currentWeekHours] ?? RATES[10];
+      result.all.money += rate;
+      result[s.person].shifts++;
+      result[s.person].hours += currentWeekHours;
+      result[s.person].money += rate;
+    }));
+    return result;
+  },[currentWeek,currentWeekHours]);
+
+  const newWeek = () => moveWeek(1);
+
+  const resetAll = () => {
+    if (readOnly) return;
+    Alert.alert('Wyczyścić dane?','Usunie zapisane grafiki i ustawienia tej aplikacji.',[
+      {text:'Anuluj',style:'cancel'},
+      {text:'Wyczyść',style:'destructive',onPress:async()=>{
+        if (locationTracking || cloudRole === 'locator') {
+          try { await stopVehicleLocationTracking(); } catch (e) {}
+        }
+        await Promise.all([
+          AsyncStorage.removeItem(KEY),
+          AsyncStorage.removeItem(LEGACY_KEY),
+          AsyncStorage.removeItem(REPORT_PREFS_KEY),
+          AsyncStorage.removeItem(REPORT_NOTIFICATION_IDS_KEY),
+          AsyncStorage.removeItem(REPORT_LAST_HANDLED_NOTIFICATION_KEY),
+          AsyncStorage.removeItem(CHAT_LOCAL_KEY),
+          AsyncStorage.removeItem(REPORT_HISTORY_KEY),
+          AsyncStorage.removeItem(REMEMBER_LOGIN_KEY),
+          AsyncStorage.removeItem(LOCATION_CONFIG_KEY)
+        ]);
+        setWeeks({});
+        setWeekConfigs({});
+        setAutoGenerateWeeks(false);
+        setPin('');
+        setPinEnabled(false);
+        setHours(10);
+        setRotation('P');
+        setWarehouse('PNT B');
+        setTimes(DEFAULT_TIMES[10]);
+        setDark(true);
+        setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+        setConditions([...DEFAULT_BUSINESS_CONDITIONS]);
+        setProposals([]);
+        setMyPerson('P');
+        setVehicleRegistration('');
+        setReportGroupLink('');
+        setReportsEnabled(true);
+        setReportHistory([]);
+        setWarehouseGeo({});
+        setRecoveryBalances({P:0,M:0,L:0});
+        setRecoveryLedger([]);
+        setChatMessages([]);
+        setRememberLogin(true);
+        setLocationTracking(false);
+        setLocationBusy(false);
+      }}
+    ]);
+  };
+
+  const buildBackupPayload = () => ({
+    app:'Grafik Pracy',
+    version:5,
+    exportedAt:new Date().toISOString(),
+    hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,
+    times,personColors,conditions,proposals,myPerson,
+    vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
+    recoveryBalances,recoveryLedger,chatMessages
+  });
+
+  const createBackup = () => {
+    setBackupText(JSON.stringify(buildBackupPayload(),null,2));
+    setBackupModal(true);
+  };
+
+  const shareBackup = async () => {
+    try {
+      await Share.share({message:JSON.stringify(buildBackupPayload())});
+    } catch(e) {
+      Alert.alert('Błąd','Nie udało się udostępnić kopii.');
+    }
+  };
+
+  const restoreBackup = () => {
+    try {
+      const data = JSON.parse(backupText);
+      const validHours = value => value === 10 || value === 12;
+      const validRotation = value => value === 'P' || value === 'M';
+      const validWeeks = value => value && typeof value === 'object' && !Array.isArray(value);
+      const validBalances = value => value && typeof value === 'object'
+        && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
+      const validLedger = value => Array.isArray(value) && value.length <= 500
+        && value.every(entry => entry && typeof entry === 'object'
+          && PERSON_KEYS.includes(entry.person)
+          && Number.isFinite(Number(entry.delta))
+          && Number(entry.delta) !== 0
+          && typeof entry.reason === 'string'
+          && String(entry.id || '').length > 0);
+      if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !validWeeks(data.weeks) || !validWeeks(data.weekConfigs || {}) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+        throw new Error('bad-schema');
+      }
+      setHours(data.hours);
+      setRotation(data.rotation || 'P');
+      setWarehouse(data.warehouse || 'PNT B');
+      setWeeks(data.weeks || {});
+      setWeekConfigs(data.weekConfigs || {});
+      setAutoGenerateWeeks(!!data.autoGenerateWeeks);
+      setPin(data.pin || '');
+      setPinEnabled(!!data.pinEnabled);
+      setDark(data.dark !== false);
+      setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+      const restoredConditions = Array.isArray(data.conditions) ? data.conditions : [];
+      const hasSundayL1 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
+      const hasSundayL2 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
+      setConditions([
+        ...(hasSundayL1 ? [] : [DEFAULT_BUSINESS_CONDITIONS[0]]),
+        ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
+        ...restoredConditions
+      ]);
+      setProposals(Array.isArray(data.proposals) ? data.proposals : []);
+      setMyPerson(PERSON_KEYS.includes(data.myPerson) ? data.myPerson : 'P');
+      setVehicleRegistration(data.vehicleRegistration || '');
+      setReportGroupLink(data.reportGroupLink || '');
+      setReportsEnabled(data.reportsEnabled !== false);
+      setReportHistory(Array.isArray(data.reportHistory) ? data.reportHistory : []);
+      setWarehouseGeo(data.warehouseGeo || {});
+      setRecoveryBalances({...{P:0,M:0,L:0},...(data.recoveryBalances || {})});
+      setRecoveryLedger(Array.isArray(data.recoveryLedger) ? data.recoveryLedger : []);
+      setChatMessages(Array.isArray(data.chatMessages) ? data.chatMessages : []);
+      setTimes(data.times?.[data.hours || 10] || DEFAULT_TIMES[data.hours || 10]);
+      setBackupModal(false);
+      Alert.alert('Gotowe','Kopia została przywrócona.');
+    } catch(e) {
+      Alert.alert('Nieprawidłowa kopia','Wklej pełny plik JSON wyeksportowany z aplikacji.');
+    }
+  };
+
+  const shareFile = async (uri, mimeType, title) => {
+    try {
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        Alert.alert('Udostępnianie niedostępne','Na tym urządzeniu nie można otworzyć menu udostępniania.');
+        return;
+      }
+      await Sharing.shareAsync(uri, {mimeType, dialogTitle:title});
+    } catch(e) {
+      Alert.alert('Błąd','Nie udało się udostępnić pliku.');
+    }
+  };
+
+  const exportJpg = async () => {
+    try {
+      if (!exportRef.current) return;
+      const uri = await captureRef(exportRef, {format:'jpg',quality:0.95,result:'tmpfile',width:Math.min(Dimensions.get('window').width * 3, 1440)});
+      await shareFile(uri, 'image/jpeg', 'Udostępnij grafik JPG');
+    } catch(e) { console.log(e); Alert.alert('Błąd','Nie udało się przygotować grafiku JPG.'); }
+  };
+
+  const escapeHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
+
+  const exportPdf = async () => {
+    try {
+      const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
+      const personLabel=sharePerson==='all'?'CAŁY GRAFIK':selectedKeys.map(k=>PEOPLE[k].name).join(', ');
+      const rows=currentWeek.map((d,i)=>{
+        const date=addDays(weekStart,i);
+        const cells=d.shifts.map((s,si)=>{
+          const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
+          const name=visible?PEOPLE[s.person].name:'WOLNA';
+          const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
+          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(currentWeekTimes,si+1)):''}</span></td>`;
+        }).join('');
+        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
+      }).join('');
+      let body;
+      if(shareFormat==='list'){
+        body=currentWeek.map((d,i)=>{
+          const date=addDays(weekStart,i);
+          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(currentWeekTimes,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
+          return `<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>${DAYS[i]} ${shortDate(date)}</b><br>${items.length?items.map(escapeHtml).join('<br>'):'WOLNE'}</div>`;
+        }).join('');
+        body=`<div style="font-size:12px">${body}</div>`;
+      } else {
+        body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(currentWeekTimes.s1)}–${escapeHtml(currentWeekTimes.e1)}</th><th>II · ${escapeHtml(currentWeekTimes.s2)}–${escapeHtml(currentWeekTimes.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
+      }
+      const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
+      const {uri}=await Print.printToFileAsync({html,width:842,height:595});
+      await shareFile(uri,'application/pdf','Udostępnij grafik PDF');
+    } catch(e){console.log(e);Alert.alert('Błąd','Nie udało się przygotować grafiku PDF.');}
+  };
+
+  const listExport = (forExport=false) => (
+    <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
+      <Text style={S.tableTitle}>GRAFIK — {sharePerson==='all'?'WSZYSCY':PEOPLE[sharePerson]?.name}</Text>
+      <Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text>
+      {currentWeek.map((d,i)=>{
+        const date=addDays(weekStart,i);
+        const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
+        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(times,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
+      })}
+    </View>
+  );
+
+  const compactTable = (forExport=false, personFilter='all') => (
+    <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
+      <View style={S.tableTitleRow}>
+        <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text></View>
+        <Text style={S.tableWarehouse}>{currentWeekWarehouse}</Text>
+      </View>
+      <View style={S.tableHeader}>
+        <Text style={[S.tableCell,S.tableDayCell,S.tableHead]}>Dzień</Text>
+        <Text style={[S.tableCell,S.tableShiftCell,S.tableHead]}>I</Text>
+        <Text style={[S.tableCell,S.tableShiftCell,S.tableHead]}>II</Text>
+      </View>
+      {currentWeek.map((d,i) => {
+        const date = addDays(weekStart,i);
+        return <View key={d.dayIndex} style={S.tableRow}>
+          <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
+          {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
+            <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
+            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
+            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(currentWeekTimes,si+1) : ''}</Text>
+          </TouchableOpacity>; })}
+        </View>;
+      })}
+    </View>
+  );
+
+  const savePin = () => {
+    if (pinEnabled && pinEntry.length !== 4) {
+      Alert.alert('PIN','PIN musi mieć dokładnie 4 cyfry.');
+      return;
+    }
+    if (!pinEnabled) {
+      setPin('');
+      setPinEnabled(false);
+      setPinEntry('');
+      setPinModal(false);
+      return;
+    }
+    setPin(pinEntry);
+    setPinEntry('');
+    setPinModal(false);
+  };
+
+  const header = (
+    <View style={S.header}>
+      <View style={{flex:1}}>
+        <Text style={S.title}>GRAFIK PRACY</Text>
+        <Text style={S.muted}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))}</Text>
+      </View>
+      <TouchableOpacity style={S.help} onPress={()=>setHelp(true)}>
+        <Text style={S.helpText}>?</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const schedule = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
+      {header}
+      <View style={S.row}>
+        {[10,12].map(h=>
+          <TouchableOpacity key={h} style={[S.btn,hours===h&&S.active]} onPress={()=>changeHours(h)}>
+            <Text style={S.btnText}>{h} H</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={S.generate} onPress={regenerate}>
+          <Text style={S.btnText}>⚡ GENERUJ</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={S.row}>
+        <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,viewMode==='cards'&&S.active]} onPress={()=>setViewMode('cards')}><Text style={S.btnText}>☰ KARTY</Text></TouchableOpacity>
+        <TouchableOpacity style={S.generate} onPress={()=>setExportModal(true)}><Text style={S.btnText}>📤 UDOSTĘPNIJ GRAFIK</Text></TouchableOpacity>
+      </View>
+
+      <View style={S.weekSummary}>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{occupiedShifts}/14</Text><Text style={S.weekSummaryLabel}>obsadzone</Text></View>
+        <View style={S.weekSummaryDivider}/>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{freeShifts}</Text><Text style={S.weekSummaryLabel}>wolne</Text></View>
+        <View style={S.weekSummaryDivider}/>
+        <View style={S.weekSummaryItem}><Text style={S.weekSummaryValue}>{currentWeekHours} h</Text><Text style={S.weekSummaryLabel}>system</Text></View>
+        <TouchableOpacity style={S.todayMini} onPress={todayWeek}><Text style={S.todayMiniText}>📍 DZIŚ</Text></TouchableOpacity>
+      </View>
+
+      <View style={S.row}>
+        <TouchableOpacity style={S.weekBtn} onPress={()=>moveWeek(-1)}><Text style={S.btnText}>‹ Poprzedni</Text></TouchableOpacity>
+        <TouchableOpacity style={S.weekBtn} onPress={()=>moveWeek(1)}><Text style={S.btnText}>Następny ›</Text></TouchableOpacity>
+      </View>
+
+      <TouchableOpacity style={S.swapBtn} onPress={()=>setTab('ustawienia')}>
+        <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
+      </TouchableOpacity>
+
+      {viewMode==='table' ? compactTable(false) : currentWeek.map((d,di) => {
+        const dateObj = addDays(weekStart,di);
+        return (
+          <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
+            <View style={S.between}>
+              <View>
+                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]} {dayHasPassed(di)?'🔒':'🔓'}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
+                <Text style={S.muted}>{shortDate(dateObj)} · {d.warehouse || warehouse}</Text>
+              </View>
+              <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
+            </View>
+
+            {d.shifts.map((s,si) => {
+              const p = s.person ? PEOPLE[s.person] : null;
+              return (
+                <View key={s.id} style={[S.shift,s.locked&&S.locked]}>
+                  <View style={S.between}>
+                    <View>
+                      <Text style={S.shiftTitle}>Zmiana {s.shift}</Text>
+                      <Text style={S.time}>{shiftTime(times,s.shift)}</Text>
+                    </View>
+                    <Text style={S.lockText}>{s.locked?'🔒':' '}</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[S.person,p&&{backgroundColor:personColor(s.person),borderLeftColor:personColor(s.person),borderLeftWidth:4}]}
+                    onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}
+                  >
+                    <Text style={[S.personText,p&&{color:contrastText(personColor(s.person))}]}>{p ? p.name : 'WOLNA ZMIANA'}</Text>
+                    <Text style={[S.personSub,p&&{color:contrastText(personColor(s.person)),opacity:0.82}]}>{s.warehouse || warehouse}</Text>
+                  </TouchableOpacity>
+
+                  <View style={S.actions}>
+                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && toggleLock(di,si)}>
+                      <Text style={S.actionText}>{s.locked?'Odblokuj':'Zablokuj'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}>
+                      <Text style={S.actionText}>Edytuj</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && removeShift(di,si)}>
+                      <Text style={S.delete}>Usuń</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {!dayHasPassed(di) && s.person && cloudUser && <TouchableOpacity style={S.swapMini} onPress={()=>setSwapModal({dayIndex:di,shiftIndex:si,person:s.person})}><Text style={S.actionText}>🔄 Zaproponuj zamianę</Text></TouchableOpacity>}
+                  {!dayHasPassed(di) && !readOnly && <TouchableOpacity style={S.swapMini} onPress={()=>openOff(di,si)}><Text style={S.actionText}>🏖️ Ustaw wolne</Text></TouchableOpacity>}
+                </View>
+              );
+            })}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+
+  const baseTargetCountsForSummary = person => {
+    const base = generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
+    return base.reduce((count,day)=>count + (day.shifts || []).filter(s=>s.person===person).length,0);
+  };
+
+  const summaryViewPerson = cloudRole === 'admin' ? summaryPerson : myPerson;
+  const selectedSummaryKeys = summaryViewPerson === 'all' ? PERSON_KEYS : [summaryViewPerson];
+  const selectedWorkDays = summaryViewPerson === 'all' ? [] : currentWeek.map((d,i) => {
+    const shifts = d.shifts.filter(s => s.person === summaryViewPerson);
+    return shifts.length ? {day:DAYS[i],date:shortDate(addDays(weekStart,i)),shifts} : null;
+  }).filter(Boolean);
+
+  const chat = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
+      {header}
+      <View style={S.chatHero}>
+        <View style={{flex:1}}>
+          <Text style={S.chatHeroTitle}>💬 Czat pracowników</Text>
+          <Text style={S.chatHeroSub}>{cloudUser ? 'Wspólny czat zespołu' : 'Podgląd wiadomości zespołu'}</Text>
+        </View>
+        <View style={S.chatCount}><Text style={S.chatCountValue}>{chatMessages.length}</Text><Text style={S.chatCountLabel}>wiad.</Text></View>
+      </View>
+      <View style={S.chatBox}>
+        {chatMessages.length ? chatMessages.slice(-80).map(m => {
+          const mine = !!cloudUser && m.uid === cloudUser.uid;
+          return (
+            <View key={m.id || (m.createdAt + '-' + m.uid)} style={[S.chatMessage,mine&&S.chatMine]}>
+              <View style={S.between}>
+                <Text style={S.chatAuthor}>{m.person || m.email || 'Użytkownik'}</Text>
+                <Text style={S.chatTime}>{m.createdAt ? new Date(m.createdAt).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : ''}</Text>
+              </View>
+              <Text style={S.chatText}>{m.text}</Text>
+            </View>
+          );
+        }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}
+      </View>
+      {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (
+        <ChatComposer busy={chatBusy} onSend={sendChatMessage}/>
+      )}
+      <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>
+      <Text style={S.helpLine}>Każdy raport jest zapisywany w historii. Ponowne wysłanie kopiuje tekst i otwiera WhatsApp lub ustawioną grupę.</Text>
+      {reportHistory.slice(0,30).map((r,i) => (
+        <View key={r.id || (r.createdAt + '-' + i)} style={S.reportCard}>
+          <Text style={S.optionText}>{r.text}</Text>
+          <Text style={S.muted}>{r.createdAt ? new Date(r.createdAt).toLocaleString('pl-PL') : ''} · {r.person || ''}</Text>
+          <TouchableOpacity style={S.swapMini} onPress={()=>resendReport(r.text)}><Text style={S.actionText}>📱 KOPIUJ I OTWÓRZ WHATSAPP</Text></TouchableOpacity>
+        </View>
+      ))}
+    </ScrollView>
+  );
+
+  const summary = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+      {header}
+      <View style={S.summaryHero}>
+        <Text style={S.summaryEyebrow}>TYDZIEŃ</Text>
+        <Text style={S.summaryTitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))}</Text>
+        <View style={S.summaryStats}>
+          <View style={S.summaryStat}><Text style={S.summaryValue}>{totals.all.shifts}</Text><Text style={S.summaryLabel}>zmian</Text></View>
+          <View style={S.summaryDivider}/>
+          <View style={S.summaryStat}><Text style={S.summaryValue}>{totals.all.hours} h</Text><Text style={S.summaryLabel}>godzin</Text></View>
+          <View style={S.summaryDivider}/>
+          <View style={S.summaryStat}><Text style={S.summaryValue}>{totals.all.money} zł</Text><Text style={S.summaryLabel}>łącznie</Text></View>
+        </View>
+      </View>
+      <Text style={S.section}>Podsumowanie dla</Text>
+      {cloudRole==='admin' ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+          <TouchableOpacity style={[S.chip,summaryViewPerson==='all'&&S.active]} onPress={()=>setSummaryPerson('all')}>
+            <Text style={S.btnText}>Wszyscy</Text>
+          </TouchableOpacity>
+          {PERSON_KEYS.map(k => (
+            <TouchableOpacity key={k} style={[S.chip,summaryViewPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSummaryPerson(k)}>
+              <Text style={[S.btnText,{color:summaryViewPerson===k?contrastText(personColor(k)):'#fff'}]}>{PEOPLE[k].name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      ) : null}
+
+      {summaryViewPerson === 'all' ? (
+        <>
+          <View style={S.total}>
+            <Text style={S.totalSmall}>PODSUMOWANIE TYGODNIA</Text>
+            <Text style={S.totalBig}>{totals.all.shifts} zmian</Text>
+            <Text style={S.totalInfo}>{totals.all.hours} godzin</Text>
+            <Text style={S.totalMoney}>{totals.all.money} zł</Text>
+          </View>
+          {selectedSummaryKeys.map(k => (
+            <View style={[S.employee,{borderLeftColor:personColor(k),borderLeftWidth:5}]} key={k}>
+              <View style={S.between}>
+                <Text style={S.employeeName}>{PEOPLE[k].name}</Text>
+                <Text style={[S.dot,{color:personColor(k)}]}>●</Text>
+              </View>
+              <Text style={S.stat}>Zmiany wykonane: <Text style={S.white}>{totals[k].shifts}</Text></Text>
+              <Text style={S.stat}>Target bazowy: <Text style={S.white}>{baseTargetCountsForSummary(k)}</Text></Text>
+              <Text style={S.stat}>Dług z poprzednich okresów: <Text style={recoveryBalances[k]>0?S.debtPositive:S.white}>+{Number(recoveryBalances[k])||0}</Text></Text>
+              <Text style={S.stat}>Łączny target: <Text style={S.white}>{baseTargetCountsForSummary(k)+(Number(recoveryBalances[k])||0)}</Text></Text>
+              <Text style={S.stat}>Godziny: <Text style={S.white}>{totals[k].hours} h</Text></Text>
+              <Text style={S.stat}>Zarobek: <Text style={S.money}>{totals[k].money} zł</Text></Text>
+              {cloudRole==='admin' && (Number(recoveryBalances[k])||0)>0 ? (
+                <TouchableOpacity style={S.recoveryApprove} onPress={()=>confirmRecovery(k)}>
+                  <Text style={S.recoveryApproveText}>✅ ZATWIERDŹ SPŁATĘ {Number(recoveryBalances[k])} {Number(recoveryBalances[k])===1?'ZMIANY':'ZMIAN'}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ))}
+        </>
+      ) : (
+        <>
+          <View style={[S.total,{backgroundColor:personColor(summaryViewPerson)}]}>
+            <Text style={[S.totalSmall,{color:contrastText(personColor(summaryViewPerson))}]}>PODSUMOWANIE: {PEOPLE[summaryViewPerson].name.toUpperCase()}</Text>
+            <Text style={[S.totalBig,{color:contrastText(personColor(summaryViewPerson))}]}>{totals[summaryViewPerson].shifts} zmian</Text>
+            <Text style={[S.totalInfo,{color:contrastText(personColor(summaryViewPerson))}]}>{totals[summaryViewPerson].hours} godzin</Text>
+            <Text style={[S.totalMoney,{color:contrastText(personColor(summaryViewPerson))}]}>{totals[summaryViewPerson].money} zł</Text>
+          </View>
+          <View style={S.debtCard}>
+            <Text style={S.debtTitle}>📒 Rozliczenie długu</Text>
+            <Text style={S.stat}>Zmiany wykonane: <Text style={S.white}>{totals[summaryViewPerson].shifts}</Text></Text>
+            <Text style={S.stat}>Target bazowy: <Text style={S.white}>{baseTargetCountsForSummary(summaryViewPerson)}</Text></Text>
+            <Text style={S.stat}>Dług z poprzednich okresów: <Text style={recoveryBalances[summaryViewPerson]>0?S.debtPositive:S.white}>+{Number(recoveryBalances[summaryViewPerson])||0}</Text></Text>
+            <Text style={S.stat}>Łączny target: <Text style={S.white}>{baseTargetCountsForSummary(summaryViewPerson)+(Number(recoveryBalances[summaryViewPerson])||0)}</Text></Text>
+            {cloudRole==='admin' && (Number(recoveryBalances[summaryViewPerson])||0)>0 ? (
+              <TouchableOpacity style={S.recoveryApprove} onPress={()=>confirmRecovery(summaryViewPerson)}>
+                <Text style={S.recoveryApproveText}>✅ ZATWIERDŹ SPŁATĘ {Number(recoveryBalances[summaryViewPerson])} {Number(recoveryBalances[summaryViewPerson])===1?'ZMIANY':'ZMIAN'}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <Text style={S.section}>Dni pracujące</Text>
+          {selectedWorkDays.length ? selectedWorkDays.map(item => (
+            <View style={[S.employee,{borderLeftColor:personColor(summaryViewPerson),borderLeftWidth:5}]} key={item.date}>
+              <View style={S.between}>
+                <Text style={S.employeeName}>{item.day}</Text>
+                <Text style={[S.dot,{color:personColor(summaryViewPerson)}]}>●</Text>
+              </View>
+              <Text style={S.stat}>{item.date} · {item.shifts.length} {item.shifts.length === 1 ? 'zmiana' : 'zmiany'}</Text>
+              {item.shifts.map(s => <Text key={s.id} style={S.stat}>Zmiana {s.shift}: <Text style={S.white}>{shiftTime(times,s.shift)}</Text> · {s.warehouse || warehouse}</Text>)}
+            </View>
+          )) : (
+            <View style={S.employee}><Text style={S.stat}>Brak dni pracujących w tym tygodniu.</Text></View>
+          )}
+        </>
+      )}
+
+      <Text style={S.section}>Stawka tygodnia</Text>
+      <View style={S.option}>
+        <Text style={S.optionText}>{hours} h</Text>
+        <Text style={S.money}>{RATES[hours]} zł / zmiana</Text>
+      </View>
+    </ScrollView>
+  );
+
+  const recoveryLedgerDialog = (
+    <Modal visible={!!recoveryCorrection} transparent animationType="fade" onRequestClose={()=>setRecoveryCorrection(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>✏️ Ręczna korekta salda</Text>
+        <Text style={S.helpLine}>{recoveryCorrection ? PEOPLE[recoveryCorrection].name : ''}</Text>
+        <Text style={S.section}>Zmiana salda</Text>
+        <View style={S.row}>
+          {['1','-1','2','-2'].map(v=><TouchableOpacity key={v} style={[S.btn,recoveryCorrectionValue===v&&S.active]} onPress={()=>setRecoveryCorrectionValue(v)}><Text style={S.btnText}>{Number(v)>0?'+':''}{v}</Text></TouchableOpacity>)}
+        </View>
+        <Text style={S.section}>Powód</Text>
+        <TextInput value={recoveryCorrectionReason} onChangeText={setRecoveryCorrectionReason} placeholder="Np. korekta administracyjna" placeholderTextColor="#777" style={S.input} />
+        <TouchableOpacity style={S.generateFull} onPress={()=>{
+          const delta=Number(recoveryCorrectionValue);
+          if(!Number.isFinite(delta) || delta===0) return;
+          if(delta<0 && (Number(recoveryBalances[recoveryCorrection])||0)+delta<0) {
+            Alert.alert('Korekta','Saldo nie może spaść poniżej zera.');
+            return;
+          }
+          if(!recoveryCorrectionReason.trim()) {
+            Alert.alert('Korekta','Podaj powód korekty.');
+            return;
+          }
+          adjustRecoveryBalance(recoveryCorrection,delta,recoveryCorrectionReason.trim());
+          setRecoveryCorrection(null); setRecoveryCorrectionReason(''); setRecoveryCorrectionValue('1');
+        }}><Text style={S.btnText}>ZAPISZ KOREKTĘ</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>setRecoveryCorrection(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const weekSetupDialog = (
+    <Modal visible={!!weekSetup && cloudRole==='admin'} transparent animationType='fade' onRequestClose={()=>{if(weekSetup){setDismissedWeekSetupKey(iso(weekSetup));setWeekSetup(null);}}}><View style={S.overlay}><View style={S.modal}>
+      <Text style={S.modalTitle}>⚙️ Ustawienia nowego tygodnia</Text>
+      <Text style={S.helpLine}>Przed rozpoczęciem tygodnia określ jego parametry. Nie będą one automatycznie przenoszone na następne tygodnie.</Text>
+      <Text style={S.section}>Godziny pracy</Text><View style={S.row}>{[10,12].map(h=><TouchableOpacity key={h} style={[S.btn,weekSetupHours===h&&S.active]} onPress={()=>setWeekSetupHours(h)}><Text style={S.btnText}>{h} H</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Start rotacji</Text><View style={S.row}>{['P','M'].map(k=><TouchableOpacity key={k} style={[S.btn,weekSetupRotation===k&&S.active]} onPress={()=>setWeekSetupRotation(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</View>
+      <Text style={S.section}>Magazyn</Text><ScrollView horizontal showsHorizontalScrollIndicator={false}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,weekSetupWarehouse===w&&S.active]} onPress={()=>setWeekSetupWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+      <TouchableOpacity style={S.generateFull} onPress={confirmWeekSetup}><Text style={S.btnText}>▶️ UTWÓRZ TEN TYDZIEŃ</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{if(weekSetup){setDismissedWeekSetupKey(iso(weekSetup));setWeekSetup(null);}}}><Text style={S.btnText}>ZAMKNIJ BEZ TWORZENIA</Text></TouchableOpacity>
+    </View></View></Modal>
+  );
+
+  const locatorSettings = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+      {header}
+      <View style={[S.settingsHero,{borderColor:'#315f9e'}]}>
+        <Text style={S.settingsEyebrow}>LOKALIZATOR</Text>
+        <Text style={S.settingsTitle}>📍 Nadajnik GPS</Text>
+        <Text style={S.settingsSub}>Ten profil służy wyłącznie do udostępniania lokalizacji telefonu służbowego.</Text>
+      </View>
+      <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
+      <Text style={S.helpLine}>Auto jest przypisywane centralnie przez administratora. Lokalizator nie może samodzielnie zmienić pojazdu, dzięki czemu GPS zawsze zapisuje pozycję do właściwego nadajnika.</Text>
+      <View style={S.option}>
+        <View style={{flex:1}}>
+          <Text style={S.optionText}>🚚 Auto przypisane przez administratora</Text>
+          <Text style={S.muted}>{vehicleRegistration.trim() ? vehicleRegistration.trim() : '⚠️ administrator nie przypisał jeszcze auta'}</Text>
+        </View>
+        <Text style={{color:'#75a1ff',fontWeight:'900'}}>🔒</Text>
+      </View>
+      <View style={S.option}>
+        <View style={{flex:1}}>
+          <Text style={S.optionText}>Telefon służbowy</Text>
+          <Text style={S.muted}>{vehicleRegistration.trim()?'🚚 nadajnik przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text>
+          <Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text>
+        </View>
+        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}>
+          <Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text>
+        </TouchableOpacity>
+      </View>
+      {!vehicleRegistration.trim() && <Text style={S.helpLine}>Najpierw administrator musi przypisać pojazd w panelu administracyjnym. Gdy auto zostanie przypisane, pojawi się tutaj automatycznie.</Text>}
+      <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję.</Text>
+      <View style={[S.option,{marginTop:12}]}>
+        <View style={{flex:1}}>
+          <Text style={S.optionText}>☁️ Konto lokalizatora</Text>
+          <Text style={S.muted}>{cloudUser?.email||'brak konta'}</Text>
+        </View>
+        <Text style={{color:'#75a1ff',fontWeight:'900'}}>📍 GPS</Text>
+      </View>
+      <TouchableOpacity style={S.option} onPress={cloudLogout}>
+        <Text style={S.optionText}>🚪 Wyloguj</Text>
+        <Text style={S.muted}>{cloudUser?.email||''}</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const settings = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+      {header}
+
+      <View style={S.settingsHero}>
+        <Text style={S.settingsEyebrow}>USTAWIENIA</Text>
+        <Text style={S.settingsTitle}>Centrum sterowania</Text>
+        <Text style={S.settingsSub}>GPS, raporty, grafik i dane aplikacji w jednym miejscu.</Text>
+      </View>
+      {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' && <AdminUsersPanel cloudUser={cloudUser}/>} 
+      {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' ? (
+        <>
+          <Text style={S.section}>📒 Zarządzanie długiem (Ledger)</Text>
+          <Text style={S.helpLine}>Saldo jest niezależne od tygodnia. Generator tylko je odczytuje. Każda zmiana salda trafia do historii audytowej.</Text>
+          {PERSON_KEYS.map(k=>(
+            <View key={k} style={[S.option,{borderLeftWidth:4,borderLeftColor:personColor(k)}]}>
+              <View style={{flex:1}}>
+                <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+                <Text style={S.muted}>Saldo: <Text style={S.white}>+{Number(recoveryBalances[k])||0}</Text></Text>
+              </View>
+              <TouchableOpacity style={S.btn} onPress={()=>{setRecoveryCorrection(k);setRecoveryCorrectionValue('1');setRecoveryCorrectionReason('');}}>
+                <Text style={S.btnText}>KOREKTA</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <Text style={S.section}>Ostatnie operacje</Text>
+          {recoveryLedger.slice(0,15).length ? recoveryLedger.slice(0,15).map((entry,i)=>(
+            <View key={entry.id || i} style={S.option}>
+              <View style={{flex:1}}>
+                <Text style={S.optionText}>{PEOPLE[entry.person]?.name || entry.person} · {Number(entry.delta)>0?'+':''}{entry.delta}</Text>
+                <Text style={S.muted}>{entry.reason === 'off-recover' ? 'OFF - odrobienie zmiany' : entry.reason === 'recovery-confirmed' ? 'Spłata zatwierdzona' : entry.reason === 'manual-correction' ? 'Korekta administracyjna' : entry.reason || 'Operacja'}</Text>
+                <Text style={S.muted}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString('pl-PL') : ''}{entry.reason === 'manual-correction' && entry.metaReason ? ' · '+entry.metaReason : ''}</Text>
+              </View>
+            </View>
+          )) : <View style={S.option}><Text style={S.muted}>Brak operacji w historii.</Text></View>}
+        </>
+      ) : null}
+            <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
+      <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta. Samo przypisanie nie wymaga jeszcze uruchomienia GPS. Dopiero potem włącz nadajnik lokalizacji.</Text>
+      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
+      <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || locationTracking} style={[S.generateFull,{marginTop:0,opacity:(!vehicleRegistration.trim()||locationBusy||locationTracking)?0.45:1}]} onPress={async()=>{
+        const reg=vehicleRegistration.trim();
+        if(!reg) return;
+        setLocationBusy(true);
+        try {
+          await saveVehicleLocationAssignment(reg);
+          if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
+            await setDoc(doc(db,'locationConfig','main'),{
+              vehicleId:normalizeVehicleId(reg),
+              registration:reg,
+              updatedAt:serverTimestamp(),
+              updatedBy:cloudUser.uid
+            },{merge:true});
+          }
+          setVehicleRegistration(reg);
+          Alert.alert('Pojazd przypisany','Auto '+reg+' zostało przypisane centralnie. Lokalizator zobaczy je automatycznie i dopiero wtedy będzie mógł uruchomić GPS.');
+        } catch(e) {
+          Alert.alert('Pojazd','Nie udało się zapisać przypisania auta: '+(e?.message||'nieznany błąd'));
+        } finally { setLocationBusy(false); }
+      }}><Text style={S.btnText}>{locationBusy?'ZAPISUJĘ…':'ZAPISZ POJAZD'}</Text></TouchableOpacity>
+      <View style={S.option}>
+        <View style={{flex:1}}><Text style={S.optionText}>Telefon służbowy</Text><Text style={S.muted}>{vehicleRegistration.trim()?'🚚 przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text><Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text></View>
+        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text></TouchableOpacity>
+      </View>
+      <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję. Jeśli zgoda zostanie odrzucona, przypisanie auta pozostanie zapisane.</Text>
+      <Text style={S.section}>🏭 Kalibracja stref magazynów</Text>
+      {WAREHOUSES.map(w=><View key={w} style={S.option}>
+        <View style={{flex:1}}><Text style={S.optionText}>{w}</Text><Text style={S.muted}>{warehouseGeo[w]?'📍 '+Number(warehouseGeo[w].latitude).toFixed(5)+', '+Number(warehouseGeo[w].longitude).toFixed(5):'brak punktu GPS'}</Text></View>
+        <TouchableOpacity style={S.btn} onPress={()=>calibrateWarehouse(w)}><Text style={S.btnText}>USTAW GPS</Text></TouchableOpacity>
+      </View>)}
+
+      <Text style={S.section}>📋 Raporty godzinowe</Text>
+      <Text style={S.helpLine}>Powiadomienie przychodzi 20 minut przed pełną godziną, ale tylko podczas Twojej zaplanowanej zmiany.</Text>
+      <View style={S.option}>
+        <Text style={S.optionText}>Raporty automatyczne</Text>
+        <TouchableOpacity style={[S.btn,reportsEnabled&&S.active]} onPress={()=>setReportsEnabled(v=>!v)}>
+          <Text style={S.btnText}>{reportsEnabled?'WŁĄCZONE':'WYŁĄCZONE'}</Text>
+        </TouchableOpacity>
+      </View>
+      <TextInput value={reportGroupLink} onChangeText={setReportGroupLink} autoCapitalize="none" placeholder="Link do grupy WhatsApp (opcjonalnie)" placeholderTextColor="#777" style={S.input}/>
+      <TouchableOpacity style={S.generateFull} onPress={()=>setReportModal(true)}>
+        <Text style={S.btnText}>📝 TEST / UTWÓRZ RAPORT</Text>
+      </TouchableOpacity>
+
+      <Text style={S.section}>🧹 Szybkie czyszczenie grafiku</Text>
+      <Text style={S.helpLine}>Możesz usunąć obsadę tylko jednej zmiany w całym tygodniu albo wyczyścić cały tydzień. Godziny i magazyny pozostają bez zmian.</Text>
+      <TouchableOpacity style={[S.danger,{marginTop:0}]} onPress={()=>clearWholeWeekShift(1)}><Text style={S.btnText}>WYCZYŚĆ I ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.danger,{marginTop:8}]} onPress={()=>clearWholeWeekShift(2)}><Text style={S.btnText}>WYCZYŚĆ II ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.danger,{marginTop:8}]} onPress={clearCurrentWeek}><Text style={S.btnText}>WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
+
+      <Text style={S.section}>Rotacja</Text>
+      <View style={S.row}>
+        {['P','M'].map(k=>
+          <TouchableOpacity key={k} style={[S.btn,rotation===k&&S.active]} onPress={()=>changeRotation(k)}>
+            <Text style={S.btnText}>Start: {PEOPLE[k].name}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <Text style={S.section}>Domyślny magazyn</Text>
+      {WAREHOUSES.map(w=>
+        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>{if(readOnly)return; const wh=w; setWarehouse(wh); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:wh,times}})); setWeek(prev=>prev.map(d=>({...d,warehouse:wh,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:wh})})));}}>
+          <Text style={S.optionText}>{w}</Text>
+          {warehouse===w&&<Text style={S.check}>✓</Text>}
+        </TouchableOpacity>
+      )}
+
+      <Text style={S.section}>Godziny zmian: {hours} h</Text>
+      <View style={S.timeBox}>
+        <View style={S.timeRow}>
+          <Text style={S.white}>I</Text>
+          <TextInput value={times.s1} onChangeText={v=>setTimes(t=>({...t,s1:v}))} style={S.input} placeholder="06:00" placeholderTextColor="#777"/>
+          <Text style={S.sep}>→</Text>
+          <TextInput value={times.e1} onChangeText={v=>setTimes(t=>({...t,e1:v}))} style={S.input} placeholder="16:00" placeholderTextColor="#777"/>
+        </View>
+        <View style={S.timeRow}>
+          <Text style={S.white}>II</Text>
+          <TextInput value={times.s2} onChangeText={v=>setTimes(t=>({...t,s2:v}))} style={S.input} placeholder="16:00" placeholderTextColor="#777"/>
+          <Text style={S.sep}>→</Text>
+          <TextInput value={times.e2} onChangeText={v=>setTimes(t=>({...t,e2:v}))} style={S.input} placeholder="02:00" placeholderTextColor="#777"/>
+        </View>
+      </View>
+
+      <TouchableOpacity style={S.generateFull} onPress={regenerate}>
+        <Text style={S.btnText}>⚡ ZASTOSUJ I PRZELICZ GRAFIK</Text>
+      </TouchableOpacity>
+
+      <Text style={S.section}>Mój profil</Text>
+      <Text style={S.helpLine}>Przypisanie P/M/L jest kontrolowane przez administratora i nie może być zmieniane przez pracownika.</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+        {PERSON_KEYS.map(k=><TouchableOpacity key={k} disabled={FIREBASE_ENABLED} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)},FIREBASE_ENABLED&&{opacity:myPerson===k?1:0.45}]} onPress={()=>!FIREBASE_ENABLED&&setMyPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+      </ScrollView>
+
+      <Text style={S.section}>⚡ Warunki generatora</Text>
+      <Text style={S.helpLine}>Ustaw reguły MUSI, NIE MOŻE, PREFERUJE oraz liczbę zmian dla pracownika.</Text>
+      <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={()=>setConditionModal(true)}><Text style={S.btnText}>⚙️ ZARZĄDZAJ WARUNKAMI ({conditions.length})</Text></TouchableOpacity>
+
+      {FIREBASE_ENABLED && cloudRole==='admin' && <>
+        <Text style={S.section}>⚙️ Automatyczne generowanie tygodni</Text>
+        <Text style={S.helpLine}>Opcja administratora. Po włączeniu aplikacja przygotowuje kolejne 4 tygodnie na podstawie ustawień bieżącego tygodnia. Pracownicy mają tylko podgląd.</Text>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Generuj kolejne tygodnie automatycznie</Text><Text style={S.muted}>{autoGenerateWeeks?'🟢 WŁĄCZONE':'🔴 WYŁĄCZONE'}</Text></View>
+          <TouchableOpacity style={[S.btn,autoGenerateWeeks&&S.active]} onPress={()=>setAutoGenerateWeeks(v=>!v)}><Text style={S.btnText}>{autoGenerateWeeks?'WŁĄCZONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Zezwalaj na 24h / dwie zmiany tej samej osoby</Text><Text style={S.muted}>{allow24h?'🟢 DOZWOLONE':'🔴 ZABLOKOWANE'}</Text></View>
+          <TouchableOpacity style={[S.btn,allow24h&&S.active]} onPress={()=>setAllow24h(v=>!v)}><Text style={S.btnText}>{allow24h?'DOZWOLONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
+        <Text style={S.section}>🔔 Propozycje zamian {proposals.filter(p=>p.status==='pending').length ? `(${proposals.filter(p=>p.status==='pending').length})` : ''}</Text>
+        {proposals.filter(p=>p.status==='pending').slice(0,10).map(p=><View key={p.id} style={S.proposalCard}>
+          <Text style={S.optionText}>{PEOPLE[p.fromPerson]?.name || p.fromEmail} ↔ {PEOPLE[p.toPerson]?.name || 'pracownik'}</Text>
+          <Text style={S.helpLine}>{DAYS[p.fromDay]} · zm. {p.fromShift} → {DAYS[p.toDay]} · zm. {p.toShift}</Text>
+          <View style={S.row}><TouchableOpacity style={S.generate} onPress={()=>approveProposal(p)}><Text style={S.btnText}>✅ ZATWIERDŹ</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={()=>rejectProposal(p.id)}><Text style={S.btnText}>❌ ODRZUĆ</Text></TouchableOpacity></View>
+        </View>)}
+      </>}
+
+      {FIREBASE_ENABLED && cloudRole!=='admin' && <>
+        <Text style={S.section}>🔄 Moje propozycje zamian</Text>
+        {proposals.slice(0,8).map(p=><View key={p.id} style={S.proposalCard}>
+          <Text style={S.optionText}>{p.status==='pending'?'🟡 Oczekuje':p.status==='approved'?'🟢 Zatwierdzona':'🔴 Odrzucona'}</Text>
+          <Text style={S.helpLine}>{DAYS[p.fromDay]} · zm. {p.fromShift} ↔ {DAYS[p.toDay]} · zm. {p.toShift} · {PEOPLE[p.toPerson]?.name || ''}</Text>
+        </View>)}
+      </>}
+
+      <Text style={S.section}>Kolory pracowników</Text>
+      <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
+      {PERSON_KEYS.map(k => (
+        <TouchableOpacity key={k} style={[S.option,{borderLeftColor:personColor(k),borderLeftWidth:6}]} onPress={()=>!readOnly && setColorPerson(k)}>
+          <View style={{flexDirection:'row',alignItems:'center',gap:10}}>
+            <View style={[S.colorPreview,{backgroundColor:personColor(k)}]} />
+            <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+          </View>
+          <Text style={S.muted}>{personColor(k)}</Text>
+        </TouchableOpacity>
+      ))}
+
+      {FIREBASE_ENABLED && cloudUser && <>
+        <Text style={S.section}>Wspólny grafik online</Text>
+        <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
+        <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
+      </>}
+
+      <Text style={S.section}>Bezpieczeństwo i dane</Text>
+      <TouchableOpacity style={S.option} onPress={()=>{setPinEntry('');setPinModal(true)}}>
+        <Text style={S.optionText}>🔐 PIN aplikacji</Text>
+        <Text style={S.muted}>{pinEnabled?'włączony':'wyłączony'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.option} onPress={createBackup}>
+        <Text style={S.optionText}>💾 Kopia zapasowa JSON</Text>
+        <Text style={S.muted}>podgląd / eksport</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.option} onPress={shareBackup}>
+        <Text style={S.optionText}>📤 Udostępnij backup</Text>
+        <Text style={S.muted}>telefon / plik / komunikator</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.option} onPress={()=>!readOnly && setDark(v=>!v)}>
+        <Text style={S.optionText}>🌙 Tryb ciemny</Text>
+        <Text style={S.muted}>{dark?'włączony':'wyłączony'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.danger} onPress={resetAll}>
+        <Text style={S.btnText}>WYCZYŚĆ DANE APLIKACJI</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const conditionModalDialog = (
+    <Modal visible={conditionModal} transparent animationType="slide" onRequestClose={()=>setConditionModal(false)}>
+      <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
+        <Text style={S.modalTitle}>Warunki generatora</Text>
+        <ScrollView style={{maxHeight:430}}>
+          {conditions.map((c,i)=><View key={i} style={S.proposalCard}>
+            <Text style={S.optionText}>{c.type==='count'?'🔢 LICZBA':c.type==='must'?'🔴 MUSI':c.type==='forbid'?'⛔ NIE MOŻE':'🟡 PREFERUJE'} · {PEOPLE[c.person]?.name}</Text>
+            <Text style={S.helpLine}>{c.type==='count'?`${c.value} zmian`: `${DAYS[c.dayIndex]} · zmiana ${c.shift}`}</Text>
+            <TouchableOpacity onPress={()=>setConditions(x=>x.filter((_,j)=>j!==i))}><Text style={S.delete}>Usuń warunek</Text></TouchableOpacity>
+          </View>)}
+          <Text style={S.section}>Dodaj warunek</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,conditionPerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setConditionPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+          <View style={S.row}>{['count','must','forbid','prefer'].map(t=><TouchableOpacity key={t} style={[S.chip,conditionType===t&&S.active]} onPress={()=>setConditionType(t)}><Text style={S.btnText}>{t==='count'?'Liczba':t==='must'?'Musi':t==='forbid'?'Nie może':'Preferuje'}</Text></TouchableOpacity>)}</View>
+          {conditionType==='count' ? <TextInput value={conditionValue} onChangeText={setConditionValue} keyboardType="number-pad" placeholder="Liczba zmian, np. 6" placeholderTextColor="#777" style={S.input}/> : <>
+            <Text style={S.section}>Dzień</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{DAYS.map((d,i)=><TouchableOpacity key={d} style={[S.chip,conditionDay===i&&S.active]} onPress={()=>setConditionDay(i)}><Text style={S.btnText}>{d.slice(0,3)}</Text></TouchableOpacity>)}</ScrollView>
+            <Text style={S.section}>Zmiana</Text><View style={S.row}>{[1,2].map(x=><TouchableOpacity key={x} style={[S.btn,conditionShift===x&&S.active]} onPress={()=>setConditionShift(x)}><Text style={S.btnText}>{x}</Text></TouchableOpacity>)}</View>
+          </>}
+          <TouchableOpacity style={S.generateFull} onPress={()=>{if(conditionType==='count'&&!conditionValue)return; setConditions(x=>[...x,{type:conditionType,person:conditionPerson,dayIndex:conditionDay,shift:conditionShift,value:conditionValue}]);setConditionValue('')}}><Text style={S.btnText}>➕ DODAJ WARUNEK</Text></TouchableOpacity>
+        </ScrollView>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setConditionModal(false)}><Text style={S.btnText}>GOTOWE</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const offModalDialog = (
+    <Modal visible={!!offModal} transparent animationType="slide" onRequestClose={()=>setOffModal(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>🏖️ Ustaw wolne</Text>
+        <Text style={S.helpLine}>{offModal ? `${DAYS[offModal.dayIndex]} · zmiana ${offModal.shiftIndex+1} · ${offModal.person ? PEOPLE[offModal.person].name : 'wolna'}` : ''}</Text>
+        <Text style={S.section}>Co zrobić z tą zmianą?</Text>
+        <TouchableOpacity style={[S.option,offMode==='plain'&&S.optionActive]} onPress={()=>setOffMode('plain')}><Text style={S.optionText}>Wolne — bez odrabiania</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.option,offMode==='recover'&&S.optionActive]} onPress={()=>setOffMode('recover')}><Text style={S.optionText}>Wolne — generator ma uzupełnić inną zmianą</Text></TouchableOpacity>
+        <Text style={S.section}>Zastępstwo</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>{PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,offReplacement===k&&{backgroundColor:personColor(k)}]} onPress={()=>setOffReplacement(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+        <TouchableOpacity style={S.generateFull} onPress={saveOff}><Text style={S.btnText}>ZAPISZ WOLNE</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setOffModal(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const swapModalDialog = (
+    <Modal visible={!!swapModal} transparent animationType="slide" onRequestClose={()=>setSwapModal(null)}>
+      <View style={S.overlay}><View style={[S.modal,{maxHeight:'90%'}]}>
+        <Text style={S.modalTitle}>🔄 Zaproponuj zamianę</Text>
+        <Text style={S.helpLine}>{swapModal ? `${DAYS[swapModal.dayIndex]} · zmiana ${swapModal.shiftIndex+1}` : ''}</Text>
+        <Text style={S.section}>Z kim?</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>{PERSON_KEYS.filter(k=>k!==swapModal?.person).map(k=><TouchableOpacity key={k} style={[S.chip,swapTarget===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSwapTarget(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}</ScrollView>
+        <Text style={S.section}>Na którą zmianę tej osoby?</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>{DAYS.map((d,i)=><TouchableOpacity key={d} style={[S.chip,swapTargetDay===i&&S.active]} onPress={()=>setSwapTargetDay(i)}><Text style={S.btnText}>{d.slice(0,3)}</Text></TouchableOpacity>)}</ScrollView>
+        <View style={S.row}>{[1,2].map(x=><TouchableOpacity key={x} style={[S.btn,swapTargetShift===x&&S.active]} onPress={()=>setSwapTargetShift(x)}><Text style={S.btnText}>Zmiana {x}</Text></TouchableOpacity>)}</View>
+        <TouchableOpacity style={S.generateFull} onPress={submitSwap}><Text style={S.btnText}>📨 WYŚLIJ PROPOZYCJĘ</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setSwapModal(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const colorModal = (
+    <Modal visible={!!colorPerson} transparent animationType="slide" onRequestClose={()=>setColorPerson(null)}>
+      <View style={S.overlay}>
+        <View style={[S.modal,{maxHeight:'86%'}]}>
+          <Text style={S.modalTitle}>Kolor: {colorPerson ? PEOPLE[colorPerson].name : ''}</Text>
+          <Text style={S.helpLine}>Wybierz jeden z kolorów. Zmiana zostanie zapisana automatycznie.</Text>
+          <ScrollView contentContainerStyle={S.palette}>
+            {COLOR_PALETTE.map(c => (
+              <TouchableOpacity key={c} onPress={()=>{if(readOnly)return;setPersonColors(prev=>({...prev,[colorPerson]:c}));setColorPerson(null)}} style={[S.colorSwatch,{backgroundColor:c},colorPerson && personColor(colorPerson)===c&&S.colorSelected]}>
+                {colorPerson && personColor(colorPerson)===c ? <Text style={[S.colorCheck,{color:contrastText(c)}]}>✓</Text> : null}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setColorPerson(null)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const editModal = (
+    <Modal visible={!!edit} transparent animationType="fade" onRequestClose={()=>setEdit(null)}>
+      <View style={S.overlay}>
+        <View style={S.modal}>
+          <Text style={S.modalTitle}>Edycja zmiany</Text>
+          <Text style={S.muted}>{edit ? `${DAYS[edit.dayIndex]} · Zmiana ${edit.shiftIndex+1}` : ''}</Text>
+
+          <Text style={S.section}>Pracownik</Text>
+          {PERSON_KEYS.map(k=>
+            <TouchableOpacity
+              key={k}
+              style={[S.modalOpt,currentWeek[edit?.dayIndex]?.shifts[edit?.shiftIndex]?.person===k&&S.optionActive]}
+              onPress={()=>{
+                updateShift(edit.dayIndex,edit.shiftIndex,{person:k});
+                setEdit(null);
+              }}
+            >
+              <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={S.modalOpt} onPress={()=>{removeShift(edit.dayIndex,edit.shiftIndex);setEdit(null)}}>
+            <Text style={S.delete}>WOLNA ZMIANA</Text>
+          </TouchableOpacity>
+
+          <Text style={S.section}>Magazyn</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+            {WAREHOUSES.map(w=>
+              <TouchableOpacity key={w} style={S.chip} onPress={()=>updateShift(edit.dayIndex,edit.shiftIndex,{warehouse:w})}>
+                <Text style={S.btnText}>{w}</Text>
+              </TouchableOpacity>
+            )}
+          </ScrollView>
+
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setEdit(null)}>
+            <Text style={S.btnText}>ZAMKNIJ</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const helpModal = (
+    <Modal visible={help} transparent animationType="fade" onRequestClose={()=>setHelp(false)}>
+      <View style={S.overlay}>
+        <View style={S.modal}>
+          <Text style={S.modalTitle}>Jak działa Grafik Pracy?</Text>
+          <Text style={S.helpLine}>• Grafik ma 7 dni i 2 zmiany dziennie.</Text>
+          <Text style={S.helpLine}>• System tygodnia: 10 h albo 12 h.</Text>
+          <Text style={S.helpLine}>• Stawka: 300 zł przy 10 h i 360 zł przy 12 h.</Text>
+          <Text style={S.helpLine}>• Edycja zmiany pozwala zmienić osobę i magazyn.</Text>
+          <Text style={S.helpLine}>• Minione dni są automatycznie blokowane przed edycją.</Text>
+          <Text style={S.helpLine}>• Pracownik może zaproponować zamianę, ale zmianę zatwierdza administrator.</Text>
+          <Text style={S.helpLine}>• Generator może uwzględniać warunki MUSI / NIE MOŻE / PREFERUJE.</Text>
+          <Text style={S.helpLine}>• Zablokowane i ręcznie zmienione zmiany są zachowywane przy ponownym generowaniu.</Text>
+          <Text style={S.helpLine}>• Dane są zapisywane lokalnie na telefonie.</Text>
+          <Text style={S.helpLine}>• Backup JSON służy do przenoszenia grafiku między telefonami.</Text>
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setHelp(false)}>
+            <Text style={S.btnText}>ROZUMIEM</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const exportModalDialog = (
+    <Modal visible={exportModal} transparent animationType="slide" onRequestClose={()=>setExportModal(false)}>
+      <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
+        <Text style={S.modalTitle}>Udostępnij gotowy grafik</Text>
+        <Text style={S.helpLine}>Cały grafik jest domyślną opcją. Możesz też udostępnić tylko jedną osobę.</Text>
+        <Text style={S.section}>Zakres</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:8}}>
+          <TouchableOpacity style={[S.chip,sharePerson==='all'&&S.active]} onPress={()=>setSharePerson('all')}><Text style={S.btnText}>👥 Cały grafik</Text></TouchableOpacity>
+          {PERSON_KEYS.map(k=><TouchableOpacity key={k} style={[S.chip,sharePerson===k&&{backgroundColor:personColor(k)}]} onPress={()=>setSharePerson(k)}><Text style={S.btnText}>👤 {PEOPLE[k].name}</Text></TouchableOpacity>)}
+        </ScrollView>
+        <Text style={S.section}>Forma</Text>
+        <View style={S.row}><TouchableOpacity style={[S.btn,shareFormat==='table'&&S.active]} onPress={()=>setShareFormat('table')}><Text style={S.btnText}>📊 Tabela</Text></TouchableOpacity><TouchableOpacity style={[S.btn,shareFormat==='list'&&S.active]} onPress={()=>setShareFormat('list')}><Text style={S.btnText}>📋 Lista</Text></TouchableOpacity></View>
+        <ScrollView style={{maxHeight:400}} contentContainerStyle={{paddingBottom:4}}>
+          {shareFormat==='table'?compactTable(true,sharePerson):listExport(true)}
+        </ScrollView>
+        <View style={S.row}><TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity></View>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const reportAlarmDialog = (
+    <Modal visible={reportAlarm} transparent={false} animationType="fade" onRequestClose={()=>{}}>
+      <View style={{flex:1,backgroundColor:'#0b0f17',padding:28,justifyContent:'center',alignItems:'center'}}>
+        <Text style={{fontSize:72,marginBottom:18}}>🚨</Text>
+        <Text style={{color:'#fff',fontSize:30,fontWeight:'900',textAlign:'center'}}>RAPORT GODZINOWY</Text>
+        <Text style={{color:'#cbd5e1',fontSize:18,textAlign:'center',marginTop:14}}>Za 20 minut pełna godzina.</Text>
+        <Text style={{color:'#94a3b8',fontSize:15,textAlign:'center',marginTop:8}}>Przygotuj raport dla grupy WhatsApp.</Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Wyłącz alarm i otwórz raport"
+          style={{marginTop:42,width:'100%',maxWidth:420,minHeight:72,borderRadius:20,backgroundColor:'#ef4444',justifyContent:'center',alignItems:'center'}}
+          onPress={()=>{
+            setReportAlarm(false);
+            applyReportContinuity(reportStatusRef.current);
+            setReportModal(true);
+          }}>
+          <Text style={{color:'#fff',fontSize:21,fontWeight:'900'}}>🔕 WYŁĄCZ ALARM</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+
+  const reportModalDialog = (
+    <Modal visible={reportModal} transparent animationType="slide" onRequestClose={()=>setReportModal(false)}>
+      <View style={S.reportOverlay}>
+        <View style={S.reportSheet}>
+          <View style={S.sheetHandle}/>
+          <View style={S.sheetHeader}>
+            <View style={{flex:1}}>
+              <Text style={S.modalTitle}>📋 Raport godzinowy</Text>
+              <Text style={S.sheetSub}>Szybki wybór → gotowy tekst → WhatsApp</Text>
+            </View>
+            <TouchableOpacity style={S.sheetClose} onPress={()=>setReportModal(false)}><Text style={S.sheetCloseText}>✕</Text></TouchableOpacity>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom:18}}>
+            <Text style={S.section}>1. Status</Text>
+            <View style={S.statusGrid}>
+              {['Zaczynam pracę, jestem na miejscu','Czekam na załadunek','Czekam na rozładunek','W drodze','Czekam na przydzielenie rampy','Koniec zmiany'].map(status => (
+                <TouchableOpacity key={status} style={[S.statusTile,reportStatus===status&&S.statusTileActive]} onPress={()=>{setReportStatus(status);applyReportContinuity(status)}}>
+                  <Text style={[S.statusTileText,reportStatus===status&&S.statusTileTextActive]}>{status}</Text>
+                  {reportStatus===status&&<Text style={S.statusCheck}>✓</Text>}
+                </TouchableOpacity>
+              ))}
+            </View>
+            {reportStatus==='W drodze' ? <>
+              <Text style={S.section}>2. Trasa</Text>
+              <Text style={S.fieldLabel}>Z</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chipRow}>{WAREHOUSES.map(w=><TouchableOpacity key={'from'+w} style={[S.chip,reportFromWarehouse===w&&S.active]} onPress={()=>setReportFromWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+              <Text style={S.fieldLabel}>Do</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chipRow}>{WAREHOUSES.map(w=><TouchableOpacity key={'to'+w} style={[S.chip,reportToWarehouse===w&&S.active]} onPress={()=>setReportToWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+              <View style={S.row}><TouchableOpacity style={[S.chip,reportLoaded==='załadowany'&&S.active]} onPress={()=>setReportLoaded('załadowany')}><Text style={S.btnText}>Załadowany</Text></TouchableOpacity><TouchableOpacity style={[S.chip,reportLoaded==='na pusto'&&S.active]} onPress={()=>setReportLoaded('na pusto')}><Text style={S.btnText}>Na pusto</Text></TouchableOpacity></View>
+            </> : <>
+              <Text style={S.section}>2. Magazyn</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={S.chipRow}>{WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,reportWarehouse===w&&S.active]} onPress={()=>setReportWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}</ScrollView>
+              {reportStatus!=='Zaczynam pracę, jestem na miejscu' && reportStatus!=='Koniec zmiany' && <>
+                <Text style={S.section}>3. Szczegóły</Text>
+                <Text style={S.fieldLabel}>Rampa</Text>
+                <TextInput value={reportRamp} onChangeText={setReportRamp} placeholder="np. R39" placeholderTextColor="#777" style={S.reportInput}/>
+                <Text style={S.fieldLabel}>Czas trwania</Text>
+                <View style={S.durationGrid}>{['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.durationTile,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}</View>\n                {getLastReportForStatus(reportStatus) && parseReportDurationMinutes(reportDuration) > 0 && <Text style={S.continuityHint}>🔄 Kontynuacja poprzedniego raportu: czas jest automatycznie naliczany od ostatniego wysłania.</Text>}
+              </>}
+            </>}
+            <Text style={S.section}>Gotowy tekst</Text>
+            <View style={S.reportPreview}><Text style={S.reportPreviewText}>{reportText() || 'Ustaw numer rejestracyjny w Ustawieniach.'}</Text></View>
+          </ScrollView>
+          <View style={S.reportFooter}>
+            <TouchableOpacity style={S.generateFull} disabled={reportBusy} onPress={openWhatsAppReport}><Text style={S.btnText}>{reportBusy?'OTWIERANIE…':'📱 KOPIUJ I OTWÓRZ WHATSAPP'}</Text></TouchableOpacity>
+            <TouchableOpacity style={S.sheetCancel} onPress={()=>setReportModal(false)}><Text style={S.sheetCancelText}>ZAMKNIJ</Text></TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const pinDialog = (
+    <Modal visible={pinModal} transparent animationType="fade" onRequestClose={()=>setPinModal(false)}>
+      <View style={S.overlay}>
+        <View style={S.modal}>
+          <Text style={S.modalTitle}>PIN aplikacji</Text>
+          <Text style={S.helpLine}>Wpisz 4 cyfry. Zaznaczenie wyłączone wyłączy PIN.</Text>
+          <TextInput
+            value={pinEntry}
+            onChangeText={v=>setPinEntry(v.replace(/\D/g,'').slice(0,4))}
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={4}
+            style={S.pinInput}
+            placeholder="••••"
+            placeholderTextColor="#666"
+          />
+          <View style={S.row}>
+            <TouchableOpacity style={[S.btn,pinEnabled&&S.active]} onPress={()=>setPinEnabled(true)}>
+              <Text style={S.btnText}>Włącz PIN</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={S.btn} onPress={()=>{setPinEnabled(false);setPinEntry('')}}>
+              <Text style={S.btnText}>Wyłącz PIN</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={S.closeBtn} onPress={savePin}>
+            <Text style={S.btnText}>ZAPISZ</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const backupDialog = (
+    <Modal visible={backupModal} transparent animationType="slide" onRequestClose={()=>setBackupModal(false)}>
+      <View style={S.overlay}>
+        <View style={[S.modal,{maxHeight:'94%'}]}>
+          <Text style={S.modalTitle}>Backup JSON</Text>
+          <Text style={S.helpLine}>Możesz skopiować ten tekst i zachować go jako kopię grafiku.</Text>
+          <TextInput
+            value={backupText}
+            onChangeText={setBackupText}
+            multiline
+            style={S.backupInput}
+            textAlignVertical="top"
+          />
+          <View style={S.row}>
+            <TouchableOpacity style={S.generate} onPress={shareBackup}>
+              <Text style={S.btnText}>📤 UDOSTĘPNIJ</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={S.btn} onPress={restoreBackup}>
+              <Text style={S.btnText}>PRZYWRÓĆ</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={S.closeBtn} onPress={()=>setBackupModal(false)}>
+            <Text style={S.btnText}>ZAMKNIJ</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {
+    return (
+      <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
+        <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
+          <View style={S.modal}>
+            <Text style={S.modalTitle}>GRAFIK PRACY ☁️</Text>
+            <Text style={S.helpLine}>Zaloguj się, aby korzystać ze wspólnego grafiku.</Text>
+            <TextInput value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" keyboardType="email-address" placeholder="E-mail" placeholderTextColor="#777" style={S.input}/>
+            <TextInput value={authPassword} onChangeText={setAuthPassword} secureTextEntry placeholder="Hasło" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
+            <TouchableOpacity style={S.rememberRow} onPress={()=>setRememberLogin(v=>!v)}>
+              <View style={[S.rememberBox,rememberLogin&&S.rememberBoxActive]}>{rememberLogin&&<Text style={S.rememberCheck}>✓</Text>}</View>
+              <Text style={S.optionText}>Zapamiętaj mnie na tym urządzeniu</Text>
+            </TouchableOpacity>
+            {!!cloudError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{cloudError}</Text>}
+            <TouchableOpacity style={S.closeBtn} disabled={authBusy} onPress={cloudLogin}><Text style={S.btnText}>{authBusy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{setGuestMode(true);setTab('teraz')}}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>
+          </View>
+        </View></SafeAreaView></View>
+      </ImageBackground>
+    );
+  }
+
+  if (!ready) {
+    return (
+      <SafeAreaView style={S.container}>
+        <View style={S.loading}>
+          <Text style={S.title}>GRAFIK PRACY</Text>
+          <Text style={S.muted}>Ładowanie danych…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
+      <View style={S.scrim}>
+        <SafeAreaView style={S.container}>
+          {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
+          {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
+            <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
+            {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
+          </View>}
+          {Platform.OS==='web' && <View style={S.webNav}>
+            {[
+              ['teraz','🟢','Teraz'],...(cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]),['auto','📍','Auto / GPS'],
+              ...(cloudRole==='locator' ? [] : [['summary','📊','Podsumowanie'],['chat','💬','Czat']]),['ustawienia','⚙️','Ustawienia']
+            ].map(([key,icon,label])=>
+              <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label} style={[S.webNavBtn,tab===key&&S.webNavActive]} onPress={()=>setTab(key)}>
+                <Text style={S.webNavIcon}>{icon}</Text><Text style={S.webNavText}>{label}</Text>
+              </TouchableOpacity>
+            )}
+          </View>}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
+          {editModal}
+          {colorModal}
+          {helpModal}
+          {exportModalDialog}
+          {conditionModalDialog}
+          {offModalDialog}
+          {swapModalDialog}
+          {pinDialog}
+          {backupDialog}
+          {reportModalDialog}
+          {reportAlarmDialog}
+          {recoveryLedgerDialog}
+          {weekSetupDialog}
+
+          {Platform.OS!=='web' && <View style={S.nav}>
+            <View style={S.navDock}>
+              {[
+                ['teraz','🟢','Teraz'],
+                ...(cloudRole==='locator' ? [] : [['grafik','📅','Grafik']]),
+                ['auto','📍','Auto'],
+                ...(cloudRole==='locator' ? [] : [['summary','📊','Suma'],['chat','💬','Czat']]),
+                ['ustawienia','⚙️','Ustaw.']
+              ].map(([key,icon,label])=>(
+                <TouchableOpacity key={key} accessibilityRole="button" accessibilityLabel={label}
+                  style={[S.navBtn,tab===key&&S.navActive]} onPress={()=>setTab(key)} activeOpacity={0.78}>
+                  <Text style={S.navIcon}>{icon}</Text>
+                  <Text numberOfLines={1} style={[S.navText,tab===key&&S.navTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>}
+        </SafeAreaView>
+      </View>
+    </ImageBackground>
+  );
+}
+
+const S = StyleSheet.create({
+  background:{flex:1,backgroundColor:'#090c12'},
+  scrim:{flex:1,backgroundColor:'rgba(6,9,14,0.88)'},
+  container:{flex:1,backgroundColor:'transparent'},
+  content:{flex:1,width:'100%',maxWidth:760,alignSelf:'center',paddingHorizontal:12,paddingTop:10,paddingBottom:12},
+  loading:{flex:1,justifyContent:'center',alignItems:'center',padding:20},
+  header:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:20,padding:18,marginBottom:12,flexDirection:'row',alignItems:'center',borderWidth:1,borderColor:'#344054',shadowColor:'#000',shadowOpacity:0.22,shadowRadius:10,shadowOffset:{width:0,height:4},elevation:4},
+  title:{color:'#f8fafc',fontSize:28,fontWeight:'900',letterSpacing:0.6},
+  muted:{color:'#9299a8',fontSize:14,marginTop:4},
+  help:{width:42,height:42,borderRadius:21,backgroundColor:'#303744',alignItems:'center',justifyContent:'center'},
+  helpText:{color:'#fff',fontSize:23,fontWeight:'900'},
+  row:{flexDirection:'row',gap:8,flexWrap:'wrap',marginBottom:9},
+  btn:{backgroundColor:'#202733',borderRadius:13,padding:13,minHeight:45,justifyContent:'center',borderWidth:1,borderColor:'#303a4a'},
+  active:{backgroundColor:'#3f78ed',borderColor:'#5d8ff5'},
+  btnText:{color:'#fff',fontWeight:'800',textAlign:'center'},
+  generate:{flex:1,minWidth:125,backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',justifyContent:'center',shadowColor:'#3f78ed',shadowOpacity:0.22,shadowRadius:8,elevation:3},
+  weekBtn:{flex:1,minWidth:95,backgroundColor:'#2a303b',borderRadius:12,padding:12,alignItems:'center'},
+  weekSummary:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:10,marginBottom:9,borderWidth:1,borderColor:'#303a4a',flexDirection:'row',alignItems:'center'},
+  weekSummaryItem:{flex:1,alignItems:'center'},
+  weekSummaryValue:{color:'#fff',fontSize:17,fontWeight:'900'},
+  weekSummaryLabel:{color:'#8f98a8',fontSize:10,fontWeight:'800',marginTop:2},
+  weekSummaryDivider:{width:1,height:30,backgroundColor:'#303a4a'},
+  todayMini:{backgroundColor:'#263858',borderRadius:11,paddingVertical:9,paddingHorizontal:10,marginLeft:7},
+  todayMiniText:{color:'#dbe7ff',fontSize:11,fontWeight:'900'},
+  swapBtn:{backgroundColor:'#2a303b',borderRadius:12,padding:13,alignItems:'center',marginBottom:12},
+  summaryHero:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:20,padding:17,marginBottom:12,borderWidth:1,borderColor:'#303a4a'},
+  summaryEyebrow:{color:'#8fa1bd',fontSize:11,fontWeight:'900',letterSpacing:1},
+  summaryTitle:{color:'#fff',fontSize:18,fontWeight:'900',marginTop:5},
+  summaryStats:{flexDirection:'row',alignItems:'center',marginTop:16},
+  summaryStat:{flex:1,alignItems:'center'},
+  summaryValue:{color:'#fff',fontSize:21,fontWeight:'900'},
+  summaryLabel:{color:'#8f99aa',fontSize:11,fontWeight:'800',marginTop:2},
+  summaryDivider:{width:1,height:34,backgroundColor:'#303a4a'},
+  chatHero:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:20,padding:16,marginBottom:12,borderWidth:1,borderColor:'#303a4a',flexDirection:'row',alignItems:'center'},
+  chatHeroTitle:{color:'#fff',fontSize:20,fontWeight:'900'},
+  chatHeroSub:{color:'#8f99aa',fontSize:12,marginTop:4},
+  chatCount:{minWidth:58,backgroundColor:'#263858',borderRadius:14,paddingVertical:8,alignItems:'center',marginLeft:10},
+  chatCountValue:{color:'#fff',fontSize:18,fontWeight:'900'},
+  chatCountLabel:{color:'#aebee0',fontSize:9,fontWeight:'800'},
+  settingsHero:{backgroundColor:'#1a2537',borderRadius:20,padding:18,marginBottom:14,borderWidth:1,borderColor:'#334b72'},
+  settingsEyebrow:{color:'#8fb0ff',fontSize:11,fontWeight:'900',letterSpacing:1},
+  settingsTitle:{color:'#fff',fontSize:25,fontWeight:'900',marginTop:4},
+  settingsSub:{color:'#aebbd0',fontSize:13,marginTop:5,lineHeight:19},
+  day:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:18,padding:13,marginBottom:12,borderWidth:1,borderColor:'#303a4a'},
+  dayToday:{borderColor:'#467ff1',shadowColor:'#467ff1',shadowOpacity:0.18,shadowRadius:10,elevation:4},
+  dayTitleRow:{flexDirection:'row',alignItems:'center',gap:8},
+  todayBadge:{color:'#fff',backgroundColor:'#467ff1',fontSize:10,fontWeight:'900',paddingHorizontal:8,paddingVertical:4,borderRadius:9},
+  between:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},
+  dayTitle:{color:'#fff',fontSize:21,fontWeight:'900'},
+  dayBadge:{color:'#b9c9ff',fontWeight:'900',backgroundColor:'#26324d',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
+  shift:{backgroundColor:'#1b222d',borderRadius:15,padding:13,marginTop:9,borderWidth:1,borderColor:'#293343'},
+  locked:{borderWidth:1,borderColor:'#667187'},
+  shiftTitle:{color:'#fff',fontSize:17,fontWeight:'900'},
+  time:{color:'#a1a8b6',fontSize:13,marginTop:3},
+  lockText:{fontSize:16},
+  person:{backgroundColor:'#273140',borderRadius:12,padding:12,marginTop:9,borderWidth:1,borderColor:'#354155'},
+  personText:{color:'#fff',textAlign:'center',fontSize:17,fontWeight:'900'},
+  personSub:{color:'#a7adba',textAlign:'center',fontSize:12,marginTop:3},
+  actions:{flexDirection:'row',justifyContent:'space-between',marginTop:9},
+  actionText:{color:'#9db9ff',fontWeight:'800'},
+  delete:{color:'#ff7777',fontWeight:'800'},
+  total:{backgroundColor:'#315fb8',borderRadius:20,padding:20,marginBottom:12,borderWidth:1,borderColor:'#5480d0',shadowColor:'#000',shadowOpacity:0.2,shadowRadius:10,elevation:4},
+  totalSmall:{color:'#dbe6ff',fontWeight:'800'},
+  totalBig:{color:'#fff',fontSize:29,fontWeight:'900',marginTop:4},
+  totalInfo:{color:'#e6edff',fontSize:16,marginTop:4},
+  totalMoney:{color:'#fff',fontSize:22,fontWeight:'900',marginTop:7},
+  employee:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:17,padding:17,marginBottom:9,borderWidth:1,borderColor:'#303a4a'},
+  employeeName:{color:'#fff',fontSize:19,fontWeight:'900'},
+  dot:{fontSize:20},
+  stat:{color:'#9299a7',fontSize:15,marginTop:5},
+  white:{color:'#fff',fontWeight:'800'},
+  money:{color:'#68d797',fontWeight:'900'},
+  section:{color:'#f8fafc',fontSize:19,fontWeight:'900',marginTop:18,marginBottom:10,letterSpacing:0.2},
+  option:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:13,padding:14,marginBottom:7,flexDirection:'row',justifyContent:'space-between',alignItems:'center',borderWidth:1,borderColor:'#303a4a'},
+  optionActive:{backgroundColor:'#263858',borderColor:'#4e79bd'},
+  optionText:{color:'#fff',fontSize:15,fontWeight:'700'},
+  check:{color:'#75a1ff',fontSize:20,fontWeight:'900'},
+  timeBox:{backgroundColor:'rgba(28,32,41,0.96)',borderRadius:15,padding:13},
+  timeRow:{flexDirection:'row',alignItems:'center',gap:7,marginBottom:8},
+  input:{flex:1,backgroundColor:'#111722',color:'#fff',borderRadius:11,padding:12,fontSize:16,borderWidth:1,borderColor:'#2e394b'},
+  sep:{color:'#aaa',fontSize:18},
+  generateFull:{backgroundColor:'#467ff1',padding:16,borderRadius:13,alignItems:'center',marginTop:14},
+  danger:{backgroundColor:'#7b3039',padding:16,borderRadius:13,alignItems:'center',marginTop:10},
+  nav:{height:70,width:'98%',maxWidth:960,alignSelf:'center',backgroundColor:'rgba(14,18,26,0.99)',borderWidth:1,borderColor:'#3b4659',borderRadius:22,paddingHorizontal:4,paddingTop:3,paddingBottom:Platform.OS==='android'?8:5,marginBottom:Platform.OS==='android'?14:8,shadowColor:'#000',shadowOpacity:0.35,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:10},
+  webNav:{width:'100%',maxWidth:1180,alignSelf:'center',flexDirection:'row',alignItems:'center',justifyContent:'center',flexWrap:'wrap',gap:8,padding:10,marginBottom:12,backgroundColor:'rgba(14,18,26,0.98)',borderWidth:1,borderColor:'#3b4659',borderRadius:18},
+  webNavBtn:{minWidth:120,height:46,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:7,paddingHorizontal:14,borderRadius:12,borderWidth:1,borderColor:'#303a4a',backgroundColor:'#171d27'},
+  webNavActive:{backgroundColor:'#293c62',borderColor:'#5b82c4'},
+  webNavIcon:{fontSize:18},
+  webNavText:{color:'#d7dce6',fontSize:13,fontWeight:'900'},
+
+  navDock:{flex:1,flexDirection:'row',alignItems:'stretch',justifyContent:'space-between',gap:5},
+  navBtn:{flex:1,minWidth:0,alignItems:'center',justifyContent:'center',paddingVertical:4,paddingHorizontal:2,marginHorizontal:0,borderRadius:15,minHeight:58},
+  navActive:{backgroundColor:'#293c62',borderWidth:1,borderColor:'#5b82c4',shadowColor:'#467ff1',shadowOpacity:0.12,shadowRadius:6,elevation:2},
+  navIcon:{fontSize:19,lineHeight:22},
+  navText:{color:'#8f99aa',marginTop:2,fontSize:10,fontWeight:'800',textAlign:'center',includeFontPadding:false},
+  navTextActive:{color:'#ffffff'},
+  chatHeader:{flexDirection:'row',alignItems:'center',backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:12,marginBottom:8,borderWidth:1,borderColor:'#303a4a'},
+  chatBadge:{color:'#fff',backgroundColor:'#467ff1',fontWeight:'900',paddingHorizontal:10,paddingVertical:6,borderRadius:12},
+  chatBox:{backgroundColor:'rgba(13,18,27,0.98)',borderRadius:16,padding:10,borderWidth:1,borderColor:'#303a4a',minHeight:280,maxHeight:520},
+  chatMessage:{backgroundColor:'#252b35',borderRadius:13,padding:10,marginBottom:8,maxWidth:'92%'},
+  chatMine:{alignSelf:'flex-end',backgroundColor:'#30466f'},
+  chatAuthor:{color:'#fff',fontWeight:'900',fontSize:12},
+  chatTime:{color:'#8992a2',fontSize:10},
+  chatText:{color:'#fff',fontSize:15,lineHeight:20,marginTop:4},
+  chatComposer:{flexDirection:'row',gap:8,alignItems:'flex-end',marginTop:9,marginBottom:10},
+  chatInput:{flex:1,backgroundColor:'#171b23',color:'#fff',borderRadius:12,padding:12,fontSize:15,minHeight:48,maxHeight:110},
+  chatSend:{flex:0,minWidth:88},
+  reportCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
+  reportOverlay:{flex:1,backgroundColor:'rgba(0,0,0,0.78)',justifyContent:'flex-end'},
+  reportSheet:{backgroundColor:'#191d26',borderTopLeftRadius:26,borderTopRightRadius:26,maxHeight:'94%',paddingTop:8,borderWidth:1,borderColor:'#303745'},
+  sheetHandle:{width:42,height:4,borderRadius:2,backgroundColor:'#596273',alignSelf:'center',marginBottom:8},
+  sheetHeader:{flexDirection:'row',alignItems:'center',paddingHorizontal:18,paddingBottom:8},
+  sheetSub:{color:'#8f98a8',fontSize:12,marginTop:-3},
+  sheetClose:{width:38,height:38,borderRadius:19,backgroundColor:'#2a303b',alignItems:'center',justifyContent:'center'},
+  sheetCloseText:{color:'#fff',fontSize:18,fontWeight:'900'},
+  statusGrid:{flexDirection:'row',flexWrap:'wrap',gap:8,paddingHorizontal:18},
+  statusTile:{width:'48%',minHeight:58,backgroundColor:'#222732',borderRadius:13,padding:11,justifyContent:'center',borderWidth:1,borderColor:'#2e3542'},
+  statusTileActive:{backgroundColor:'#303b58',borderColor:'#467ff1'},
+  statusTileText:{color:'#d4d9e2',fontSize:12,fontWeight:'800',paddingRight:16},
+  statusTileTextActive:{color:'#fff'},
+  statusCheck:{position:'absolute',right:9,top:8,color:'#79a3ff',fontSize:18,fontWeight:'900'},
+  fieldLabel:{color:'#8f98a8',fontSize:12,fontWeight:'800',marginHorizontal:18,marginBottom:5},
+  chipRow:{paddingHorizontal:18,paddingBottom:2},
+  durationGrid:{flexDirection:'row',flexWrap:'wrap',gap:7,paddingHorizontal:18},
+  durationTile:{backgroundColor:'#2a303b',borderRadius:10,paddingVertical:11,paddingHorizontal:12},
+  continuityHint:{color:'#9db9ff',fontSize:12,lineHeight:17,marginHorizontal:18,marginTop:7,marginBottom:4,fontWeight:'700'},
+  reportInput:{marginHorizontal:18,backgroundColor:'#11151c',color:'#fff',borderRadius:11,padding:12,fontSize:15,marginBottom:10},
+  reportPreview:{marginHorizontal:18,backgroundColor:'#11151c',borderRadius:14,padding:14,borderWidth:1,borderColor:'#303745'},
+  reportPreviewText:{color:'#fff',fontSize:15,lineHeight:21,fontWeight:'700'},
+  reportFooter:{paddingHorizontal:18,paddingTop:8,paddingBottom:12,borderTopWidth:1,borderTopColor:'#2b313d',backgroundColor:'#191d26'},
+  sheetCancel:{alignItems:'center',padding:10},
+  sheetCancelText:{color:'#9ca5b5',fontWeight:'800'},
+  overlay:{flex:1,backgroundColor:'rgba(0,0,0,0.82)',justifyContent:'center',padding:14},
+  modal:{backgroundColor:'#171d27',borderRadius:22,padding:18,maxHeight:'88%',borderWidth:1,borderColor:'#374254',shadowColor:'#000',shadowOpacity:0.35,shadowRadius:18,elevation:12},
+  modalTitle:{color:'#fff',fontSize:23,fontWeight:'900',marginBottom:8},
+  modalOpt:{backgroundColor:'#2a303b',borderRadius:11,padding:13,marginTop:7},
+  chip:{backgroundColor:'#2a303b',padding:11,borderRadius:11,marginRight:7},
+  closeBtn:{backgroundColor:'#3f78ed',padding:15,borderRadius:13,alignItems:'center',marginTop:10,shadowColor:'#3f78ed',shadowOpacity:0.18,shadowRadius:7,elevation:3},
+  helpLine:{color:'#c7ccd6',fontSize:15,lineHeight:22,marginBottom:7},
+  pinInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:15,fontSize:25,textAlign:'center',letterSpacing:10,marginVertical:12},
+  tableCard:{backgroundColor:'rgba(25,29,38,0.97)',borderRadius:16,borderWidth:1,borderColor:'#303745',overflow:'hidden',marginBottom:12},
+  exportCard:{backgroundColor:'#151922',borderRadius:10,borderColor:'#394252',margin:0},
+  tableTitleRow:{flexDirection:'row',alignItems:'center',padding:12,borderBottomWidth:1,borderBottomColor:'#303745'},
+   legendRow:{flexDirection:'row',flexWrap:'wrap',gap:6,padding:8,borderBottomWidth:1,borderBottomColor:'#303745'},
+   legendItem:{paddingHorizontal:9,paddingVertical:5,borderRadius:8},
+   legendText:{fontSize:10,fontWeight:'900'},
+  tableTitle:{color:'#fff',fontSize:18,fontWeight:'900'},
+  tableSubtitle:{color:'#9da5b4',fontSize:11,marginTop:3},
+  tableWarehouse:{color:'#b9c9ff',fontWeight:'900',fontSize:12},
+  tableHeader:{flexDirection:'row',backgroundColor:'#303744'},
+  tableRow:{flexDirection:'row',borderTopWidth:1,borderTopColor:'#303745'},
+  tableCell:{padding:8,justifyContent:'center'},
+  tableDayCell:{width:'24%'},
+  tableShiftCell:{width:'38%'},
+  tableHead:{color:'#fff',fontWeight:'900',fontSize:12,textAlign:'center'},
+  tableDay:{color:'#fff',fontWeight:'800',fontSize:11},
+  tableShift:{minHeight:68,borderLeftWidth:1,borderLeftColor:'#303745'},
+  tablePerson:{color:'#fff',fontSize:12,fontWeight:'900',textAlign:'center'},
+  tableMeta:{color:'#9da5b4',fontSize:9,textAlign:'center',marginTop:2},
+  colorPreview:{width:22,height:22,borderRadius:11,borderWidth:1,borderColor:'rgba(255,255,255,0.35)'},
+  palette:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingVertical:8},
+  colorSwatch:{width:44,height:44,borderRadius:22,margin:7,alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'transparent'},
+  colorSelected:{borderColor:'#fff',transform:[{scale:1.12}]},
+  colorCheck:{fontSize:24,fontWeight:'900'},
+  cloudBanner:{backgroundColor:'#1d6b45',padding:9,marginHorizontal:14,borderRadius:10,marginBottom:7},
+  cloudBannerText:{color:'#fff',fontWeight:'900',textAlign:'center'},
+  cloudStatus:{backgroundColor:'rgba(25,29,38,0.94)',padding:7,marginHorizontal:14,borderRadius:9,marginBottom:7,borderWidth:1,borderColor:'#2b3240'},
+  swapMini:{marginTop:6,paddingVertical:4},
+  listExportRow:{paddingVertical:8,borderBottomWidth:1,borderBottomColor:'#2b3240'},
+  listExportDay:{color:'#fff',fontWeight:'900',fontSize:13},
+  listExportItem:{color:'#cbd5e1',fontSize:12,marginTop:3},
+  proposalCard:{backgroundColor:'rgba(25,29,38,0.94)',borderRadius:14,padding:12,marginBottom:8,borderWidth:1,borderColor:'#2b3240'},
+  cloudStatusText:{color:'#9fd5ff',fontSize:11,textAlign:'center',fontWeight:'800'},
+  backupInput:{backgroundColor:'#11151c',color:'#fff',borderRadius:12,padding:12,fontSize:12,minHeight:260,maxHeight:420},
+  rememberRow:{flexDirection:'row',alignItems:'center',gap:10,paddingVertical:12},
+  rememberBox:{width:24,height:24,borderRadius:6,borderWidth:2,borderColor:'#667085',alignItems:'center',justifyContent:'center'},
+  rememberBoxActive:{backgroundColor:'#467ff1',borderColor:'#467ff1'},
+  rememberCheck:{color:'#fff',fontSize:18,fontWeight:'900'},
+  debtCard:{backgroundColor:'rgba(20,25,34,0.97)',borderRadius:16,padding:14,marginBottom:12,borderWidth:1,borderColor:'#465674'},
+  debtTitle:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},
+  debtPositive:{color:'#ffbd66',fontWeight:'900'},
+  recoveryApprove:{backgroundColor:'#2e7d5b',borderRadius:12,padding:13,marginTop:10,alignItems:'center',borderWidth:1,borderColor:'#49a878'},
+  recoveryApproveText:{color:'#fff',fontWeight:'900',fontSize:12,textAlign:'center'},
+});
+```
+
+===== FILE: GrafikPracy_Final/LocationService.js =====
+
+```text
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as TaskManager from 'expo-task-manager';
+import * as Location from 'expo-location';
+import {Platform} from 'react-native';
+import {collection, doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
+import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
+
+export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
+export const LOCATION_CONFIG_KEY = 'grafik-pracy-location-config-v1';
+export const LOCATION_CURRENT_KEY = 'grafik-pracy-location-current-v1';
+
+export const normalizeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
+
+async function getConfig() {
+  try {
+    const raw = await AsyncStorage.getItem(LOCATION_CONFIG_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
+function distanceMeters(a,b) {
+  const R=6371000;
+  const p1=a.latitude*Math.PI/180, p2=b.latitude*Math.PI/180;
+  const dp=(b.latitude-a.latitude)*Math.PI/180, dl=(b.longitude-a.longitude)*Math.PI/180;
+  const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+async function waitForAuthenticatedUser(timeoutMs=20000) {
+  if (auth?.currentUser?.uid) return auth.currentUser.uid;
+  const started=Date.now();
+  while (Date.now()-started < timeoutMs) {
+    await new Promise(resolve=>setTimeout(resolve,500));
+    if (auth?.currentUser?.uid) return auth.currentUser.uid;
+  }
+  return null;
+}
+
+const LOCATION_OPTIONS={
+  accuracy:Location.Accuracy.High,
+  timeInterval:15000,
+  distanceInterval:25,
+  // Nie używamy deferredUpdates w nadajniku auta. W tle Android może wtedy
+  // grupować lokalizacje, co pogarsza podgląd "na żywo".
+  pausesUpdatesAutomatically:false,
+  showsBackgroundLocationIndicator:true,
+  foregroundService:{
+    notificationTitle:'Grafik Pracy • lokalizacja auta',
+    notificationBody:'Udostępnianie lokalizacji służbowego telefonu jest aktywne.',
+    notificationColor:'#467ff1',
+    killServiceOnDestroy:false
+  }
+};
+
+let locationSaveQueue = Promise.resolve();
+
+async function saveLocationInternal(location) {
+  if (!FIREBASE_ENABLED || !db || !location?.coords) return;
+  const cfg=await getConfig();
+  if (cfg.enabled===false) return;
+  const vehicleId=normalizeVehicleId(cfg.vehicleId||cfg.registration);
+  const c=location.coords;
+  const now=Date.now();
+  // W zadaniu tła Firebase Auth może potrzebować chwili na odtworzenie sesji
+  // z AsyncStorage po zablokowaniu telefonu lub ubiciu procesu aplikacji.
+  // Nie rezygnujemy z zapisu tylko dlatego, że currentUser nie jest jeszcze gotowy.
+  const expectedUid=auth?.currentUser?.uid || null;
+  const ownerUid=await waitForAuthenticatedUser(20000);
+  if(!ownerUid) return;
+  const currentConfig=await getConfig();
+  if(currentConfig.enabled!==true) return;
+  if(expectedUid && ownerUid!==expectedUid) return;
+  if(auth?.currentUser?.uid!==ownerUid) return;
+  const payload={
+    vehicleId,
+    ownerUid,
+    registration:cfg.registration||vehicleId,
+    latitude:Number(c.latitude),
+    longitude:Number(c.longitude),
+    accuracy:Number(c.accuracy||0),
+    altitude:Number(c.altitude||0),
+    speed:Number.isFinite(c.speed)?Number(c.speed):null,
+    heading:Number.isFinite(c.heading)?Number(c.heading):null,
+    // Server time is authoritative for freshness; clientObservedAt is only diagnostic/local fallback.
+    updatedAt:serverTimestamp(),
+    clientObservedAt:now
+  };
+  let saved=false;
+  let lastError=null;
+  for(let attempt=0;attempt<3 && !saved;attempt++){
+    try {
+      await setDoc(doc(db,'vehicleTracking',vehicleId),payload,{merge:true});
+      saved=true;
+    } catch(e) {
+      lastError=e;
+      if(attempt<2) await new Promise(resolve=>setTimeout(resolve,800*(attempt+1)));
+    }
+  }
+  if(!saved) throw lastError || new Error('Nie udało się zapisać pozycji GPS.');
+
+  // Bieżąca pozycja jest źródłem prawdy dla podglądu live. Awaria zapisu
+  // historii nie może blokować jej lokalnego cache ani kolejnych punktów.
+  let last=null;
+  try {
+    const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);
+    last=raw?JSON.parse(raw):null;
+  } catch(e) {}
+
+  const moved=last?distanceMeters(last,payload):Infinity;
+  const lastHistoryAt=Number(last?.historyAt||0);
+  const shouldStoreHistory=!last || moved>=80 || now-lastHistoryAt>=120000;
+  payload.historyAt=shouldStoreHistory?now:lastHistoryAt;
+
+  if (shouldStoreHistory) {
+    try {
+      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
+    } catch(e) {
+      console.log('LOCATION_HISTORY_WRITE_ERROR',e);
+    }
+  }
+
+  await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
+  // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
+  // zapytań i deleteDoc przy każdym punkcie GPS.
+}
+
+// Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
+// odczytały tego samego LOCATION_CURRENT_KEY i nie ominęły progu historii.
+function saveLocation(location) {
+  const run = locationSaveQueue.then(() => saveLocationInternal(location));
+  locationSaveQueue = run.catch(() => {});
+  return run;
+}
+
+if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
+  TaskManager.defineTask(LOCATION_TASK_NAME, async ({data,error}) => {
+    if (error || !data?.locations?.length) return;
+    try { for (const location of data.locations) await saveLocation(location); }
+    catch(e) { console.log('LOCATION_TASK_ERROR',e); }
+  });
+}
+
+export async function saveVehicleLocationAssignment(registration) {
+  const reg=String(registration||'').trim().toUpperCase();
+  if(!reg) throw new Error('Brak numeru rejestracyjnego.');
+  const vehicle=normalizeVehicleId(reg);
+  const old=await getConfig();
+  if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
+    try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
+  }
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:old.enabled===true,vehicleId:vehicle,registration:reg}));
+  return {ok:true,vehicleId:vehicle,registration:reg};
+}
+
+export async function startVehicleLocationTracking({vehicleId,registration}={}) {
+  if (Platform.OS==='web') return {ok:false,reason:'web'};
+  if (!FIREBASE_ENABLED || !db) return {ok:false,reason:'firebase'};
+
+  // Centralne przypisanie pojazdu jest źródłem prawdy. Lokalna konfiguracja
+  // może być nieaktualna po zmianie auta przez administratora.
+  let centralVehicleId='';
+  let centralRegistration='';
+  try {
+    const snap=await getDoc(doc(db,'locationConfig','main'));
+    if (snap.exists()) {
+      const data=snap.data()||{};
+      centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
+      centralRegistration=String(data.registration||data.vehicleId||'').trim().toUpperCase();
+    }
+  } catch(e) {
+    return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
+  }
+
+  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
+  const vehicle=centralVehicleId||requestedVehicle;
+  if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
+  if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {
+    return {ok:false,reason:'vehicle-assignment-mismatch',expected:centralVehicleId,requested:requestedVehicle};
+  }
+
+  const old=await getConfig();
+  const assignedRegistration=centralRegistration||String(registration||vehicle).trim().toUpperCase();
+  const fg=await Location.requestForegroundPermissionsAsync();
+  if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
+  const servicesEnabled=await Location.hasServicesEnabledAsync();
+  if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
+  const ownerUid=await waitForAuthenticatedUser();
+  if (!ownerUid) return {ok:false,reason:'auth'};
+  const bg=await Location.requestBackgroundPermissionsAsync();
+  if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration}));
+
+  const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+  if (!running) {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
+  }
+  try {
+    const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+    await saveLocation(first);
+  } catch(e) {
+    console.log('LOCATION_INITIAL_FIX_ERROR',e);
+  }
+  return {ok:true,vehicleId:vehicle,registration:assignedRegistration};
+}
+
+export async function stopVehicleLocationTracking() {
+  try {
+    if (Platform.OS!=='web' && await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME)) {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+    }
+  } catch(e) {}
+  const old=await getConfig();
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:false}));
+  try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
+}
+
+export async function ensureVehicleLocationTracking() {
+  if (Platform.OS==='web' || !FIREBASE_ENABLED || !db) return {ok:false,reason:'unsupported'};
+  const cfg=await getConfig();
+  if (cfg.enabled!==true || !(cfg.vehicleId||cfg.registration)) return {ok:false,reason:'disabled'};
+  if (!(auth?.currentUser?.uid)) return {ok:false,reason:'auth'};
+  const fg=await Location.getForegroundPermissionsAsync();
+  const bg=await Location.getBackgroundPermissionsAsync();
+  if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};
+  const servicesEnabled=await Location.hasServicesEnabledAsync();
+  if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
+  const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+  if (!running) {
+    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
+    try {
+      const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+      await saveLocation(first);
+    } catch(e) {
+      console.log('LOCATION_WATCHDOG_FIX_ERROR',e);
+    }
+    return {ok:true,restarted:true,vehicleId:normalizeVehicleId(cfg.vehicleId||cfg.registration)};
+  }
+  // Po powrocie aplikacji na pierwszy plan odświeżamy punkt także wtedy,
+  // gdy usługa nadal działa. Dzięki temu po dłuższym uśpieniu telefonu
+  // podgląd szybciej odzyskuje świeżą pozycję.
+  try {
+    const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+    await saveLocation(first);
+  } catch(e) {
+    console.log('LOCATION_FOREGROUND_REFRESH_ERROR',e);
+  }
+  return {ok:true,restarted:false,vehicleId:normalizeVehicleId(cfg.vehicleId||cfg.registration)};
+}
+
+export async function getVehicleLocationConfig() {
+  return getConfig();
+}
+
+```
+
+===== FILE: GrafikPracy_Final/LiveLocationDashboard.js =====
+
+```text
+import React, {useEffect, useMemo, useState} from 'react';
+import {Linking, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
+import {collection, doc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
+import {FIREBASE_ENABLED, db} from './firebaseConfig';
+import {getVehicleLocationConfig, normalizeVehicleId} from './LocationService';
+import {WebView} from 'react-native-webview';
+import useSecondTicker from './hooks/useSecondTicker';
+
+const distanceMeters=(a,b)=>{
+  if(!a||!b) return Infinity;
+  const R=6371000,p1=a.latitude*Math.PI/180,p2=b.latitude*Math.PI/180;
+  const dp=(b.latitude-a.latitude)*Math.PI/180,dl=(b.longitude-a.longitude)*Math.PI/180;
+  const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+};
+const serverMillis=ts=>Number.isFinite(Number(ts))?Number(ts):(typeof ts?.toMillis==='function'?ts.toMillis():0);
+const ageText=ts=>{
+  if(!ts) return 'brak danych';
+  const m=Math.max(0,Math.floor((Date.now()-serverMillis(ts))/60000));
+  if(m<1) return 'przed chwilą';
+  if(m<60) return m+' min temu';
+  return Math.floor(m/60)+' h '+(m%60)+' min temu';
+};
+
+const geocodeAddress=async(point)=>{
+  const lat=Number(point?.latitude), lon=Number(point?.longitude);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)) return null;
+  const url='https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon);
+  try{
+    const res=await fetch(url,{headers:{Accept:'application/json'}});
+    if(!res.ok) return null;
+    const data=await res.json();
+    const a=data?.address||{};
+    const locality=a.city||a.town||a.village||a.municipality||a.hamlet||a.suburb||'';
+    const road=a.road||'';
+    const ref=a.ref||a.road_ref||'';
+    const house=a.house_number||'';
+    let street='';
+    if(road && ref && !road.toUpperCase().includes(String(ref).toUpperCase())) street=String(ref)+' '+road;
+    else street=road||ref;
+    if(street && house) street+=' '+house;
+    if(locality && street) return locality+', '+street;
+    return street||locality||data?.display_name||null;
+  }catch(e){ return null; }
+};
+
+const mapHtml=(loc,warehouses)=>{
+  const points=JSON.stringify({loc:loc||null,warehouses:warehouses||[]});
+  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-popup-content{font:14px Arial}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const data='+points+';const p=data.loc||{latitude:51.05,longitude:16.65};const map=L.map("map").setView([p.latitude,p.longitude],13);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if(data.loc){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("🚚 AUTO").openPopup()}(data.warehouses||[]).filter(x=>x.latitude&&x.longitude).forEach(w=>L.circleMarker([w.latitude,w.longitude],{radius:7}).addTo(map).bindPopup(w.name));</script></body></html>';
+};
+
+export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',warehouseGeo={},reportHistory=[],onApplySuggestion,cloudUser=null}) {
+  const [location,setLocation]=useState(null);
+  const [config,setConfig]=useState({});
+  const [history,setHistory]=useState([]);
+  const [locationError,setLocationError]=useState('');
+  const [isAdmin,setIsAdmin]=useState(false);
+  const [historyAddresses,setHistoryAddresses]=useState({});
+  const geocodeCache=React.useRef({});
+
+  useEffect(()=>{
+    if(!db || !cloudUser?.uid) {
+      setIsAdmin(false);
+      return;
+    }
+    return onSnapshot(doc(db,'users',cloudUser.uid), snap=>setIsAdmin(snap.exists() && snap.data()?.role==='admin'), ()=>setIsAdmin(false));
+  },[cloudUser?.uid]);
+
+  useEffect(()=>{
+    let cancelled=false;
+    const points=(history||[]).slice(0,6);
+    (async()=>{
+      const next={...historyAddresses};
+      for(const p of points){
+        const key=Number(p.latitude).toFixed(5)+','+Number(p.longitude).toFixed(5);
+        if(next[key] || geocodeCache.current[key]) { next[key]=next[key]||geocodeCache.current[key]; continue; }
+        const address=await geocodeAddress(p);
+        if(address) { geocodeCache.current[key]=address; next[key]=address; }
+        if(!cancelled) setHistoryAddresses({...next});
+        await new Promise(resolve=>setTimeout(resolve,1100));
+      }
+    })();
+    return()=>{cancelled=true;};
+  },[history]);
+
+  useEffect(()=>{
+    let historyUnsub;
+    let vehiclesUnsub;
+    let configUnsub;
+    let cancelled=false;
+    (async()=>{
+      const c=await getVehicleLocationConfig();
+      if(cancelled) return;
+      setConfig(c);
+      if(!FIREBASE_ENABLED||!db){ setLocationError('Firebase lokalizacji jest wyłączony.'); return; }
+      if(!cloudUser?.uid){ setLocationError('Zaloguj się do wspólnego konta, aby odbierać lokalizację telefonu służbowego.'); return; }
+
+      const subscribeVehicle=(cloudConfig={})=>{
+        if(vehiclesUnsub) vehiclesUnsub();
+        if(historyUnsub) { historyUnsub(); historyUnsub=null; }
+        const hasCentralAssignment=Object.prototype.hasOwnProperty.call(cloudConfig,'vehicleId') || Object.prototype.hasOwnProperty.call(cloudConfig,'registration');
+        const assignedValue=hasCentralAssignment ? (cloudConfig.vehicleId||cloudConfig.registration) : (c.vehicleId||c.registration||vehicleRegistration);
+        if (!assignedValue) {
+          setLocation(null); setHistory([]);
+          setConfig(prev=>({...prev,vehicleId:'',registration:''}));
+          setLocationError('Brak centralnego przypisania pojazdu.');
+          return;
+        }
+        const requestedId=normalizeVehicleId(assignedValue);
+        const vehicleRef=doc(db,'vehicleTracking',requestedId);
+        vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
+          const selected=snap.exists()?({id:snap.id,...snap.data()}):null;
+          if(!selected || !Number.isFinite(Number(selected.latitude)) || !Number.isFinite(Number(selected.longitude)) || !serverMillis(selected.updatedAt)){
+            setLocation(null); setHistory([]);
+            setLocationError('Brak punktów GPS przypisanego pojazdu w chmurze. Sprawdź, czy telefon służbowy ma aktywny nadajnik.');
+            return;
+          }
+          const now=Date.now();
+          setLocation(selected);
+          setLocationError(now-serverMillis(selected.updatedAt)>180000?'Nadajnik istnieje, ale ostatnia pozycja jest starsza niż 3 minuty.':'');
+          setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
+
+          if(historyUnsub) historyUnsub();
+          const selectedId=normalizeVehicleId(selected.vehicleId||selected.registration||selected.id);
+          const historyQuery=query(collection(db,'vehicleTracking',selectedId,'locations'),orderBy('updatedAt','desc'),limit(120));
+          historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
+        },e=>{
+          setLocation(null); setHistory([]);
+          setLocationError(e?.code==='permission-denied'?'Brak uprawnień Firebase do odczytu przypisanego GPS. Sprawdź konto oraz reguły dostępu do GPS.':'Nie można połączyć się z chmurą GPS: '+(e?.code||'unknown'));
+        });
+      };
+
+      configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
+        subscribeVehicle(snap.exists()?snap.data()||{}:{});
+      },e=>{
+        setLocationError('Brak dostępu do wspólnej konfiguracji GPS: '+(e?.code||'unknown'));
+        subscribeVehicle({});
+      });
+    })();
+    return()=>{cancelled=true; if(configUnsub) configUnsub(); if(vehiclesUnsub) vehiclesUnsub(); if(historyUnsub) historyUnsub();};
+  },[vehicleRegistration,cloudUser?.uid]);
+
+  useSecondTicker(10000);
+
+  const warehouses=Object.entries(warehouseGeo||{}).map(([name,v])=>({name,...v}));
+  const nearby=useMemo(()=>{
+    if(!location) return null;
+    return warehouses.filter(w=>w.latitude&&w.longitude).map(w=>({...w,distance:distanceMeters(location,w)})).sort((a,b)=>a.distance-b.distance)[0]||null;
+  },[location,warehouseGeo]);
+
+  const speed=location&&Number(location.speed)>0?Math.round(Number(location.speed)*3.6):0;
+  const stale=location?Date.now()-serverMillis(location.updatedAt)>180000:true;
+  const last=reportHistory?.[0];
+  let suggestion=null;
+  if(location&&!stale){
+    if(nearby&&nearby.distance<=220){
+      const previous=String(last?.status||'');
+      const status=previous==='Czekam na rozładunek'||previous==='Czekam na załadunek'?previous:'Zaczynam pracę, jestem na miejscu';
+      suggestion={status,warehouse:nearby.name,distance:Math.round(nearby.distance),text:String(vehicleRegistration||'').toUpperCase()+' '+nearby.name+' '+status.toLowerCase()};
+    } else if(speed>=8){
+      const route=last?.status==='W drodze'&&String(last?.warehouse||'').includes('->')?String(last.warehouse):'';
+      suggestion={status:'W drodze',from:route.split('->')[0]||'',to:route.split('->')[1]||'',text:String(vehicleRegistration||'').toUpperCase()+' w drodze'+(route?' '+route.replace(/\s+/g,''):'')};
+    }
+  }
+
+  const openMap=async()=>{
+    if(!location) return;
+    const url='https://www.openstreetmap.org/?mlat='+location.latitude+'&mlon='+location.longitude+'#map=15/'+location.latitude+'/'+location.longitude;
+    try{await Linking.openURL(url)}catch(e){}
+  };
+
+  const nativeMap=location?<WebView originWhitelist={['*']} source={{html:mapHtml(location,warehouses)}} style={{flex:1}}/>:null;
+  const webMap=location?<iframe title="mapa" style={{width:'100%',height:'100%',border:0}} srcDoc={mapHtml(location,warehouses)}/>:null;
+
+  return <ScrollView style={{flex:1,padding:12}} contentContainerStyle={{paddingBottom:130}}>
+        <View style={styles.header}><View style={styles.headerTop}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View></View>
+    <View style={styles.card}>
+      <Text style={styles.big}>{location?(stale?'🟠 NIEAKTUALNA':'🟢 ONLINE'):'🔴 BRAK SYGNAŁU'}</Text>
+      <Text style={styles.main}>{location?Number(location.latitude).toFixed(5)+', '+Number(location.longitude).toFixed(5):'Czekam na pierwszy punkt GPS…'}</Text>
+      {location&&<Text style={styles.sub}>Aktualizacja: {ageText(location.updatedAt)} · dokładność ±{Math.round(Number(location.accuracy||0))} m · {speed} km/h</Text>}
+      {!!locationError&&<Text style={styles.error}>⚠️ {locationError}</Text>}
+      <TouchableOpacity style={styles.button} onPress={openMap}><Text style={styles.buttonText}>🗺️ OTWÓRZ MAPĘ</Text></TouchableOpacity>
+    </View>
+    <View style={styles.card}>
+      <Text style={styles.section}>🤖 SUGESTIA RAPORTU</Text>
+      {suggestion?<><Text style={styles.suggestion}>{suggestion.text}</Text><Text style={styles.sub}>{suggestion.status==='W drodze'?'Auto wykryło ruch poza strefą magazynu.':'Auto znajduje się w strefie '+suggestion.warehouse+'.'}</Text><TouchableOpacity style={styles.button} onPress={()=>onApplySuggestion&&onApplySuggestion(suggestion)}><Text style={styles.buttonText}>📋 UŻYJ TEJ FORMUŁKI</Text></TouchableOpacity></>:<Text style={styles.sub}>Brak wystarczających danych do bezpiecznej sugestii.</Text>}
+    </View>
+    <View style={styles.card}>
+      <Text style={styles.section}>🏭 NAJBLIŻSZY MAGAZYN</Text>
+      {nearby?<Text style={styles.main}>{nearby.name+' · '+Math.round(nearby.distance)+' m'}</Text>:<Text style={styles.sub}>Brak skonfigurowanych stref GPS.</Text>}
+      <Text style={styles.sub}>Strefa rozpoznania: 220 m. Poza strefą aplikacja nie zgaduje magazynu.</Text>
+    </View>
+        <View style={styles.card}>
+      <Text style={styles.section}>🧭 HISTORIA TRASY · 7 DNI</Text>
+      <Text style={styles.sub}>Punkty starsze niż 7 dni są automatycznie usuwane. Pokazuję ostatnie {history.length} zapisanych punktów.</Text>
+      {history.slice(0,6).map((p,i)=>{const key=Number(p.latitude).toFixed(5)+','+Number(p.longitude).toFixed(5); const address=historyAddresses[key]; return <Text key={String(p.updatedAt)+'-'+i} style={styles.history}>{new Date(serverMillis(p.updatedAt)).toLocaleString('pl-PL')} · {address||'Ustalanie adresu…'} · {Number(p.speed||0)>0?Math.round(Number(p.speed)*3.6)+' km/h':'postój'}</Text>;})}
+    </View>
+    <View style={styles.mapWrap}>{location?(Platform.OS==='web'?webMap:nativeMap):<Text style={styles.sub}>Mapa pojawi się po odebraniu lokalizacji.</Text>}</View>
+  </ScrollView>;
+}
+
+const styles={headerTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},error:{color:'#f0b35a',fontSize:13,marginTop:8,fontWeight:'800'},header:{backgroundColor:'#141922',borderRadius:20,padding:18,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},card:{backgroundColor:'#141922',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#303a4a',shadowColor:'#000',shadowOpacity:0.12,shadowRadius:8,shadowOffset:{width:0,height:3},elevation:2},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900',marginTop:5},button:{backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',marginTop:10,borderWidth:1,borderColor:'#5d8ff5'},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#303a4a',alignItems:'center',justifyContent:'center',padding:10}};
+
+
+```
+
+===== FILE: GrafikPracy_Final/AdminUserService.js =====
+
+```text
+import { deleteApp, getApps, initializeApp } from 'firebase/app';
+import { createUserWithEmailAndPassword, getAuth, inMemoryPersistence, initializeAuth, signOut } from 'firebase/auth';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { db, firebaseConfig } from './firebaseConfig';
+
+const SECONDARY_APP_NAME = 'admin-user-provisioning';
+
+function validateInput(form) {
+  const email = String(form.email || '').trim().toLowerCase();
+  const password = String(form.password || '');
+  const displayName = String(form.displayName || '').trim();
+  const personKey = String(form.personKey || '').trim();
+  const role = String(form.role || '').trim();
+
+  if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Podaj prawidłowy e-mail.');
+  if (password.length < 6 || password.length > 128) throw new Error('Hasło musi mieć od 6 do 128 znaków.');
+  if (displayName.length < 2 || displayName.length > 100) throw new Error('Imię i nazwisko musi mieć od 2 do 100 znaków.');
+  if (!['','P','M','L'].includes(personKey)) throw new Error('Nieprawidłowe przypisanie pracownika.');
+  if (!['employee','locator','admin'].includes(role)) throw new Error('Nieprawidłowa rola.');
+  if (role === 'employee' && !['P','M','L'].includes(personKey)) {
+    throw new Error('Pracownik musi mieć przypisane P/M/L.');
+  }
+  if (role !== 'employee' && personKey !== '') {
+    throw new Error('Lokalizator i administrator nie mogą mieć przypisanego P/M/L.');
+  }
+
+  return { email, password, displayName, personKey, role };
+}
+
+export async function createUserWithoutFunctions(form, createdByUid) {
+  if (!db) throw new Error('Firebase Firestore jest niedostępny.');
+  const data = validateInput(form);
+  const adminUid = String(createdByUid || '').trim();
+  if (!adminUid) throw new Error('Brak identyfikatora administratora.');
+
+
+  const existingSecondary = getApps().find(app => app.name === SECONDARY_APP_NAME);
+  if (existingSecondary) {
+    try { await deleteApp(existingSecondary); } catch {}
+  }
+  const secondaryApp = initializeApp(firebaseConfig, SECONDARY_APP_NAME);
+  let secondaryAuth;
+  try {
+    secondaryAuth = initializeAuth(secondaryApp, { persistence: inMemoryPersistence });
+  } catch {
+    secondaryAuth = getAuth(secondaryApp);
+  }
+
+  try {
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
+    const user = credential.user;
+
+    await setDoc(doc(db, 'users', user.uid), {
+      uid: user.uid,
+      email: data.email,
+      displayName: data.displayName,
+      personKey: data.personKey,
+      role: data.role,
+      disabled: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      createdBy: adminUid
+    });
+
+    return { ok: true, uid: user.uid, email: data.email };
+  } finally {
+    try { await signOut(secondaryAuth); } catch {}
+    try { await deleteApp(secondaryApp); } catch {}
+  }
+}
+
+export async function updateUserProfileWithoutFunctions(uid, form) {
+  if (!db) throw new Error('Firebase Firestore jest niedostępny.');
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+
+  const displayName = String(form.displayName || '').trim();
+  const personKey = String(form.personKey || '').trim();
+  const role = String(form.role || '').trim();
+
+  if (displayName.length < 2 || displayName.length > 100) throw new Error('Imię i nazwisko musi mieć od 2 do 100 znaków.');
+  if (!['','P','M','L'].includes(personKey)) throw new Error('Nieprawidłowe przypisanie pracownika.');
+  if (!['employee','locator','admin'].includes(role)) throw new Error('Nieprawidłowa rola.');
+  if (role === 'employee' && !['P','M','L'].includes(personKey)) {
+    throw new Error('Pracownik musi mieć przypisane P/M/L.');
+  }
+  if (role !== 'employee' && personKey !== '') {
+    throw new Error('Lokalizator i administrator nie mogą mieć przypisanego P/M/L.');
+  }
+
+  if (String(form.password || '')) {
+    throw new Error('Zmiana hasła wymaga backendu administracyjnego. Dodawanie kont działa bez Cloud Functions.');
+  }
+
+  await setDoc(doc(db, 'users', uid), {
+    uid,
+    displayName,
+    personKey,
+    role,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  return { ok: true, uid };
+}
+
+export async function disableUserWithoutFunctions(uid) {
+  if (!db) throw new Error('Firebase Firestore jest niedostępny.');
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+
+  await setDoc(doc(db, 'users', uid), {
+    disabled: true,
+    disabledAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  return { ok: true, uid };
+}
+
+export async function enableUserWithoutFunctions(uid) {
+  if (!db) throw new Error('Firebase Firestore jest niedostępny.');
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+
+  await setDoc(doc(db, 'users', uid), {
+    disabled: false,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  return { ok: true, uid };
+}
+
+```
+
+===== FILE: GrafikPracy_Final/AdminUsersPanel.js =====
+
+```text
+import React, {useEffect, useState} from 'react';
+import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
+import {collection, onSnapshot} from 'firebase/firestore';
+import {db, FIREBASE_ENABLED} from './firebaseConfig';
+import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions} from './AdminUserService';
+
+const KEYS=['P','M','L'];
+const ROLES=['employee','locator','admin'];
+
+export default function AdminUsersPanel({cloudUser}) {
+  const [users,setUsers]=useState([]);
+  const [showDisabled,setShowDisabled]=useState(false);
+  const [busy,setBusy]=useState('');
+  const [error,setError]=useState('');
+  const [modal,setModal]=useState(null);
+  const [form,setForm]=useState({email:'',password:'',displayName:'',personKey:'',role:'employee'});
+
+  useEffect(()=>{
+    if(!FIREBASE_ENABLED||!db||!cloudUser)return;
+    return onSnapshot(collection(db,'users'),snap=>{
+      setUsers(snap.docs.map(d=>({uid:d.id,...d.data()})).sort((a,b)=>
+        String(a.displayName||a.email||a.uid).localeCompare(String(b.displayName||b.email||b.uid))));
+      setError('');
+    },e=>setError('Nie udało się pobrać użytkowników. Kod: '+(e?.code||'unknown')));
+  },[cloudUser?.uid]);
+
+  const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee'});setModal({mode:'create'});};
+  const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.personKey||'',role:ROLES.includes(u.role)?u.role:'employee'});setModal({mode:'edit',user:u});};
+  const close=()=>{if(!busy)setModal(null);};
+
+  const save=async()=>{
+    if(!modal)return;
+    setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
+    try{
+      if(modal.mode==='create') await createUserWithoutFunctions(form, cloudUser?.uid);
+      else await updateUserProfileWithoutFunctions(modal.user.uid,form);
+      setModal(null);
+      Alert.alert('Gotowe',modal.mode==='create'?(form.role==='locator'?'Lokalizator został dodany.':form.role==='admin'?'Administrator został dodany.':'Pracownik został dodany.'):(form.role==='locator'?'Dane lokalizatora zapisane.':form.role==='admin'?'Dane administratora zapisane.':'Dane pracownika zapisane.'));
+    }catch(e){setError((e?.message||'Operacja nie powiodła się.')+' ('+(e?.code||'unknown')+')');}
+    finally{setBusy('');}
+  };
+
+  const enable=async u=>{
+    if(!u?.uid||u.uid===cloudUser?.uid)return;
+    setBusy(u.uid);setError('');
+    try{
+      await enableUserWithoutFunctions(u.uid);
+      Alert.alert('Gotowe','Konto zostało ponownie aktywowane.');
+    }catch(e){setError((e?.message||'Nie udało się aktywować konta.')+' ('+(e?.code||'unknown')+')');}
+    finally{setBusy('');}
+  };
+
+  const remove=async u=>{
+    if(!u?.uid||u.uid===cloudUser?.uid)return;
+    Alert.alert('Dezaktywuj konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie wyłączone. Konto Auth pozostanie w Firebase — pełne usunięcie wymaga backendu administracyjnego.',[{text:'Anuluj',style:'cancel'},{text:'DEZAKTYWUJ',style:'destructive',onPress:async()=>{
+      setBusy(u.uid);setError('');
+      try{await disableUserWithoutFunctions(u.uid);Alert.alert('Gotowe','Konto zostało dezaktywowane i ukryte z aktywnej listy.');}
+      catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
+      finally{setBusy('');}
+    }}]);
+  };
+
+  const input=(label,key,props={})=><View style={{marginBottom:9}}>
+    <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:4}}>{label}</Text>
+    <TextInput value={form[key]} onChangeText={v=>setForm(f=>({...f,[key]:v}))} placeholderTextColor="#6f7888" style={{backgroundColor:'#11151c',borderWidth:1,borderColor:'#303a4a',borderRadius:11,color:'#fff',padding:11,fontSize:16}} {...props}/>
+  </View>;
+
+  return <View style={{marginTop:16}}>
+    <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+      <View style={{flex:1}}><Text style={{color:'#fff',fontSize:19,fontWeight:'900'}}>👥 Pracownicy i konta</Text><Text style={{color:'#9299a8',fontSize:13,marginTop:3}}>Dodawanie, edycja, role, przypisanie i usuwanie.</Text></View>
+      <TouchableOpacity onPress={create} disabled={!!busy} style={{backgroundColor:'#3f78ed',borderRadius:11,paddingVertical:10,paddingHorizontal:12}}><Text style={{color:'#fff',fontWeight:'900'}}>＋ DODAJ</Text></TouchableOpacity>
+    </View>
+    {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>⚠️ {error}</Text>}
+    <TouchableOpacity onPress={()=>setShowDisabled(v=>!v)} disabled={!!busy} style={{backgroundColor:'#252b36',borderRadius:10,paddingVertical:9,paddingHorizontal:12,marginBottom:9}}>
+      <Text style={{color:'#cbd5e1',fontWeight:'900'}}>{showDisabled?'Ukryj nieaktywne konta':'Pokaż nieaktywne konta'}</Text>
+    </TouchableOpacity>
+    {users.filter(u=>showDisabled || !u.disabled).map(u=>{
+      const self=u.uid===cloudUser?.uid;
+      return <View key={u.uid} style={{backgroundColor:'#1c2029',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d'}}>
+        <View style={{flexDirection:'row',alignItems:'center'}}>
+          <View style={{flex:1}}><Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text><Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text><Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':u.role==='locator'?'📍 Lokalizator':'👤 Pracownik'}{u.personKey?' · '+u.personKey:''}</Text></View>
+          {self?<Text style={{color:'#75a1ff',fontSize:12,fontWeight:'900'}}>TO TY</Text>:<View style={{flexDirection:'row',gap:6}}>
+            {!u.disabled && <TouchableOpacity disabled={!!busy} onPress={()=>edit(u)} style={{backgroundColor:'#293c62',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>✏️</Text></TouchableOpacity>}
+            {u.disabled
+              ? <TouchableOpacity disabled={!!busy} onPress={()=>enable(u)} style={{backgroundColor:'#28644a',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>▶️</Text></TouchableOpacity>
+              : <TouchableOpacity disabled={!!busy} onPress={()=>remove(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy===u.uid?'…':'🗑️'}</Text></TouchableOpacity>
+          </View>}
+        </View>
+      </View>;
+    })}
+    {!users.length&&<View style={{backgroundColor:'#1c2029',borderRadius:14,padding:14}}><Text style={{color:'#9299a8'}}>Brak zarejestrowanych użytkowników.</Text></View>}
+
+    <Modal visible={!!modal} transparent animationType="fade" onRequestClose={close}>
+      <View style={{flex:1,backgroundColor:'rgba(0,0,0,.78)',justifyContent:'center',padding:14}}>
+        <View style={{backgroundColor:'#191d26',borderRadius:22,padding:18,borderWidth:1,borderColor:'#344054',maxHeight:'92%'}}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={{color:'#fff',fontSize:22,fontWeight:'900'}}>{modal?.mode==='create'?'➕ Nowy pracownik':'✏️ Edycja pracownika'}</Text>
+            <Text style={{color:'#9299a8',fontSize:13,marginTop:5,marginBottom:12}}>{modal?.mode==='create'?'Utwórz konto logowania i profil.':'E-mail i hasło ustawia się podczas tworzenia konta. Edycja zmienia profil, rolę i przypisanie.'}</Text>
+            {input('Imię i nazwisko','displayName',{placeholder:'np. Jan Kowalski'})}
+            {input('E-mail','email',{placeholder:'pracownik@firma.pl',autoCapitalize:'none',keyboardType:'email-address',editable:modal?.mode==='create'})}
+            {modal?.mode==='create'&&input('Hasło, min. 6 znaków','password',{placeholder:'Hasło',secureTextEntry:true})}
+            <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
+            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
+            <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
+            <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{ROLES.map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':role==='locator'?'📍 LOKALIZATOR':'👤 PRACOWNIK'}</Text></TouchableOpacity>)}</View>
+            {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>{error}</Text>}
+            <View style={{flexDirection:'row',gap:8}}><TouchableOpacity onPress={close} disabled={!!busy} style={{flex:1,backgroundColor:'#303744',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>ANULUJ</Text></TouchableOpacity><TouchableOpacity onPress={save} disabled={!!busy} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy?'ZAPISUJĘ…':'ZAPISZ'}</Text></TouchableOpacity></View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  </View>;
+}
+
+```
+
+===== FILE: GrafikPracy_Final/NowDashboard.js =====
+
+```text
+import React, {useEffect, useMemo, useState} from 'react';
+import useSecondTicker from './hooks/useSecondTicker';
+import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
+import {collection, doc, onSnapshot} from 'firebase/firestore';
+import {FIREBASE_ENABLED, db} from './firebaseConfig';
+import {WebView} from 'react-native-webview';
+
+const PEOPLE={P:'Paweł',M:'Mateusz',L:'Łukasz'};
+const DAYS=['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
+
+const monday=d=>{const x=new Date(d),n=x.getDay();x.setDate(x.getDate()+(n===0?-6:1-n));x.setHours(0,0,0,0);return x;};
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;};
+const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const parseTime=v=>{const m=String(v||'00:00').match(/^(\d{1,2}):(\d{2})$/);return m?[Number(m[1]),Number(m[2])]:[0,0];};
+const dateTime=(base,v)=>{const x=new Date(base),[h,m]=parseTime(v);x.setHours(h,m,0,0);return x;};
+const fallbackWeek=(rotation,warehouse)=>{const a=rotation==='P'?'P':'M',b=a==='P'?'M':'P';return DAYS.map((_,i)=>({warehouse,shifts:[{person:i===6?'L':i%2?a:b},{person:i===6?'L':i%2?b:a}]}));};
+const fmt=d=>d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
+const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec%3600/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
+const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
+const serverMillis=ts=>Number.isFinite(Number(ts))?Number(ts):(typeof ts?.toMillis==='function'?ts.toMillis():0);
+const idFor=v=>String(v||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
+const mapHtml=loc=>{
+ const points=JSON.stringify(loc||null);
+ return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-control-attribution{font-size:8px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const p='+points+'||{latitude:51.05,longitude:16.65};const map=L.map("map",{zoomControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false}).setView([p.latitude,p.longitude],14);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if('+points+'){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("AUTO").openPopup()}setTimeout(()=>map.invalidateSize(),150);</script></body></html>';
+};
+const webMapSrc=loc=>{
+ if(!loc)return '';
+ const lat=Number(loc.latitude),lon=Number(loc.longitude),d=0.018;
+ return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;
+};
+
+export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
+ const [location,setLocation]=useState(null);
+ const [locationError,setLocationError]=useState('');
+ useSecondTicker(1000);
+ useEffect(()=>{
+   let unsub=null,configUnsub=null,cancelled=false;
+   const subscribe=(cfg={})=>{
+     if(unsub) unsub();
+     const requested=idFor(cfg.vehicleId||cfg.registration||vehicleRegistration);
+     const handleSnapshot=(snap,exactMode=false)=>{
+       const rows=exactMode
+         ? (snap.exists() ? [{id:snap.id,...snap.data()}] : [])
+         : snap.docs.map(d=>({id:d.id,...d.data()}));
+       const valid=rows.filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&serverMillis(x.updatedAt)>0);
+       if(!valid.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
+       const exact=exactMode ? valid[0] : requested&&valid.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
+       const fresh=valid.filter(x=>Date.now()-serverMillis(x.updatedAt)<=180000).sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt));
+       const selected=requested ? ((exact&&Date.now()-serverMillis(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt))[0]);
+       setLocation(selected||null);
+       setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
+     };
+     const vehicleSource=requested ? doc(db,'vehicleTracking',requested) : collection(db,'vehicleTracking');
+     unsub=onSnapshot(vehicleSource,snap=>handleSnapshot(snap,Boolean(requested)),()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
+   };
+   if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){setLocation(null);return;}
+   configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
+     if(cancelled)return;
+     subscribe(snap.exists()?snap.data()||{}:{});
+   },()=>{
+     if(cancelled)return;
+     setLocationError('Brak dostępu do konfiguracji lokalizacji');
+     subscribe({});
+   });
+   return()=>{cancelled=true;if(configUnsub)configUnsub();if(unsub)unsub();};
+ },[cloudUser?.uid,vehicleRegistration]);
+
+ const info=useMemo(()=>{
+   const now=new Date(),base=monday(now),all=[];
+   for(let wo=0;wo<3;wo++){
+     const ws=addDays(base,wo*7),key=iso(ws),w=weeks?.[key]||[],cfg=weekConfigs?.[key]||{};
+     (w||[]).forEach((d,di)=>(d.shifts||[]).forEach((s,si)=>{
+       if(!s.person)return;
+       const day=addDays(ws,di);
+       const wt=cfg.times||times||{}; const start=dateTime(day,si===0?wt.s1:wt.s2);
+       const end=dateTime(day,si===0?wt.e1:wt.e2);
+       if(end<=start)end.setDate(end.getDate()+1);
+       all.push({person:s.person,warehouse:s.warehouse||d.warehouse||warehouse,start,end,day,dayIndex:di,shift:si+1});
+     }));
+   }
+   const active=all.filter(x=>now>=x.start&&now<x.end).sort((a,b)=>a.end-b.end)[0]||null;
+   const upcoming=all.filter(x=>x.start>now).sort((a,b)=>a.start-b.start);
+   return {active,next:upcoming[0]||null,later:upcoming.slice(1,4)};
+ },[weeks,rotation,warehouse,times,weekConfigs]);
+
+ const {active,next,later}=info;
+ const color=k=>personColors?.[k]||'#467ff1';
+
+ return <ScrollView style={S.scroll} contentContainerStyle={S.content}>
+   <View style={S.hero}>
+     <View style={S.liveRow}><View style={S.liveDot}/><Text style={S.eyebrow}>TERAZ</Text></View>
+     {active ? <>
+       <Text style={S.heroName}>{PEOPLE[active.person]||active.person||'Nieznany pracownik'}</Text>
+       <Text style={S.heroMeta}>📦 {active.warehouse}  ·  Zmiana {active.shift}</Text>
+       <Text style={S.heroTime}>{fmt(active.start)} – {fmt(active.end)}</Text>
+       <View style={S.timer}><Text style={S.timerLabel}>DO KOŃCA ZMIANY</Text><Text style={S.timerValue}>{countdown(active.end)}</Text></View>
+     </> : <>
+       <Text style={S.heroName}>Nikt teraz nie pracuje</Text>
+       <Text style={S.heroMeta}>Brak aktywnej zmiany w tej chwili.</Text>
+     </>}
+   </View>
+
+   <View style={S.sectionHeader}><Text style={S.sectionTitle}>⏭️ Następna zmiana</Text></View>
+   {next ? <View style={[S.nextCard,{borderLeftColor:color(next.person)}]}>
+      <View style={S.nextTop}><Text style={S.nextName}>{PEOPLE[next.person]||next.person||'Nieznany pracownik'}</Text><Text style={[S.personDot,{color:color(next.person)}]}>●</Text></View>
+      <Text style={S.nextMeta}>📅 {DAYS[next.dayIndex]}, {dateLabel(next.day)}</Text>
+      <Text style={S.nextMeta}>🕐 {fmt(next.start)} – {fmt(next.end)}</Text>
+      <Text style={S.nextMeta}>📦 {next.warehouse}  ·  Zmiana {next.shift}</Text>
+      <Text style={S.startsIn}>Start za {countdown(next.start)}</Text>
+   </View> : <View style={S.empty}><Text style={S.emptyText}>Brak zaplanowanej kolejnej zmiany.</Text></View>}
+
+   {later.length>0 && <>
+     <View style={S.sectionHeader}><Text style={S.sectionTitle}>📋 Kolejne</Text></View>
+     {later.map((x,i)=><View key={x.start.toISOString()+i} style={S.smallCard}>
+       <View style={{flex:1}}><Text style={S.smallName}>{PEOPLE[x.person]}</Text><Text style={S.smallMeta}>{DAYS[x.dayIndex]}, {dateLabel(x.day)} · {fmt(x.start)} · {x.warehouse}</Text></View>
+       <Text style={S.smallShift}>ZM. {x.shift}</Text>
+     </View>)}
+   </>}
+   <View style={S.sectionHeader}><Text style={S.sectionTitle}>📍 Lokalizacja auta</Text></View>
+   <View style={S.locationCard}>
+     <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:'🟢 AUTO ONLINE'):'🔴 BRAK LOKALIZACJI'}</Text>
+     {location&&<><Text style={S.locationCoords}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}</Text><Text style={S.locationMeta}>Aktualizacja {new Date(serverMillis(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
+     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} loading="lazy" src={webMapSrc(location)}/>:<WebView originWhitelist={['*']} source={{html:mapHtml(location)}} style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
+   </View>
+ </ScrollView>;
+}
+
+const S=StyleSheet.create({
+ scroll:{flex:1},content:{padding:12,paddingBottom:130},
+ hero:{backgroundColor:'#315fb8',borderRadius:22,padding:20,marginBottom:14,borderWidth:1,borderColor:'#5480d0',shadowColor:'#000',shadowOpacity:0.2,shadowRadius:10,shadowOffset:{width:0,height:4},elevation:4},
+ liveRow:{flexDirection:'row',alignItems:'center',gap:8},liveDot:{width:9,height:9,borderRadius:5,backgroundColor:'#fff'},eyebrow:{color:'#eaf0ff',fontSize:13,fontWeight:'900',letterSpacing:1},
+ heroName:{color:'#fff',fontSize:30,fontWeight:'900',marginTop:7,letterSpacing:0.2},heroMeta:{color:'#e5edff',fontSize:14,marginTop:6},heroTime:{color:'#fff',fontSize:18,fontWeight:'800',marginTop:4},
+ timer:{backgroundColor:'rgba(7,12,22,.24)',borderRadius:16,padding:14,marginTop:14,alignItems:'center',borderWidth:1,borderColor:'rgba(255,255,255,.14)'},timerLabel:{color:'#dce7ff',fontSize:11,fontWeight:'900',letterSpacing:1},timerValue:{color:'#fff',fontSize:30,fontWeight:'900',marginTop:2,letterSpacing:1},
+ sectionHeader:{marginTop:4,marginBottom:8},sectionTitle:{color:'#fff',fontSize:18,fontWeight:'900'},
+ nextCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:18,padding:16,borderWidth:1,borderColor:'#303a4a',borderLeftWidth:5,marginBottom:12},
+ nextTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},nextName:{color:'#fff',fontSize:23,fontWeight:'900'},personDot:{fontSize:20},
+ nextMeta:{color:'#c7cfdd',fontSize:14,marginTop:6},startsIn:{color:'#8fb0ff',fontSize:14,fontWeight:'900',marginTop:12},
+ smallCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d',flexDirection:'row',alignItems:'center'},smallName:{color:'#fff',fontSize:16,fontWeight:'900'},smallMeta:{color:'#9fa8b8',fontSize:12,marginTop:4},smallShift:{color:'#8fb0ff',fontSize:11,fontWeight:'900'},
+ empty:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:16,padding:18,borderWidth:1,borderColor:'#2b313d'},emptyText:{color:'#aeb6c4',fontSize:14},locationCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:18,padding:12,borderWidth:1,borderColor:'#303a4a',marginBottom:12},locationStatus:{color:'#fff',fontSize:16,fontWeight:'900'},locationCoords:{color:'#c7cfdd',fontSize:14,fontWeight:'800',marginTop:5},locationMeta:{color:'#8f99aa',fontSize:12,marginTop:4},miniMap:{height:180,borderRadius:14,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#2b313d',marginTop:10,alignItems:'center',justifyContent:'center'},locationEmpty:{color:'#8f99aa',fontSize:13,textAlign:'center',padding:18}
+});
+
+
+```
+
+===== FILE: GrafikPracy_Final/widgets.js =====
+
+```text
+import React from 'react';
+import { FlexWidget, TextWidget } from 'react-native-android-widget';
+
+const box={backgroundColor:'#171b23',borderRadius:18,padding:14,flex:1,flexDirection:'column',justifyContent:'space-between'};
+const label={fontSize:11,color:'#9aa4b5',fontWeight:'bold'};
+const title={fontSize:18,color:'#ffffff',fontWeight:'bold'};
+const value={fontSize:15,color:'#dce6ff',fontWeight:'bold'};
+const accent={fontSize:24,color:'#6fa0ff',fontWeight:'bold'};
+
+export function GrafikTerazWidget({data}){return <FlexWidget style={box} clickAction="OPEN_APP"><TextWidget text="🟢 TERAZ" style={label}/><TextWidget text={data?.person||'Brak aktywnej zmiany'} style={title}/><TextWidget text={data?.warehouse||'Brak magazynu'} style={value}/><TextWidget text={data?.time||''} style={value}/><TextWidget text={data?.remaining?'⏱ '+data.remaining:'Gotowe'} style={accent}/></FlexWidget>;}
+export function GrafikAutoWidget({data}){return <FlexWidget style={box} clickAction="OPEN_APP"><TextWidget text="🚚 AUTO / GPS" style={label}/><TextWidget text={data?.status||'GPS wyłączony'} style={title}/><TextWidget text={data?.vehicle?'🚘 '+data.vehicle:'Brak auta'} style={value}/><TextWidget text={data?.detail||'Włącz nadajnik w aplikacji.'} style={value}/><TextWidget text={data?.updated||''} style={{fontSize:11,color:'#7f8a9b'}}/></FlexWidget>;}
+export function GrafikRaportWidget({data}){return <FlexWidget style={box} clickAction="OPEN_APP"><TextWidget text="📲 OSTATNI RAPORT" style={label}/><TextWidget text={data?.status||'Brak raportu'} style={title}/><TextWidget text={data?.detail||''} style={value}/><TextWidget text={data?.duration?'⏱ '+data.duration:''} style={accent}/><TextWidget text={data?.time||''} style={{fontSize:11,color:'#7f8a9b'}}/></FlexWidget>;}
+
+```
