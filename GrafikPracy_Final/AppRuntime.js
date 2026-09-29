@@ -586,8 +586,12 @@ export default function App() {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
       ? query(collection(db,'whatsappReports'), orderBy('createdAt','desc'), limit(100))
-      : query(collection(db,'whatsappReports'), where('uid','==',cloudUser.uid), orderBy('createdAt','desc'), limit(50));
-    const unsub = onSnapshot(q, snap => setReportHistory(snap.docs.map(d=>({id:d.id,...d.data()}))), err => setCloudError('Brak dostępu do raportów WhatsApp. Kod: ' + (err?.code || 'unknown')));
+      : query(collection(db,'whatsappReports'), where('uid','==',cloudUser.uid), limit(50));
+    const unsub = onSnapshot(q, snap => {
+      const rows=snap.docs.map(d=>({id:d.id,...d.data()}));
+      rows.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+      setReportHistory(rows);
+    }, err => setCloudError('Brak dostępu do raportów WhatsApp. Kod: ' + (err?.code || 'unknown')));
     return unsub;
   },[cloudUser,cloudRole]);
 
