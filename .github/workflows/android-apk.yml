@@ -184,7 +184,6 @@ jobs:
           disable-animations: true
           script: |
             set +e
-            cd GrafikPracy_Final
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             INSTALL_RC=$?
             adb logcat -c
