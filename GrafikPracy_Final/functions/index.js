@@ -1,4 +1,5 @@
 const {onCall, HttpsError} = require('firebase-functions/v2/https');
+const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {setGlobalOptions} = require('firebase-functions/v2');
 const {initializeApp} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
@@ -84,4 +85,21 @@ exports.adminDisableUser=onCall(async request=>{
   await adminAuth.updateUser(uid,{disabled:true});
   await db.doc(`users/${uid}`).set({disabled:true,disabledAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   return {ok:true,uid};
+});
+
+
+exports.cleanupVehicleLocationHistory=onSchedule({schedule:'every day 03:15',timeZone:'Europe/Warsaw',region:'us-central1',maxInstances:1},async()=>{
+  const cutoff=new Date(Date.now()-7*24*60*60*1000);
+  const vehicles=await db.collection('vehicleTracking').get();
+  for(const vehicle of vehicles.docs){
+    let query=vehicle.ref.collection('locations').where('updatedAt','<',cutoff).limit(400);
+    while(true){
+      const snap=await query.get();
+      if(snap.empty) break;
+      const batch=db.batch();
+      snap.docs.forEach(doc=>batch.delete(doc.ref));
+      await batch.commit();
+      if(snap.size<400) break;
+    }
+  }
 });
