@@ -25,6 +25,17 @@ service cloud.firestore {
       return value == '' || value == 'P' || value == 'M' || value == 'L';
     }
 
+    function validRolePerson(role, personKey) {
+      return (role == 'employee' && (personKey == 'P' || personKey == 'M' || personKey == 'L'))
+        || (role != 'employee' && personKey == '');
+    }
+
+    function locationConfig() {
+      return exists(/databases/$(database)/documents/locationConfig/main)
+        ? get(/databases/$(database)/documents/locationConfig/main).data
+        : {};
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
 
@@ -45,6 +56,7 @@ service cloud.firestore {
         && request.resource.data.displayName is string
         && request.resource.data.role in ['admin','employee','locator']
         && request.resource.data.personKey in ['', 'P', 'M', 'L']
+        && validRolePerson(request.resource.data.role, request.resource.data.personKey)
         && request.resource.data.disabled == false
         && request.resource.data.createdBy == request.auth.uid
       );
@@ -56,6 +68,7 @@ service cloud.firestore {
         && request.resource.data.displayName is string
         && request.resource.data.role in ['admin','employee','locator']
         && request.resource.data.personKey in ['', 'P', 'M', 'L']
+        && validRolePerson(request.resource.data.role, request.resource.data.personKey)
         && request.resource.data.disabled is bool
         || (
           isAdmin()
@@ -127,8 +140,8 @@ service cloud.firestore {
     match /vehicleTracking/{vehicleId} {
       allow read: if isAdmin()
         || (activeUser()
-          && (get(/databases/$(database)/documents/locationConfig/main).data.get('vehicleId', '') == vehicleId
-            || get(/databases/$(database)/documents/locationConfig/main).data.get('registration', '') == resource.data.get('registration', '')
+          && (locationConfig().get('vehicleId', '') == vehicleId
+            || locationConfig().get('registration', '') == resource.data.get('registration', '')
             || resource.data.get('ownerUid', '') == request.auth.uid));
 
       // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
@@ -138,7 +151,7 @@ service cloud.firestore {
       allow create: if isAdmin()
         || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
-          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && locationConfig().get('vehicleId', '') == vehicleId
           && request.resource.data.vehicleId == vehicleId
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.latitude is number
