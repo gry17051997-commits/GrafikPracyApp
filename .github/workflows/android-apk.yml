@@ -184,7 +184,14 @@ jobs:
           disable-animations: true
           script: |
             set +e
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            APK=$(find android/app/build/outputs/apk -type f -name "*.apk" | head -1)
+            if [ -z "$APK" ]; then
+              echo "No APK found under android/app/build/outputs/apk"
+              find android/app/build -maxdepth 5 -type f -name "*.apk" -print || true
+              exit 1
+            fi
+            echo "Installing APK: $APK"
+            adb install -r "$APK"
             INSTALL_RC=$?
             adb logcat -c
             adb shell monkey -p pl.grafikpracy.app 1
