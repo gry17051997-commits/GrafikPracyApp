@@ -74,6 +74,7 @@ async function saveLocationInternal(location) {
   const payload={
     vehicleId,
     ownerUid,
+    locatorUid:ownerUid,
     registration:cfg.registration||vehicleId,
     latitude:Number(c.latitude),
     longitude:Number(c.longitude),
