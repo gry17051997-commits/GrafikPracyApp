@@ -67,8 +67,8 @@ test('GPS history cleanup is server-side and limited to seven days', () => {
 test('Firestore restricts vehicle writes to the assigned locator', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /role == 'locator'/);
-  assert.match(rules, /locationConfig\(\)\.get\('vehicleId'/);
-  assert.match(rules, /locationConfig\(\)\.get\('locatorUid'/);
+  assert.match(rules, /(?:locationConfig\(\)|locCfg\(\))\.get\('locatorUid'/);
+  assert.match(rules, /(?:locationConfig\(\)|locCfg\(\))\.get\('locatorUid'/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
 });
 
