@@ -827,6 +827,7 @@ export default function App() {
       });
 
       const config=weekConfigs[wkKey] || {hours,rotation,warehouse,times};
+      const configDirtyAtSave = localDirtyWeekConfigRef.current[wkKey] === true;
       try {
         if (Object.keys(updates).length === 0 && !configDirtyAtSave) {
           cloudDirtyRef.current=false;
