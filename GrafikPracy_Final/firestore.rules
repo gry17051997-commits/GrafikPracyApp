@@ -36,17 +36,6 @@ service cloud.firestore {
         : {};
     }
 
-    function validRolePerson(role, personKey) {
-      return (role == 'employee' && (personKey == 'P' || personKey == 'M' || personKey == 'L'))
-        || (role != 'employee' && personKey == '');
-    }
-
-    function locationConfig() {
-      return exists(/databases/$(database)/documents/locationConfig/main)
-        ? get(/databases/$(database)/documents/locationConfig/main).data
-        : {};
-    }
-
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
 
