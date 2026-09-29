@@ -1,0 +1,65 @@
+# Pliki przygotowane do audytu DeepSeek
+
+## Core aplikacji
+- GrafikPracy_Final/App.js
+- GrafikPracy_Final/index.js
+- GrafikPracy_Final/AppRuntime.js
+- GrafikPracy_Final/LocationService.js
+- GrafikPracy_Final/LiveLocationDashboard.js
+- GrafikPracy_Final/AdminUserService.js
+- GrafikPracy_Final/AdminUsersPanel.js
+- GrafikPracy_Final/NowDashboard.js
+- GrafikPracy_Final/widgets.js
+- GrafikPracy_Final/widget-task-handler.js
+- GrafikPracy_Final/scheduleEngine.js
+
+## Firebase
+- GrafikPracy_Final/firebaseConfig.js
+- GrafikPracy_Final/firestore.rules
+- GrafikPracy_Final/functions/index.js
+- GrafikPracy_Final/functions/package.json
+
+## Konfiguracja Expo
+- GrafikPracy_Final/package.json
+- GrafikPracy_Final/app.json
+- GrafikPracy_Final/eas.json
+- GrafikPracy_Final/firebase.json
+
+## CI/CD
+- .github/workflows/android-apk.yml
+- .github/workflows/diagnostic-apk.yml
+- .github/workflows/full-audit.yml
+- .github/workflows/pr-validation.yml
+- .github/workflows/deploy-firebase-functions.yml
+- .github/workflows/deploy-firebase-rules.yml
+
+## Testy
+- GrafikPracy_Final/tests/production-hardening.test.js
+- GrafikPracy_Final/tests/stage3-regression.test.js
+
+## Dokumentacja audytu
+- DEEPSEEK_AUDIT_REQUEST.md
+- DEEPSEEK_AUDIT_FILE_LIST.txt
+
+## Ważne
+Nie dołączaj:
+- APK,
+- PNG/JPG,
+- .env,
+- kluczy prywatnych,
+- tokenów,
+- plików binarnych.
+
+Jeżeli DeepSeek ma limit rozmiaru, priorytet:
+1. AppRuntime.js
+2. LocationService.js
+3. firestore.rules
+4. firebaseConfig.js
+5. AdminUserService.js
+6. AdminUsersPanel.js
+7. functions/index.js
+8. index.js
+9. app.json
+10. wszystkie workflow CI/CD
+11. scheduleEngine.js
+12. testy.
