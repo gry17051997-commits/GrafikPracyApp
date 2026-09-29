@@ -785,7 +785,10 @@ export default function App() {
       scheduleDirtyTrackingStartedRef.current = true;
       return;
     }
-    if (cloudApplying.current) return;
+    if (cloudApplying.current) {
+      cloudApplying.current = false;
+      return;
+    }
 
     Object.keys(weeks || {}).forEach(key => {
       const localMap = weekToShiftMap(weeks[key], key);
@@ -817,13 +820,15 @@ export default function App() {
 
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
     cloudSaveTimerRef.current=setTimeout(async()=> {
-      const scheduleRef=doc(db,'schedules',wkKey);
-      const localWeek=weeks[wkKey] || currentWeek;
-      const localMap=weekToShiftMap(localWeek,wkKey);
-      const previousMap=remoteShiftMapByWeekRef.current[wkKey] || {};
-      const dirtyAtSave=new Set(localDirtyShiftKeysRef.current[wkKey] || []);
+      const weekKeyAtSave=wkKey;
+      const weeksAtSave=weeks;
+      const configsAtSave=weekConfigs;
+      const scheduleRef=doc(db,'schedules',weekKeyAtSave);
+      const localWeek=weeksAtSave[weekKeyAtSave] || currentWeek;
+      const localMap=weekToShiftMap(localWeek,weekKeyAtSave);
+      const dirtyAtSave=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
 
-      const config=weekConfigs[wkKey] || {hours,rotation,warehouse,times};
+      const config=configsAtSave[weekKeyAtSave] || {hours,rotation,warehouse,times};
       const configDirtyAtSave = localDirtyWeekConfigRef.current[wkKey] === true;
       try {
         if (dirtyAtSave.size === 0 && !configDirtyAtSave) {
@@ -871,20 +876,26 @@ export default function App() {
 
         const latest=await getDoc(scheduleRef);
         const latestData=latest.exists()?latest.data():{};
-        remoteShiftMapByWeekRef.current[wkKey]=latestData.shifts && typeof latestData.shifts === 'object'
+        remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
           ? latestData.shifts
           : localMap;
-        cloudUpdatedAtByWeekRef.current[wkKey]=latestData.updatedAt?.toMillis?.() ?? null;
+        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
 
-        const currentMap=weekToShiftMap(weeks[wkKey] || currentWeek,wkKey);
-        const remaining=new Set(localDirtyShiftKeysRef.current[wkKey] || []);
+        const currentMap=weekToShiftMap(
+          weeksRef.current[weekKeyAtSave] || currentWeek,
+          weekKeyAtSave
+        );
+        const remaining=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
         dirtyAtSave.forEach(key => {
           if (JSON.stringify(currentMap[key]) === JSON.stringify(localMap[key])) {
             remaining.delete(key);
           }
         });
-        localDirtyShiftKeysRef.current[wkKey]=Array.from(remaining);
-        cloudDirtyRef.current=Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0);
+        localDirtyShiftKeysRef.current[weekKeyAtSave]=Array.from(remaining);
+        if (configDirtyAtSave) delete localDirtyWeekConfigRef.current[weekKeyAtSave];
+        cloudDirtyRef.current=
+          Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
+          || Object.keys(localDirtyWeekConfigRef.current).length > 0;
       } catch(e) {
         setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
       }
