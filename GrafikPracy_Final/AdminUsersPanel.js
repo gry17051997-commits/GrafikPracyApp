@@ -54,7 +54,7 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!u?.uid||u.uid===cloudUser?.uid)return;
     Alert.alert('Usuń konto','Usunąć '+(u.displayName||u.email||u.uid)+'?',[{text:'Anuluj',style:'cancel'},{text:'USUŃ',style:'destructive',onPress:async()=>{
       setBusy(u.uid);setError('');
-      try{await disableUserWithoutFunctions(u.uid);Alert.alert('Gotowe','Konto zostało wyłączone i usunięte z aktywnej listy.');}
+      try{await disableUserWithoutFunctions(u.uid);Alert.alert('Gotowe','Konto zostało dezaktywowane. Konto Auth pozostaje w Firebase; pełne usunięcie wymaga backendu administracyjnego.');}
       catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
       finally{setBusy('');}
     }}]);
