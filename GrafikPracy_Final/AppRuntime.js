@@ -60,7 +60,7 @@ const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','N
 const RATES = {10: 300, 12: 360};
 const DEFAULT_TIMES = {
   10: {s1:'06:00',e1:'16:00',s2:'16:00',e2:'02:00'},
-  12: {s1:'06:00',e1:'18:00',s2:'18:00',e2:'06:00'}
+  12: {s1:'07:00',e1:'19:00',s2:'19:00',e2:'07:00'}
 };
 
 const monday = d => {
@@ -357,8 +357,6 @@ export default function App() {
           setWeekConfigs(data.weekConfigs || {});
           setAutoGenerateWeeks(!!data.autoGenerateWeeks);
           setAllow24h(!!data.allow24h);
-          setPin(data.pin || '');
-          setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
           setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
           const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
@@ -396,13 +394,13 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
     },personColors,conditions,proposals,myPerson};
     AsyncStorage.setItem(KEY,JSON.stringify(data)).catch(()=>{});
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!ready || Platform.OS === 'web') return;
@@ -1720,7 +1718,7 @@ export default function App() {
     app:'Grafik Pracy',
     version:5,
     exportedAt:new Date().toISOString(),
-    hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled,dark,
+    hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,dark,
     times,personColors,conditions,proposals,myPerson,
     vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
     recoveryBalances,recoveryLedger,chatMessages

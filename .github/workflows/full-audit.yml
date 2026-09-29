@@ -1,5 +1,4 @@
 name: Full Project Audit
-# Final verification of the exact repository HEAD before release builds
 
 on:
   push:
@@ -25,6 +24,7 @@ jobs:
     defaults:
       run:
         working-directory: GrafikPracy_Final
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,15 +42,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Keep audit dependencies identical to the lockfile used by the APK build.
       - name: Install dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci
 
-      - name: Validate CI patch scripts
-        run: |
-          node --check scripts/fix-app-build.js
-          node --check scripts/fix-chat-build.js
-          node --check scripts/fix-rotation-switch.js
+      - name: Run complete test suite
+        run: npm test
 
       - name: Validate Expo configuration
         run: npx expo config --type public
@@ -62,7 +58,6 @@ jobs:
         run: |
           test -f android/app/build.gradle
           test -f android/app/src/main/AndroidManifest.xml
-          grep -q 'react-native-android-widget' android/settings.gradle android/app/build.gradle || true
           grep -q 'ACCESS_BACKGROUND_LOCATION' android/app/src/main/AndroidManifest.xml
           grep -q 'FOREGROUND_SERVICE_LOCATION' android/app/src/main/AndroidManifest.xml
 
@@ -76,5 +71,4 @@ jobs:
 
       - name: Audit summary
         run: |
-          echo "AUDIT PASSED: locked dependencies, scripts, Expo config, Android prebuild and Web compilation."
-          echo "No Android APK was assembled and no Web deployment was performed."
+          echo "AUDIT PASSED: dependencies, tests, Expo config, Android prebuild and Web compilation."
