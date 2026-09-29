@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, doc, setDoc, serverTimestamp} from 'firebase/firestore';
+import {collection, doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
@@ -161,9 +161,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   let centralVehicleId='';
   let centralRegistration='';
   try {
-    const snap=await (await import('firebase/firestore')).getDoc(
-      (await import('firebase/firestore')).doc(db,'locationConfig','main')
-    );
+    const snap=await getDoc(doc(db,'locationConfig','main'));
     if (snap.exists()) {
       const data=snap.data()||{};
       centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
