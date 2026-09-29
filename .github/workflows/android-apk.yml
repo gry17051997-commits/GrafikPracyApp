@@ -185,10 +185,10 @@ jobs:
           script: |
             set +e
             APP_ROOT="$GITHUB_WORKSPACE/GrafikPracy_Final"
-            APK=$(find "$APP_ROOT/android/app/build/outputs/apk" -type f -name "*.apk" | head -1)
-            if [ -z "$APK" ]; then
-              echo "No APK found under $APP_ROOT/android/app/build/outputs/apk"
-              find "$APP_ROOT/android/app/build" -maxdepth 5 -type f -name "*.apk" -print || true
+            APK="$APP_ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
+            if [ ! -s "$APK" ]; then
+              echo "No debug APK found at $APK"
+              find "$APP_ROOT/android/app/build/outputs/apk" -maxdepth 3 -type f -name "*.apk" -print || true
               exit 1
             fi
             echo "Installing APK: $APK"
