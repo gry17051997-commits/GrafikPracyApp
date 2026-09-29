@@ -47,16 +47,6 @@ jobs:
         run: npm test
       - name: Validate project configuration
         run: npx expo config --type public
-      - name: Validate build-fix scripts
-        run: |
-          node --check scripts/fix-app-build.js
-          node --check scripts/fix-chat-build.js
-          node --check scripts/fix-rotation-switch.js
-      - name: Apply deterministic build fixes
-        run: |
-          node scripts/fix-app-build.js
-          node scripts/fix-chat-build.js
-          node scripts/fix-rotation-switch.js
       - name: Export web
         run: npx expo export --platform web --output-dir ci-dist
       - name: Verify web bundle
