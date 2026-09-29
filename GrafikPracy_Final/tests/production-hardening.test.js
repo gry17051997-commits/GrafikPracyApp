@@ -90,19 +90,19 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence updates only changed shift map fields', async () => {
+test('schedule cloud persistence uses a fresh transaction snapshot and updates only dirty shift fields', async () => {
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',wkKey);");
+  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
   const blockEnd = source.indexOf("    },250);", blockStart);
   assert.ok(blockStart >= 0 && blockEnd > blockStart);
   const block = source.slice(blockStart, blockEnd);
-  assert.match(block, /const localMap=weekToShiftMap\(localWeek,wkKey\)/);
-  assert.match(block, /updates\[.*shifts\..*\]/);
+  assert.match(block, /const localMap=weekToShiftMap\\(localWeek,weekKeyAtSave\\)/);
+  assert.ok(block.includes('transactionUpdate[`shifts.${key}`]'));
   assert.ok(block.includes('runTransaction(db, async tx =>'));
   assert.ok(block.includes('tx.get(scheduleRef)'));
-  assert.ok(block.includes('tx.update(scheduleRef'));
-  assert.doesNotMatch(block, /tx\.set\(settingsRef/);
+  assert.ok(block.includes('tx.update(scheduleRef,transactionUpdate)'));
+  assert.doesNotMatch(block, /tx\\.set\\(settingsRef/);
 });
 
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
