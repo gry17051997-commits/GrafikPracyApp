@@ -57,13 +57,13 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
-      - name: Build real debug APK
+      - name: Build real release APK
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
 
       - name: Verify APK
         run: |
-          APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
+          APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk"
           test -s "$APK_PATH"
           unzip -t "$APK_PATH" >/dev/null
           echo "APK_PATH=$APK_PATH"
