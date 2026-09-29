@@ -57,9 +57,9 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
 
-      - name: Build real release APK
+      - name: Build standalone release APK
         working-directory: GrafikPracy_Final/android
-        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
       - name: Verify APK
         run: |
@@ -85,7 +85,7 @@ jobs:
           disable-animations: true
           script: >-
             bash -lc 'set +e;
-            APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk";
+            APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk";
             DIAG_DIR="${{ github.workspace }}/GrafikPracy_Final";
             echo "Installing APK: $APK_PATH";
             test -s "$APK_PATH";
@@ -116,7 +116,7 @@ jobs:
         with:
           name: grafik-pracy-real-android-runtime
           path: |
-            GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+            GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
             GrafikPracy_Final/runtime-logcat.txt
             GrafikPracy_Final/runtime-window.xml
             GrafikPracy_Final/runtime-pid.txt
