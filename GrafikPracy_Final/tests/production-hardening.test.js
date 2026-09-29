@@ -90,19 +90,49 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence updates only changed shift map fields', async () => {
-  const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',wkKey);");
-  const blockEnd = source.indexOf("    },250);", blockStart);
-  assert.ok(blockStart >= 0 && blockEnd > blockStart);
-  const block = source.slice(blockStart, blockEnd);
-  assert.match(block, /const localMap=weekToShiftMap\(localWeek,wkKey\)/);
-  assert.match(block, /updates\[.*shifts\..*\]/);
-  assert.ok(block.includes('runTransaction(db, async tx =>'));
-  assert.ok(block.includes('tx.get(scheduleRef)'));
-  assert.ok(block.includes('tx.update(scheduleRef'));
-  assert.doesNotMatch(block, /tx\.set\(settingsRef/);
+test('transactional shift diff preserves unrelated remote changes', async () => {
+  const {buildShiftTransactionUpdate} = await import('../scheduleSync.js');
+
+  const localMap = {
+    'shift_2026-09-29_1': {person:'P'},
+  };
+  const currentMap = {
+    'shift_2026-09-29_1': {person:'M'},
+    'shift_2026-09-30_1': {person:'L'},
+  };
+
+  const update = buildShiftTransactionUpdate(
+    localMap,
+    currentMap,
+    new Set(['shift_2026-09-29_1']),
+    '__DELETE__'
+  );
+
+  assert.deepEqual(update, {
+    'shifts.shift_2026-09-29_1': {person:'P'},
+  });
+  assert.equal(update['shifts.shift_2026-09-30_1'], undefined);
+});
+
+test('transactional shift diff deletes only a dirty slot that exists remotely', async () => {
+  const {buildShiftTransactionUpdate} = await import('../scheduleSync.js');
+
+  const currentMap = {
+    'shift_2026-09-29_1': {person:'P'},
+    'shift_2026-09-30_1': {person:'M'},
+  };
+
+  const update = buildShiftTransactionUpdate(
+    {},
+    currentMap,
+    new Set(['shift_2026-09-29_1']),
+    '__DELETE__'
+  );
+
+  assert.deepEqual(update, {
+    'shifts.shift_2026-09-29_1': '__DELETE__',
+  });
+  assert.equal(update['shifts.shift_2026-09-30_1'], undefined);
 });
 
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
