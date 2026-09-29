@@ -32,6 +32,7 @@ import AdminUsersPanel from './AdminUsersPanel';
 import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, deleteField, orderBy, limit, runTransaction} from 'firebase/firestore';
 import {canAssignPersonToDay} from './scheduleEngine';
+import {buildShiftTransactionUpdate} from './scheduleSync';
 
 const KEY = 'grafik-pracy-v5';
 const LEGACY_KEY = 'grafik-pracy-v4';
@@ -868,13 +869,10 @@ export default function App() {
             updatedAt:serverTimestamp(),
             updatedBy:cloudUser.uid
           };
-          dirtyAtSave.forEach(key => {
-            if (Object.prototype.hasOwnProperty.call(localMap,key)) {
-              transactionUpdate[`shifts.${key}`]=localMap[key];
-            } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
-              transactionUpdate[`shifts.${key}`]=deleteField();
-            }
-          });
+          Object.assign(
+            transactionUpdate,
+            buildShiftTransactionUpdate(localMap, currentMap, dirtyAtSave, deleteField())
+          );
           if (configDirtyAtSave) transactionUpdate.config=config;
 
           if (Object.keys(transactionUpdate).length > 2) {
