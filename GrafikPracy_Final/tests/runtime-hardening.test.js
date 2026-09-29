@@ -57,3 +57,26 @@ test('CI no longer depends on source-rewriting build fix scripts', async () => {
   assert.equal(Object.hasOwn(packageJson.scripts, 'postinstall'), false);
   assert.doesNotMatch(prWorkflow, /fix-app-build\.js|fix-chat-build\.js|fix-rotation-switch\.js/);
 });
+
+
+test('administrative account mutations are backend callables, not client Auth provisioning', async () => {
+  const service = await read('AdminUserService.js');
+  const functions = await read('functions/index.js');
+  assert.match(service, /httpsCallable\(/);
+  assert.doesNotMatch(service, /createUserWithEmailAndPassword|updateProfile|updatePassword/);
+  assert.match(functions, /exports\.adminCreateUser/);
+  assert.match(functions, /exports\.adminUpdateUser/);
+  assert.match(functions, /exports\.adminDisableUser/);
+});
+
+test('12h shift configuration matches the production business rule', async () => {
+  const source = await read('AppRuntime.js');
+  assert.match(source, /12:\s*\{s1:'07:00',e1:'19:00',s2:'19:00',e2:'07:00'\}/);
+  assert.doesNotMatch(source, /12:\s*\{s1:'06:00',e1:'18:00',s2:'18:00',e2:'06:00'\}/);
+});
+
+test('application PIN is not included in the primary persisted state or backup payload', async () => {
+  const source = await read('AppRuntime.js');
+  assert.doesNotMatch(source, /const data = \{[^\n]*\bpin\s*,/);
+  assert.doesNotMatch(source, /hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,pin,pinEnabled/);
+});
