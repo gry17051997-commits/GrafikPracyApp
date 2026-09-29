@@ -731,6 +731,9 @@ export default function App() {
           return next;
         });
         setCloudUpdated(true);
+        if (Object.keys(remoteWeeks).length === 0 && Object.keys(remoteConfigs).length === 0) {
+          cloudApplying.current = false;
+        }
         setTimeout(() => setCloudUpdated(false), 2500);
       },
       err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany'))
@@ -820,20 +823,10 @@ export default function App() {
       const previousMap=remoteShiftMapByWeekRef.current[wkKey] || {};
       const dirtyAtSave=new Set(localDirtyShiftKeysRef.current[wkKey] || []);
 
-      const updates={};
-      Object.keys(localMap).forEach(key => {
-        if (JSON.stringify(localMap[key]) !== JSON.stringify(previousMap[key])) {
-          updates[`shifts.${key}`]=localMap[key];
-        }
-      });
-      Object.keys(previousMap).forEach(key => {
-        if (!(key in localMap)) updates[`shifts.${key}`]=deleteField();
-      });
-
       const config=weekConfigs[wkKey] || {hours,rotation,warehouse,times};
       const configDirtyAtSave = localDirtyWeekConfigRef.current[wkKey] === true;
       try {
-        if (Object.keys(updates).length === 0 && !configDirtyAtSave) {
+        if (dirtyAtSave.size === 0 && !configDirtyAtSave) {
           cloudDirtyRef.current=false;
           return;
         }
@@ -856,20 +849,24 @@ export default function App() {
             ? current.shifts
             : weekToShiftMap(current.week || [],wkKey);
 
-          // Rebase the local changes onto the latest server document.
-          // Only fields that changed locally are sent; other device changes survive.
-          const rebased={};
-          Object.keys(updates).forEach(path => {
-            rebased[path]=updates[path];
-          });
-
+          // Rebase only the locally dirty slots onto the transaction's fresh
+          // server snapshot. Changes made by another device are preserved.
           const transactionUpdate={
-            ...rebased,
             updatedAt:serverTimestamp(),
             updatedBy:cloudUser.uid
           };
+          dirtyAtSave.forEach(key => {
+            if (Object.prototype.hasOwnProperty.call(localMap,key)) {
+              transactionUpdate[`shifts.${key}`]=localMap[key];
+            } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
+              transactionUpdate[`shifts.${key}`]=deleteField();
+            }
+          });
           if (configDirtyAtSave) transactionUpdate.config=config;
-          tx.update(scheduleRef,transactionUpdate);
+
+          if (Object.keys(transactionUpdate).length > 2) {
+            tx.update(scheduleRef,transactionUpdate);
+          }
         });
 
         const latest=await getDoc(scheduleRef);
@@ -1180,6 +1177,7 @@ export default function App() {
               }
             });
             ids.push(notification);
+            await AsyncStorage.setItem(REPORT_NOTIFICATION_IDS_KEY,JSON.stringify(ids));
           }
         }
       }
@@ -1697,7 +1695,11 @@ export default function App() {
           }
           const scheduleSnap=await tx.get(scheduleRef);
           if(!scheduleSnap.exists()) throw new Error('schedule-missing');
-          const source=scheduleSnap.data()?.week;
+          const scheduleData=scheduleSnap.data() || {};
+          const currentMap=scheduleData.shifts && typeof scheduleData.shifts === 'object'
+            ? scheduleData.shifts
+            : weekToShiftMap(scheduleData.week || [],proposalWeekKey);
+          const source=shiftMapToWeek(currentMap,proposalWeek,proposalWeekKey);
           const x=source?.[fromDay]?.shifts?.[fromShift-1];
           const y=source?.[toDay]?.shifts?.[toShift-1];
           if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
@@ -1706,7 +1708,8 @@ export default function App() {
           const next=cloneWeek(source);
           const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
           const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
-          tx.update(scheduleRef,{week:next,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
+          const nextMap=weekToShiftMap(next,proposalWeekKey);
+          tx.update(scheduleRef,{shifts:nextMap,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
           tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
           return next;
         });
@@ -1799,10 +1802,11 @@ export default function App() {
       if (!s.person) return;
       result.all.shifts++;
       result.all.hours += currentWeekHours;
-      result.all.money += RATES[currentWeekHours];
+      const rate = RATES[currentWeekHours] ?? RATES[10];
+      result.all.money += rate;
       result[s.person].shifts++;
       result[s.person].hours += currentWeekHours;
-      result[s.person].money += RATES[currentWeekHours];
+      result[s.person].money += rate;
     }));
     return result;
   },[currentWeek,currentWeekHours]);
