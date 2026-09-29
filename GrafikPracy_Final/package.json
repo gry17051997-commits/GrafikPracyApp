@@ -27,5 +27,6 @@
     "expo-location": "~19.0.8",
     "expo-task-manager": "~14.0.9",
     "react-native-webview": "~13.15.0"
-  }
+  },
+  "type": "module"
 }
