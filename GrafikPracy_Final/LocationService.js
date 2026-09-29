@@ -155,8 +155,33 @@ export async function saveVehicleLocationAssignment(registration) {
 export async function startVehicleLocationTracking({vehicleId,registration}={}) {
   if (Platform.OS==='web') return {ok:false,reason:'web'};
   if (!FIREBASE_ENABLED || !db) return {ok:false,reason:'firebase'};
-  const vehicle=normalizeVehicleId(vehicleId||registration);
+
+  // Centralne przypisanie pojazdu jest źródłem prawdy. Lokalna konfiguracja
+  // może być nieaktualna po zmianie auta przez administratora.
+  let centralVehicleId='';
+  let centralRegistration='';
+  try {
+    const snap=await (await import('firebase/firestore')).getDoc(
+      (await import('firebase/firestore')).doc(db,'locationConfig','main')
+    );
+    if (snap.exists()) {
+      const data=snap.data()||{};
+      centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
+      centralRegistration=String(data.registration||data.vehicleId||'').trim().toUpperCase();
+    }
+  } catch(e) {
+    return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
+  }
+
+  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
+  const vehicle=centralVehicleId||requestedVehicle;
+  if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
+  if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {
+    return {ok:false,reason:'vehicle-assignment-mismatch',expected:centralVehicleId,requested:requestedVehicle};
+  }
+
   const old=await getConfig();
+  const assignedRegistration=centralRegistration||String(registration||vehicle).trim().toUpperCase();
   const fg=await Location.requestForegroundPermissionsAsync();
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
   const servicesEnabled=await Location.hasServicesEnabledAsync();
@@ -165,7 +190,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   if (!ownerUid) return {ok:false,reason:'auth'};
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
-  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:registration||vehicle}));
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration}));
 
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
@@ -177,7 +202,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   } catch(e) {
     console.log('LOCATION_INITIAL_FIX_ERROR',e);
   }
-  return {ok:true,vehicleId:vehicle};
+  return {ok:true,vehicleId:vehicle,registration:assignedRegistration};
 }
 
 export async function stopVehicleLocationTracking() {
