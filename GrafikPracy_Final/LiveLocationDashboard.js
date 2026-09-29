@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {Linking, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {collection, doc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
-import {getVehicleLocationConfig} from './LocationService';
+import {getVehicleLocationConfig, normalizeVehicleId} from './LocationService';
 import {WebView} from 'react-native-webview';
 import useSecondTicker from './hooks/useSecondTicker';
 
@@ -21,7 +21,6 @@ const ageText=ts=>{
   if(m<60) return m+' min temu';
   return Math.floor(m/60)+' h '+(m%60)+' min temu';
 };
-const idFor=v=>String(v||'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_')||'SLUZBOWY';
 
 const geocodeAddress=async(point)=>{
   const lat=Number(point?.latitude), lon=Number(point?.longitude);
@@ -107,7 +106,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
           setLocationError('Brak centralnego przypisania pojazdu.');
           return;
         }
-        const requestedId=idFor(assignedValue);
+        const requestedId=normalizeVehicleId(assignedValue);
         const vehicleRef=doc(db,'vehicleTracking',requestedId);
         vehiclesUnsub=onSnapshot(vehicleRef,snap=>{
           const selected=snap.exists()?({id:snap.id,...snap.data()}):null;
@@ -122,7 +121,7 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
           setConfig(prev=>({...prev,vehicleId:selected.vehicleId||selected.id,registration:selected.registration||prev.registration}));
 
           if(historyUnsub) historyUnsub();
-          const selectedId=idFor(selected.vehicleId||selected.registration||selected.id);
+          const selectedId=normalizeVehicleId(selected.vehicleId||selected.registration||selected.id);
           const historyQuery=query(collection(db,'vehicleTracking',selectedId,'locations'),orderBy('updatedAt','desc'),limit(120));
           historyUnsub=onSnapshot(historyQuery,s=>setHistory(s.docs.map(d=>d.data())),e=>{setHistory([]);setLocationError('GPS działa, ale historia trasy jest niedostępna: '+(e?.code||'unknown'));});
         },e=>{
