@@ -77,7 +77,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          cores: 2
+          cores: 4
           disable-spellchecker: true
           force-avd-creation: true
           wipe-data: true
@@ -90,6 +90,22 @@ jobs:
             echo "Installing APK: $APK_PATH";
             test -s "$APK_PATH";
             adb wait-for-device;
+            echo "Waiting for Android framework services...";
+            READY=0;
+            for i in $(seq 1 60); do
+              if adb shell cmd package list packages >/dev/null 2>&1 && adb shell cmd activity get-config >/dev/null 2>&1; then
+                READY=1;
+                echo "Android framework services are ready after ${i} checks.";
+                break;
+              fi;
+              sleep 2;
+            done;
+            if [ "$READY" -ne 1 ]; then
+              echo "Android framework services did not become ready.";
+              adb shell getprop | grep -E "sys.boot_completed|dev.bootcomplete|init.svc.system_server|init.svc.bootanim" || true;
+              adb shell service list || true;
+              exit 10;
+            fi;
             adb install -r "$APK_PATH";
             INSTALL_RC=$?;
             adb logcat -c;
