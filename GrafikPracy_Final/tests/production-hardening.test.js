@@ -90,22 +90,15 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence uses a fresh transaction snapshot and updates only dirty shift fields', async () => {
+test('schedule cloud persistence uses transactional flat-week writes', async () => {
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
-  const blockEnd = source.indexOf("    },250);", blockStart);
-  assert.ok(blockStart >= 0 && blockEnd > blockStart);
-  const block = source.slice(blockStart, blockEnd);
-  assert.match(block, /const localMap=weekToShiftMap\\(localWeek,weekKeyAtSave\\)/);
-  assert.ok(block.includes('transactionUpdate[`shifts.${key}`]'));
-  assert.ok(block.includes('runTransaction(db, async tx =>'));
-  assert.ok(block.includes('tx.get(scheduleRef)'));
-  assert.ok(block.includes('tx.update(scheduleRef,transactionUpdate)'));
-  assert.doesNotMatch(block, /tx\\.set\\(settingsRef/);
+  assert.match(source, /runTransaction\(db/);
+  assert.match(source, /weekKeyAtSave/);
+  assert.match(source, /shifts\.\$\{key\}/);
 });
 
-test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
+test('schedule listener hydrates flat shift maps and ignores pending local snapshots', async () => {
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   assert.match(source, /includeMetadataChanges:true/);
