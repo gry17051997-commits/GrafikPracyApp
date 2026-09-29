@@ -138,6 +138,11 @@ service cloud.firestore {
     }
 
     match /vehicleTracking/{vehicleId} {
+      function locCfg() {
+        return exists(/databases/$(database)/documents/locationConfig/main)
+          ? get(/databases/$(database)/documents/locationConfig/main).data
+          : {};
+      }
       allow read: if isAdmin()
         || (activeUser()
           && (locationConfig().get('vehicleId', '') == vehicleId
@@ -164,7 +169,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
-          && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
+          && locCfg().get('vehicleId', '') == vehicleId
           && resource.data.ownerUid == request.auth.uid
           && request.resource.data.vehicleId == vehicleId
           && request.resource.data.ownerUid == resource.data.ownerUid
@@ -180,8 +185,8 @@ service cloud.firestore {
       match /locations/{locationId} {
         allow read: if isAdmin()
           || (activeUser()
-            && (get(/databases/$(database)/documents/locationConfig/main).data.get('vehicleId', '') == vehicleId
-              || get(/databases/$(database)/documents/locationConfig/main).data.get('registration', '') == resource.data.get('registration', '')
+            && (locCfg().get('vehicleId', '') == vehicleId
+              || locCfg().get('registration', '') == resource.data.get('registration', '')
               || resource.data.get('ownerUid', '') == request.auth.uid));
 
         allow create: if isAdmin()
