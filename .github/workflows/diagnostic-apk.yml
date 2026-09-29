@@ -3,7 +3,7 @@ name: Diagnostic APK
 on:
   push:
     branches:
-      - 'diagnostic/app-bootstrap-runtime'
+      - main
   workflow_dispatch:
 
 permissions:
