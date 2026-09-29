@@ -56,7 +56,13 @@ service cloud.firestore {
         && request.resource.data.displayName is string
         && request.resource.data.role in ['admin','employee','locator']
         && request.resource.data.personKey in ['', 'P', 'M', 'L']
-        && request.resource.data.disabled is bool;
+        && request.resource.data.disabled is bool
+        || (
+          isAdmin()
+          && uid != request.auth.uid
+          && request.resource.data.get('disabled', false) == true
+          && request.resource.data.get('uid', uid) == uid
+        );
 
       allow delete: if false;
     }
@@ -121,8 +127,9 @@ service cloud.firestore {
     match /vehicleTracking/{vehicleId} {
       allow read: if isAdmin()
         || (activeUser()
-          && (get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
-            || resource.data.ownerUid == request.auth.uid));
+          && (get(/databases/$(database)/documents/locationConfig/main).data.get('vehicleId', '') == vehicleId
+            || get(/databases/$(database)/documents/locationConfig/main).data.get('registration', '') == resource.data.get('registration', '')
+            || resource.data.get('ownerUid', '') == request.auth.uid));
 
       // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
       // jest ustalany przez administratora w locationConfig/main. Pracownik
@@ -160,8 +167,9 @@ service cloud.firestore {
       match /locations/{locationId} {
         allow read: if isAdmin()
           || (activeUser()
-            && (get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
-              || resource.data.ownerUid == request.auth.uid));
+            && (get(/databases/$(database)/documents/locationConfig/main).data.get('vehicleId', '') == vehicleId
+              || get(/databases/$(database)/documents/locationConfig/main).data.get('registration', '') == resource.data.get('registration', '')
+              || resource.data.get('ownerUid', '') == request.auth.uid));
 
         allow create: if isAdmin()
           || (activeUser()
