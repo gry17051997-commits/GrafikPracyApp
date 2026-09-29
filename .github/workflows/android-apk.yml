@@ -89,10 +89,26 @@ jobs:
             DIAG_DIR="${{ github.workspace }}/GrafikPracy_Final";
             echo "Installing APK: $APK_PATH";
             test -s "$APK_PATH";
-            adb wait-for-device;
+            echo "Waiting for ADB transport...";
+            ADB_READY=0;
+            for i in $(seq 1 90); do
+              STATE=$(adb -s emulator-5554 get-state 2>/dev/null || true);
+              if [ "$STATE" = "device" ]; then
+                ADB_READY=1;
+                echo "ADB transport is ready after ${i} checks.";
+                break;
+              fi;
+              adb reconnect offline >/dev/null 2>&1 || true;
+              sleep 2;
+            done;
+            if [ "$ADB_READY" -ne 1 ]; then
+              echo "ADB transport did not become ready.";
+              adb devices -l || true;
+              exit 9;
+            fi;
             echo "Waiting for Android framework services...";
             READY=0;
-            for i in $(seq 1 60); do
+            for i in $(seq 1 90); do
               if adb shell cmd package list packages >/dev/null 2>&1 && adb shell cmd activity get-config >/dev/null 2>&1; then
                 READY=1;
                 echo "Android framework services are ready after ${i} checks.";
