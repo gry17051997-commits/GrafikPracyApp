@@ -572,6 +572,15 @@ export default function App() {
     if (!FIREBASE_ENABLED) AsyncStorage.setItem(CHAT_LOCAL_KEY,JSON.stringify(chatMessages.slice(-100))).catch(()=>{});
   },[ready,reportHistory,chatMessages]);
 
+  const timestampMillis = value => {
+    if (!value) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') return Date.parse(value) || 0;
+    if (typeof value?.toMillis === 'function') return value.toMillis();
+    if (Number.isFinite(Number(value?.seconds))) return Number(value.seconds) * 1000;
+    return 0;
+  };
+
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
     const q = query(collection(db,'chatMessages'), orderBy('createdAt','desc'), limit(100));
@@ -589,7 +598,7 @@ export default function App() {
       : query(collection(db,'whatsappReports'), where('uid','==',cloudUser.uid), limit(50));
     const unsub = onSnapshot(q, snap => {
       const rows=snap.docs.map(d=>({id:d.id,...d.data()}));
-      rows.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+      rows.sort((a,b)=>timestampMillis(b.createdAt)-timestampMillis(a.createdAt));
       setReportHistory(rows);
     }, err => setCloudError('Brak dostępu do raportów WhatsApp. Kod: ' + (err?.code || 'unknown')));
     return unsub;
