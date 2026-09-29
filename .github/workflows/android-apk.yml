@@ -63,12 +63,12 @@ jobs:
 
       - name: Verify APK
         run: |
-          APK_PATH="$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
+          APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK_PATH"
           unzip -t "$APK_PATH" >/dev/null
           echo "APK_PATH=$APK_PATH"
           ls -lh "$APK_PATH"
-          find "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs" -type f -name "*.apk" -print
+          find "${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs" -type f -name "*.apk" -print
 
       - name: Start Android emulator and run real app
         uses: reactivecircus/android-emulator-runner@v2
@@ -84,7 +84,8 @@ jobs:
           disable-animations: true
           script: |
             set +e
-            APK_PATH="$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
+            APK_PATH="${{ github.workspace }}/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
+            DIAG_DIR="${{ github.workspace }}/GrafikPracy_Final"
             echo "Installing APK: $APK_PATH"
             test -s "$APK_PATH"
             adb wait-for-device
@@ -94,28 +95,28 @@ jobs:
             adb shell monkey -p pl.grafikpracy.app 1
             LAUNCH_RC=$?
             sleep 10
-            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-pid.txt"
+            adb shell pidof pl.grafikpracy.app > "$DIAG_DIR/runtime-pid.txt"
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
-            adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-window.xml" >/dev/null 2>&1
-            adb logcat -d > "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-logcat.txt"
+            adb pull /sdcard/window.xml "$DIAG_DIR/runtime-window.xml" >/dev/null 2>&1
+            adb logcat -d > "$DIAG_DIR/runtime-logcat.txt"
 
             echo "INSTALL_RC=$INSTALL_RC"
             echo "LAUNCH_RC=$LAUNCH_RC"
             echo "=== PROCESS ==="
-            cat "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-pid.txt" 2>/dev/null
+            cat "$DIAG_DIR/runtime-pid.txt" 2>/dev/null
             echo "=== FATAL/ERROR LOGS ==="
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-logcat.txt" | tail -200
+            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$DIAG_DIR/runtime-logcat.txt" | tail -200
 
             if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then
               exit 1
             fi
 
-            if ! grep -q '[0-9]' "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-pid.txt"; then
+            if ! grep -q '[0-9]' "$DIAG_DIR/runtime-pid.txt"; then
               echo "Application process is not running after launch."
               exit 2
             fi
 
-            if grep -E -q "FATAL EXCEPTION|Unable to load script|Could not connect to development server" "$GITHUB_WORKSPACE/GrafikPracy_Final/runtime-logcat.txt"; then
+            if grep -E -q "FATAL EXCEPTION|Unable to load script|Could not connect to development server" "$DIAG_DIR/runtime-logcat.txt"; then
               echo "Fatal runtime error detected."
               exit 3
             fi
