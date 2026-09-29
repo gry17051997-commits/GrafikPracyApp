@@ -182,6 +182,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
 
   const old=await getConfig();
   const assignedRegistration=centralRegistration||String(registration||vehicle).trim().toUpperCase();
+  const ownerUid=await waitForAuthenticatedUser();
+  if (!ownerUid) return {ok:false,reason:'auth'};
   if (centralLocatorUid && centralLocatorUid !== ownerUid) {
     return {ok:false,reason:'not-assigned'};
   }
@@ -189,16 +191,10 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
   const servicesEnabled=await Location.hasServicesEnabledAsync();
   if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
-  const ownerUid=await waitForAuthenticatedUser();
-  if (!ownerUid) return {ok:false,reason:'auth'};
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration}));
 
-  const remoteVehicle=normalizeVehicleId(remote.vehicleId);
-  if (normalizeVehicleId(cfg.vehicleId||cfg.registration)!==remoteVehicle) {
-    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,vehicleId:remoteVehicle,registration:String(remote.registration||remote.vehicleId).trim().toUpperCase()}));
-  }
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
@@ -239,9 +235,15 @@ export async function ensureVehicleLocationTracking() {
   if (remote.enabled !== true || String(remote.locatorUid||'') !== currentUid || !remote.vehicleId) {
     return {ok:false,reason:'not-assigned'};
   }
+  const remoteVehicle=normalizeVehicleId(remote.vehicleId);
+  const remoteRegistration=String(remote.registration||remote.vehicleId).trim().toUpperCase();
+  if (normalizeVehicleId(cfg.vehicleId||cfg.registration)!==remoteVehicle || cfg.registration!==remoteRegistration || cfg.enabled!==true) {
+    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,vehicleId:remoteVehicle,registration:remoteRegistration}));
+  }
   const fg=await Location.getForegroundPermissionsAsync();
+  if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
   const bg=await Location.getBackgroundPermissionsAsync();
-  if (fg.status!=='granted' || bg.status!=='granted') return {ok:false,reason:'permission'};
+  if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   const servicesEnabled=await Location.hasServicesEnabledAsync();
   if (!servicesEnabled) return {ok:false,reason:'location-services-disabled'};
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
