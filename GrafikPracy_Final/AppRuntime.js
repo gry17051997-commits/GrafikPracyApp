@@ -860,7 +860,7 @@ export default function App() {
           const snap=await tx.get(scheduleRef);
           if (!snap.exists()) {
             tx.set(scheduleRef,{
-              weekId:wkKey,
+              weekId:weekKeyAtSave,
               shifts:localMap,
               config,
               updatedAt:serverTimestamp(),
@@ -872,7 +872,7 @@ export default function App() {
           const current=snap.data() || {};
           const currentMap=current.shifts && typeof current.shifts === 'object'
             ? current.shifts
-            : weekToShiftMap(current.week || [],wkKey);
+            : weekToShiftMap(current.week || [],weekKeyAtSave);
 
           // Rebase only the locally dirty slots onto the transaction's fresh
           // server snapshot. Changes made by another device are preserved.
@@ -896,13 +896,13 @@ export default function App() {
 
         const latest=await getDoc(scheduleRef);
         const latestData=latest.exists()?latest.data():{};
-        remoteShiftMapByWeekRef.current[wkKey]=latestData.shifts && typeof latestData.shifts === 'object'
+        remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
           ? latestData.shifts
           : localMap;
-        cloudUpdatedAtByWeekRef.current[wkKey]=latestData.updatedAt?.toMillis?.() ?? null;
+        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
 
-        const currentMap=weekToShiftMap(weeks[wkKey] || currentWeek,wkKey);
-        const remaining=new Set(localDirtyShiftKeysRef.current[wkKey] || []);
+        const currentMap=weekToShiftMap(weeksRef.current[weekKeyAtSave] || localWeek,weekKeyAtSave);
+        const remaining=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
         dirtyAtSave.forEach(key => {
           if (JSON.stringify(currentMap[key]) === JSON.stringify(localMap[key])) {
             remaining.delete(key);
