@@ -1515,13 +1515,38 @@ export default function App() {
     return result;
   };
 
+  const validateGeneratedWeek = (result, sourceWeek) => {
+    const errors=[];
+    if (!Array.isArray(result)) return ['Generator zwrócił nieprawidłowy grafik.'];
+    result.forEach((day,di)=>{
+      (day?.shifts || []).forEach((shift,si)=>{
+        const original=sourceWeek?.[di]?.shifts?.[si];
+        if (original && (original.locked || original.manual) && original.person !== shift.person) errors.push(`Niedozwolone nadpisanie ręcznej/blokowanej zmiany: ${DAYS[di]} / zmiana ${si+1}`);
+        if (!shift.person) return;
+        if (conditions.some(c=>c.type==='off' && conditionApplies(c,shift.person,di,si))) errors.push(`OFF konflikt: ${PEOPLE[shift.person]?.name || shift.person} w ${DAYS[di]} / zmiana ${si+1}`);
+        if (conditions.some(c=>c.type==='forbid' && conditionApplies(c,shift.person,di,si))) errors.push(`FORBID konflikt: ${PEOPLE[shift.person]?.name || shift.person} w ${DAYS[di]} / zmiana ${si+1}`);
+      });
+    });
+    conditions.filter(c=>c.type==='must' && c.person && c.dayIndex!==undefined && c.shift!==undefined).forEach(c=>{
+      const di=Number(c.dayIndex), si=Number(c.shift)-1, target=result?.[di]?.shifts?.[si];
+      if (target && target.person !== c.person) errors.push(`MUST konflikt: ${DAYS[di]} / zmiana ${si+1}`);
+    });
+    return [...new Set(errors)];
+  };
+
   const regenerate = () => {
     if (readOnly) return;
     Alert.alert('Wygenerować grafik?', 'Generator uwzględni blokady, dni wolne oraz ustawione warunki.', [
       {text:'Anuluj',style:'cancel'},
       {text:'Generuj',onPress:()=>{
         const generated=generateAdvancedWeek();
-        if(generated) setWeek(generated);
+        if(!generated) return;
+        const errors=validateGeneratedWeek(generated,currentWeek);
+        if(errors.length){
+          Alert.alert('Nieprawidłowy grafik',errors.join('\n'));
+          return;
+        }
+        setWeek(generated);
       }}
     ]);
   };
