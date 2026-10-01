@@ -4,7 +4,7 @@ set -u
 APP_ROOT="$GITHUB_WORKSPACE/GrafikPracy_Final"
 APK="$APP_ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
 PACKAGE_NAME="pl.grafikpracy.app"
-TEST_ID="\${TEST_ID:-unknown}"
+TEST_ID="${TEST_ID:-unknown}"
 
 echo "=== Runtime diagnostics TEST $TEST_ID ==="
 echo "APP_ROOT=$APP_ROOT"
@@ -44,7 +44,7 @@ for attempt in 1 2 3; do
 done
 
 adb shell pidof "$PACKAGE_NAME" > "$APP_ROOT/runtime-pid.txt"
-APP_PID="\$(tr -d '[:space:]' < "$APP_ROOT/runtime-pid.txt")"
+APP_PID="$(tr -d '[:space:]' < "$APP_ROOT/runtime-pid.txt")"
 
 adb logcat -d > "$APP_ROOT/runtime-logcat.txt"
 
@@ -62,22 +62,20 @@ fi
 
 FATAL_COUNT=0
 if [ -s "$APP_LOG" ]; then
-  FATAL_COUNT=\$(grep -E -c "FATAL EXCEPTION|AndroidRuntime.*FATAL|ReactNativeJS.*(Error|Exception)|Unable to load script|Could not connect" "$APP_LOG" || true)
+  FATAL_COUNT=$(grep -E -c "FATAL EXCEPTION|AndroidRuntime.*FATAL|ReactNativeJS.*(Error|Exception)|Unable to load script|Could not connect" "$APP_LOG" || true)
 fi
 
 echo "INSTALL_RC=$INSTALL_RC"
 echo "LAUNCH_RC=$LAUNCH_RC"
 echo "PROCESS_RC=$PROCESS_RC"
-echo "APP_PID=\${APP_PID:-none}"
+echo "APP_PID=${APP_PID:-none}"
 echo "UI_DUMP_RC=$UI_DUMP_RC"
 echo "FATAL_COUNT=$FATAL_COUNT"
 
 echo "=== UI DUMP ==="
 cat "$APP_ROOT/runtime-window.xml" 2>/dev/null || true
-
 echo "=== PROCESS ==="
 cat "$APP_ROOT/runtime-pid.txt" 2>/dev/null || true
-
 echo "=== APP FATAL/ERROR LOGS ==="
 if [ -s "$APP_LOG" ]; then
   grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$APP_LOG" | tail -200 || true
