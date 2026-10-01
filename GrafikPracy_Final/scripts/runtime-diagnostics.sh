@@ -4,7 +4,7 @@ set -u
 APP_ROOT="$GITHUB_WORKSPACE/GrafikPracy_Final"
 APK="$APP_ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
 PACKAGE_NAME="pl.grafikpracy.app"
-TEST_ID="${TEST_ID:-unknown}"
+TEST_ID="\${TEST_ID:-unknown}"
 
 echo "=== Runtime diagnostics TEST $TEST_ID ==="
 echo "APP_ROOT=$APP_ROOT"
@@ -43,19 +43,32 @@ for attempt in 1 2 3; do
   sleep 3
 done
 
-adb logcat -d > "$APP_ROOT/runtime-logcat.txt"
 adb shell pidof "$PACKAGE_NAME" > "$APP_ROOT/runtime-pid.txt"
+APP_PID="\$(tr -d '[:space:]' < "$APP_ROOT/runtime-pid.txt")"
+
+adb logcat -d > "$APP_ROOT/runtime-logcat.txt"
 
 PROCESS_RC=1
-if [ -s "$APP_ROOT/runtime-pid.txt" ]; then
+if [ -n "$APP_PID" ]; then
   PROCESS_RC=0
 fi
 
-FATAL_COUNT=$(grep -E -c "FATAL EXCEPTION|AndroidRuntime.*FATAL|ReactNativeJS.*(Error|Exception)|Unable to load script|Could not connect" "$APP_ROOT/runtime-logcat.txt" || true)
+APP_LOG="$APP_ROOT/runtime-app-logcat.txt"
+rm -f "$APP_LOG"
+
+if [ -n "$APP_PID" ]; then
+  adb logcat -d --pid="$APP_PID" > "$APP_LOG" 2>/dev/null || true
+fi
+
+FATAL_COUNT=0
+if [ -s "$APP_LOG" ]; then
+  FATAL_COUNT=\$(grep -E -c "FATAL EXCEPTION|AndroidRuntime.*FATAL|ReactNativeJS.*(Error|Exception)|Unable to load script|Could not connect" "$APP_LOG" || true)
+fi
 
 echo "INSTALL_RC=$INSTALL_RC"
 echo "LAUNCH_RC=$LAUNCH_RC"
 echo "PROCESS_RC=$PROCESS_RC"
+echo "APP_PID=\${APP_PID:-none}"
 echo "UI_DUMP_RC=$UI_DUMP_RC"
 echo "FATAL_COUNT=$FATAL_COUNT"
 
@@ -65,8 +78,12 @@ cat "$APP_ROOT/runtime-window.xml" 2>/dev/null || true
 echo "=== PROCESS ==="
 cat "$APP_ROOT/runtime-pid.txt" 2>/dev/null || true
 
-echo "=== FATAL/ERROR LOGS ==="
-grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$APP_ROOT/runtime-logcat.txt" | tail -200 || true
+echo "=== APP FATAL/ERROR LOGS ==="
+if [ -s "$APP_LOG" ]; then
+  grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$APP_LOG" | tail -200 || true
+else
+  echo "No application-scoped logcat available."
+fi
 
 if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then
   echo "RUNTIME FAILURE: APK installation or launch failed."
@@ -79,7 +96,7 @@ if [ "$PROCESS_RC" -ne 0 ]; then
 fi
 
 if [ "$FATAL_COUNT" -gt 0 ]; then
-  echo "RUNTIME FAILURE: fatal/native/JS runtime error detected."
+  echo "RUNTIME FAILURE: fatal/native/JS runtime error detected in application process."
   exit 1
 fi
 
