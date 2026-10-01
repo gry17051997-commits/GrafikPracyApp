@@ -176,6 +176,8 @@ jobs:
 
       - name: Start Android emulator and run app
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          TEST_ID: ${{ matrix.test }}
         with:
           api-level: 34
           target: google_apis
