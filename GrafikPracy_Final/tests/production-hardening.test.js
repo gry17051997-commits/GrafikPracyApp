@@ -102,7 +102,7 @@ test('schedule cloud persistence uses a fresh transaction snapshot and updates o
   assert.ok(block.includes('runTransaction(db, async tx =>'));
   assert.ok(block.includes('tx.get(scheduleRef)'));
   assert.ok(block.includes('tx.update(scheduleRef,transactionUpdate)'));
-  assert.doesNotMatch(block, /tx\\.set\\(settingsRef/);
+  assert.doesNotMatch(block, /tx\.set\(settingsRef/);
 });
 
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
