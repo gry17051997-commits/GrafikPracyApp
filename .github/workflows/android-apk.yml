@@ -176,47 +176,13 @@ jobs:
       - name: Start Android emulator and run app
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 34
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics
           disable-animations: true
-          script: |
-            set +e
-            APP_ROOT="$GITHUB_WORKSPACE/GrafikPracy_Final"
-            APK="$APP_ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
-            if [ ! -s "$APK" ]; then
-              echo "No debug APK found at $APK"
-              find "$APP_ROOT/android/app/build/outputs/apk" -maxdepth 3 -type f -name "*.apk" -print || true
-              exit 1
-            fi
-            echo "Installing APK: $APK"
-            adb install -r "$APK"
-            INSTALL_RC=$?
-            adb logcat -c
-            adb shell monkey -p pl.grafikpracy.app 1
-            LAUNCH_RC=$?
-            sleep 8
-            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
-            adb pull /sdcard/window.xml runtime-window.xml >/dev/null 2>&1
-            adb logcat -d > runtime-logcat.txt
-            adb shell pidof pl.grafikpracy.app > runtime-pid.txt
-            echo "INSTALL_RC=$INSTALL_RC"
-            echo "LAUNCH_RC=$LAUNCH_RC"
-            echo "=== UI DUMP ==="
-            cat runtime-window.xml 2>/dev/null
-            echo "=== PROCESS ==="
-            cat runtime-pid.txt 2>/dev/null
-            echo "=== FATAL/ERROR LOGS ==="
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" runtime-logcat.txt | tail -200
-            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi
-            if grep -q "TEST ${{ matrix.test }}" runtime-window.xml; then
-              echo "TEST ${{ matrix.test }} UI marker FOUND"
-              exit 0
-            fi
-            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
-            exit 2
+          script: bash "$GITHUB_WORKSPACE/GrafikPracy_Final/scripts/runtime-diagnostics.sh"
 
       - name: Upload runtime diagnostics
         if: always()
