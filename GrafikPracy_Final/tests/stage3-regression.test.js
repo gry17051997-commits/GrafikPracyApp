@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import userValidation from '../functions/userValidation.js';
 
 const root = path.resolve(process.cwd());
 const read = file => fs.readFileSync(path.join(root,file),'utf8');
@@ -80,10 +81,12 @@ test('Firestore keeps locator accounts outside employee person assignments', () 
 });
 
 test('administrator user provisioning validates role and employee identity', () => {
-  const service = read('AdminUserService.js');
-  assert.match(service, /role === 'employee'/);
-  assert.match(service, /role !== 'employee'/);
-  assert.match(service, /\['employee','locator','admin'\]/);
+  assert.equal(userValidation.validateRolePerson('employee','P'), true);
+  assert.equal(userValidation.validateRolePerson('employee',''), false);
+  assert.equal(userValidation.validateRolePerson('locator',''), true);
+  assert.equal(userValidation.validateRolePerson('locator','P'), false);
+  assert.equal(userValidation.validateRolePerson('admin',''), true);
+  assert.equal(userValidation.validateRolePerson('admin','L'), false);
 });
 
 test('admin user UI supports locator role without assigning P/M/L', () => {
