@@ -106,3 +106,24 @@ test('schedule listener hydrates flat shift maps and ignores pending local snaps
   assert.match(source, /shiftMapToWeek/);
   assert.match(source, /weekToShiftMap/);
 });
+test('admin account lifecycle uses protected Firebase Functions', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../AdminUserService.js', import.meta.url), 'utf8');
+  const functions = await fs.readFile(new URL('../functions/index.js', import.meta.url), 'utf8');
+  const panel = await fs.readFile(new URL('../AdminUsersPanel.js', import.meta.url), 'utf8');
+
+  assert.match(service, /httpsCallable\(requireFunctions\(\),'createUserAccount'\)/);
+  assert.match(service, /httpsCallable\(requireFunctions\(\),'updateUserProfile'\)/);
+  assert.match(service, /httpsCallable\(requireFunctions\(\),'disableUserAccount'\)/);
+  assert.match(service, /httpsCallable\(requireFunctions\(\),'enableUserAccount'\)/);
+  assert.match(service, /httpsCallable\(requireFunctions\(\),'deleteUserAccount'\)/);
+
+  assert.match(functions, /exports\.disableUserAccount\s*=\s*onCall/);
+  assert.match(functions, /exports\.enableUserAccount\s*=\s*onCall/);
+  assert.match(functions, /auth\.updateUser\(uid,\{disabled:true\}\)/);
+  assert.match(functions, /auth\.updateUser\(uid,\{disabled:false\}\)/);
+  assert.match(functions, /auth\.deleteUser\(uid\)/);
+
+  assert.match(panel, /deleteUserAccount\(u\.uid\)/);
+  assert.doesNotMatch(panel, /disableUserWithoutFunctions\(u\.uid\)/);
+});
