@@ -6,7 +6,7 @@ import {
   serverTimestampMillis,
   addHourEpoch
 } from '../scheduleEngine.js';
-import {validateRolePerson} from '../functions/userValidation.js';
+import userValidation from '../functions/userValidation.js';
 
 test('24h disabled blocks a second shift for the same person', () => {
   const day = [{person:'P'}, {person:null}];
@@ -63,10 +63,10 @@ test('week payload cannot accidentally carry the complete multi-week state', () 
 });
 
 test('admin role/person assignment contract is enforced server-side', () => {
-  assert.equal(validateRolePerson('employee','P'), true);
-  assert.equal(validateRolePerson('employee',''), false);
-  assert.equal(validateRolePerson('locator',''), true);
-  assert.equal(validateRolePerson('locator','P'), false);
-  assert.equal(validateRolePerson('admin',''), true);
-  assert.equal(validateRolePerson('admin','M'), false);
+  assert.equal(userValidation.validateRolePerson('employee','P'), true);
+  assert.equal(userValidation.validateRolePerson('employee',''), false);
+  assert.equal(userValidation.validateRolePerson('locator',''), true);
+  assert.equal(userValidation.validateRolePerson('locator','P'), false);
+  assert.equal(userValidation.validateRolePerson('admin',''), true);
+  assert.equal(userValidation.validateRolePerson('admin','M'), false);
 });
