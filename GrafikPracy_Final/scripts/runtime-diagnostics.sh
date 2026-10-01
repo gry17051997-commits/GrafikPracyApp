@@ -29,7 +29,12 @@ LAUNCH_RC=$?
 
 sleep 8
 
-adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
+rm -f "$APP_ROOT/runtime-window.xml"
+for attempt in 1 2 3; do
+  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && break
+  echo "UiAutomator dump attempt $attempt failed; retrying"
+  sleep 3
+done
 adb pull /sdcard/window.xml "$APP_ROOT/runtime-window.xml" >/dev/null 2>&1
 adb logcat -d > "$APP_ROOT/runtime-logcat.txt"
 adb shell pidof pl.grafikpracy.app > "$APP_ROOT/runtime-pid.txt"
