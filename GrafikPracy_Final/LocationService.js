@@ -17,6 +17,39 @@ async function getConfig() {
     return raw ? JSON.parse(raw) : {};
   } catch(e) { return {}; }
 }
+async function getCentralVehicleAssignment() {
+  if (!FIREBASE_ENABLED || !db) return {vehicleId:'',registration:'',exists:false};
+  try {
+    const snap=await getDoc(doc(db,'locationConfig','main'));
+    if (!snap.exists()) return {vehicleId:'',registration:'',exists:false};
+    const data=snap.data() || {};
+    const vehicleId=normalizeVehicleId(data.vehicleId || data.registration || '');
+    const registration=String(data.registration || data.vehicleId || '').trim().toUpperCase();
+    return {vehicleId,registration,exists:!!(vehicleId || registration)};
+  } catch(error) {
+    return {vehicleId:'',registration:'',exists:false,error};
+  }
+}
+
+async function stopIfCentralAssignmentChanged(localConfig=null) {
+  const cfg=localConfig || await getConfig();
+  const central=await getCentralVehicleAssignment();
+  if (!central.exists) {
+    if (cfg.enabled===true) await stopVehicleLocationTracking();
+    return {ok:false,reason:'central-assignment-missing'};
+  }
+  const localVehicle=normalizeVehicleId(cfg.vehicleId || cfg.registration || '');
+  const localRegistration=String(cfg.registration || cfg.vehicleId || '').trim().toUpperCase();
+  if (central.vehicleId && localVehicle && central.vehicleId !== localVehicle) {
+    await stopVehicleLocationTracking();
+    return {ok:false,reason:'central-assignment-mismatch',expected:central.vehicleId,actual:localVehicle};
+  }
+  if (central.registration && localRegistration && central.registration !== localRegistration) {
+    await stopVehicleLocationTracking();
+    return {ok:false,reason:'central-registration-mismatch',expected:central.registration,actual:localRegistration};
+  }
+  return {ok:true,vehicleId:central.vehicleId || localVehicle,registration:central.registration || localRegistration};
+}
 
 function distanceMeters(a,b) {
   const R=6371000;
@@ -58,7 +91,9 @@ async function saveLocationInternal(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
   const cfg=await getConfig();
   if (cfg.enabled===false) return;
-  const vehicleId=normalizeVehicleId(cfg.vehicleId||cfg.registration);
+  const assigned=await stopIfCentralAssignmentChanged(cfg);
+  if (!assigned.ok) return;
+  const vehicleId=normalizeVehicleId(assigned.vehicleId || cfg.vehicleId || cfg.registration);
   const c=location.coords;
   const now=Date.now();
   // W zadaniu tła Firebase Auth może potrzebować chwili na odtworzenie sesji
@@ -145,6 +180,10 @@ export async function saveVehicleLocationAssignment(registration) {
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
   const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
+  const central=await getCentralVehicleAssignment();
+  if (central.exists && central.vehicleId && central.vehicleId !== vehicle) {
+    throw new Error(`Pojazd nie zgadza się z centralnym przypisaniem: ${central.vehicleId}`);
+  }
   if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
     try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
   }
@@ -189,6 +228,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   const bg=await Location.requestBackgroundPermissionsAsync();
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration}));
+  const guard=await stopIfCentralAssignmentChanged({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration});
+  if (!guard.ok) return {ok:false,reason:guard.reason,expected:guard.expected,actual:guard.actual};
 
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
@@ -218,6 +259,8 @@ export async function ensureVehicleLocationTracking() {
   if (Platform.OS==='web' || !FIREBASE_ENABLED || !db) return {ok:false,reason:'unsupported'};
   const cfg=await getConfig();
   if (cfg.enabled!==true || !(cfg.vehicleId||cfg.registration)) return {ok:false,reason:'disabled'};
+  const guard=await stopIfCentralAssignmentChanged(cfg);
+  if (!guard.ok) return {ok:false,reason:guard.reason,expected:guard.expected,actual:guard.actual};
   if (!(auth?.currentUser?.uid)) return {ok:false,reason:'auth'};
   const fg=await Location.getForegroundPermissionsAsync();
   const bg=await Location.getBackgroundPermissionsAsync();
