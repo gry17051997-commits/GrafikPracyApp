@@ -271,3 +271,87 @@ exports.cleanupVehicleLocationHistory = onSchedule(
     console.log('cleanupVehicleLocationHistory', {vehicles:vehicles.size, deleted});
   }
 );
+
+
+exports.setUserRole = onCall({region:'us-central1'}, async request => {
+  const db = getFirestore();
+  const callerSnap = request.auth ? await db.collection('users').doc(request.auth.uid).get() : null;
+  requireAdmin(request, callerSnap);
+  const uid = String(request.data?.uid || '').trim();
+  const role = String(request.data?.role || '').trim();
+  if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
+  if (!validateRole(role)) throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  if (uid === request.auth.uid && role !== 'admin') throw new HttpsError('failed-precondition','Nie możesz odebrać sobie roli administratora.');
+  const ref = db.collection('users').doc(uid);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
+  const current = snap.data() || {};
+  const personKey = String(current.personKey || '');
+  if (!validatePersonKey(personKey) || !((role === 'employee' && VALID_PERSON_KEYS.has(personKey)) || (role !== 'employee' && personKey === ''))) {
+    throw new HttpsError('failed-precondition','Wybrana rola jest niezgodna z przypisaniem pracownika.');
+  }
+  await ref.set({role,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+  await writeAudit(db,{action:'set-user-role',targetUid:uid,actorUid:request.auth.uid,role,createdAt:new Date()},'setUserRole');
+  return {ok:true,uid,role};
+});
+
+exports.setUserDisabled = onCall({region:'us-central1'}, async request => {
+  const db = getFirestore();
+  const adminAuth = getAuth();
+  const callerSnap = request.auth ? await db.collection('users').doc(request.auth.uid).get() : null;
+  requireAdmin(request, callerSnap);
+  const uid = String(request.data?.uid || '').trim();
+  const disabled = request.data?.disabled === true;
+  if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
+  if (uid === request.auth.uid && disabled) throw new HttpsError('failed-precondition','Administrator nie może wyłączyć własnego konta.');
+  const ref = db.collection('users').doc(uid);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
+  const previous = snap.data() || {};
+  try {
+    await ref.set({disabled,disabledAt:disabled?new Date():null,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+    await adminAuth.updateUser(uid,{disabled});
+  } catch(error) {
+    try { await ref.set(previous); } catch(rollbackError) { console.error('setUserDisabled rollback error',rollbackError); }
+    if (error?.code === 'auth/user-not-found') throw new HttpsError('not-found','Konto logowania użytkownika nie istnieje.');
+    console.error('setUserDisabled error',error);
+    throw new HttpsError('internal','Nie udało się zmienić stanu konta.');
+  }
+  await writeAudit(db,{action:disabled?'disable-user':'enable-user',targetUid:uid,actorUid:request.auth.uid,disabled,createdAt:new Date()},'setUserDisabled');
+  return {ok:true,uid,disabled};
+});
+
+exports.assignVehicleRegistration = onCall({region:'us-central1'}, async request => {
+  const db = getFirestore();
+  const callerSnap = request.auth ? await db.collection('users').doc(request.auth.uid).get() : null;
+  requireAdmin(request, callerSnap);
+  const registration = String(request.data?.registration || '').trim().toUpperCase();
+  if (!registration) throw new HttpsError('invalid-argument','Brak numeru rejestracyjnego.');
+  const vehicleId = registration.replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]/gi,'_').slice(0,40);
+  if (!vehicleId) throw new HttpsError('invalid-argument','Nieprawidłowy numer rejestracyjny.');
+  await db.collection('locationConfig').doc('main').set({vehicleId,registration,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+  await writeAudit(db,{action:'assign-vehicle',actorUid:request.auth.uid,vehicleId,registration,createdAt:new Date()},'assignVehicleRegistration');
+  return {ok:true,vehicleId,registration};
+});
+
+exports.adjustRecoveryBalance = onCall({region:'us-central1'}, async request => {
+  const db = getFirestore();
+  const callerSnap = request.auth ? await db.collection('users').doc(request.auth.uid).get() : null;
+  requireAdmin(request, callerSnap);
+  const person = String(request.data?.person || '').trim();
+  const delta = Number(request.data?.delta);
+  if (!VALID_PERSON_KEYS.has(person)) throw new HttpsError('invalid-argument','Nieprawidłowy pracownik.');
+  if (!Number.isFinite(delta) || delta === 0) throw new HttpsError('invalid-argument','Nieprawidłowa korekta salda.');
+  const ref = db.collection('settings').doc('main');
+  let next = 0;
+  await db.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    const current = snap.data()?.recoveryBalances || {};
+    const currentValue = Number(current[person]) || 0;
+    next = currentValue + delta;
+    if (next < 0) throw new HttpsError('invalid-argument','Saldo nie może spaść poniżej zera.');
+    tx.set(ref,{recoveryBalances:{...current,[person]:next},updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+  });
+  await writeAudit(db,{action:'adjust-recovery-balance',actorUid:request.auth.uid,person,delta,next,createdAt:new Date()},'adjustRecoveryBalance');
+  return {ok:true,person,delta,next};
+});
