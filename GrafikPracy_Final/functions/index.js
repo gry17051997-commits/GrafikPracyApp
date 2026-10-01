@@ -85,6 +85,60 @@ exports.deleteUserAccount = onCall({region:'us-central1'}, async request => {
   return {ok:true,uid};
 });
 
+exports.disableUserAccount = onCall({region:'us-central1'}, async request => {
+  const db=getFirestore();
+  const auth=getAuth();
+  if(!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
+  const callerSnap=await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request,callerSnap);
+
+  const uid=String(request.data?.uid||'').trim();
+  if(!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
+  if(uid===request.auth.uid) throw new HttpsError('failed-precondition','Administrator nie może dezaktywować własnego konta.');
+
+  const ref=db.collection('users').doc(uid);
+  const snap=await ref.get();
+  if(!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
+
+  try {
+    await auth.updateUser(uid,{disabled:true});
+    await ref.set({disabled:true,disabledAt:new Date(),updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+  } catch(error) {
+    console.error('disableUserAccount error',error);
+    throw new HttpsError('internal','Nie udało się dezaktywować konta.');
+  }
+
+  await writeAudit(db,{action:'disable-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'disableUserAccount');
+  return {ok:true,uid};
+});
+
+exports.enableUserAccount = onCall({region:'us-central1'}, async request => {
+  const db=getFirestore();
+  const auth=getAuth();
+  if(!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
+  const callerSnap=await db.collection('users').doc(request.auth.uid).get();
+  requireAdmin(request,callerSnap);
+
+  const uid=String(request.data?.uid||'').trim();
+  if(!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
+  if(uid===request.auth.uid) throw new HttpsError('failed-precondition','Nie można wykonać tej operacji na własnym koncie.');
+
+  const ref=db.collection('users').doc(uid);
+  const snap=await ref.get();
+  if(!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
+
+  try {
+    await auth.updateUser(uid,{disabled:false});
+    await ref.set({disabled:false,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+  } catch(error) {
+    console.error('enableUserAccount error',error);
+    throw new HttpsError('internal','Nie udało się aktywować konta.');
+  }
+
+  await writeAudit(db,{action:'enable-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'enableUserAccount');
+  return {ok:true,uid};
+});
+
 exports.createUserAccount = onCall({region:'us-central1'}, async request => {
   const db = getFirestore();
   const auth = getAuth();
