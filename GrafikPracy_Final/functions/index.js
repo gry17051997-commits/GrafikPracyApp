@@ -16,18 +16,6 @@ function requireAdmin(request, callerSnap) {
   }
 }
 
-function normalizeEmail(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function validateEmail(email) {
-  return email.length <= 254 && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
-}
-
-function validateDisplayName(value) {
-  return value.length >= 2 && value.length <= 100;
-}
-
 async function writeAudit(db,entry,action) {
   try {
     await db.collection('audit').add(entry);
@@ -40,19 +28,13 @@ exports.deleteUserAccount = onCall({region:'us-central1'}, async request => {
   const db = getFirestore();
   const auth = getAuth();
   if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
-
   const callerSnap = await db.collection('users').doc(request.auth.uid).get();
   requireAdmin(request, callerSnap);
-
   const uid = String(request.data?.uid || '').trim();
   if (!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
-  if (uid === request.auth.uid) {
-    throw new HttpsError('failed-precondition','Administrator nie może usunąć własnego konta.');
-  }
-
+  if (uid === request.auth.uid) throw new HttpsError('failed-precondition','Administrator nie może usunąć własnego konta.');
   const targetRef = db.collection('users').doc(uid);
   const targetSnap = await targetRef.get();
-
   try {
     await auth.deleteUser(uid);
   } catch (error) {
@@ -61,14 +43,12 @@ exports.deleteUserAccount = onCall({region:'us-central1'}, async request => {
       throw new HttpsError('internal','Nie udało się usunąć konta logowania.');
     }
   }
-
   try {
     if (targetSnap.exists) await targetRef.delete();
   } catch (error) {
     console.error('deleteUserAccount firestore cleanup error', error);
     throw new HttpsError('internal','Konto logowania zostało usunięte, ale nie udało się usunąć profilu. Powtórz operację lub usuń profil ręcznie.');
   }
-
   await writeAudit(db,{action:'delete-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'deleteUserAccount');
   return {ok:true,uid};
 });
@@ -79,15 +59,12 @@ exports.disableUserAccount = onCall({region:'us-central1'}, async request => {
   if(!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
   const callerSnap=await db.collection('users').doc(request.auth.uid).get();
   requireAdmin(request,callerSnap);
-
   const uid=String(request.data?.uid||'').trim();
   if(!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
   if(uid===request.auth.uid) throw new HttpsError('failed-precondition','Administrator nie może dezaktywować własnego konta.');
-
   const ref=db.collection('users').doc(uid);
   const snap=await ref.get();
   if(!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
-
   try {
     await auth.updateUser(uid,{disabled:true});
     await ref.set({disabled:true,disabledAt:new Date(),updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
@@ -95,7 +72,6 @@ exports.disableUserAccount = onCall({region:'us-central1'}, async request => {
     console.error('disableUserAccount error',error);
     throw new HttpsError('internal','Nie udało się dezaktywować konta.');
   }
-
   await writeAudit(db,{action:'disable-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'disableUserAccount');
   return {ok:true,uid};
 });
@@ -106,15 +82,12 @@ exports.enableUserAccount = onCall({region:'us-central1'}, async request => {
   if(!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
   const callerSnap=await db.collection('users').doc(request.auth.uid).get();
   requireAdmin(request,callerSnap);
-
   const uid=String(request.data?.uid||'').trim();
   if(!uid) throw new HttpsError('invalid-argument','Brak identyfikatora użytkownika.');
   if(uid===request.auth.uid) throw new HttpsError('failed-precondition','Nie można wykonać tej operacji na własnym koncie.');
-
   const ref=db.collection('users').doc(uid);
   const snap=await ref.get();
   if(!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
-
   try {
     await ref.set({disabled:false,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
     await auth.updateUser(uid,{disabled:false});
@@ -123,7 +96,6 @@ exports.enableUserAccount = onCall({region:'us-central1'}, async request => {
     try { await ref.set({disabled:true,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true}); } catch(rollbackError) { console.error('enableUserAccount rollback error',rollbackError); }
     throw new HttpsError('internal','Nie udało się aktywować konta. Stan konta został zabezpieczony jako nieaktywny.');
   }
-
   await writeAudit(db,{action:'enable-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'enableUserAccount');
   return {ok:true,uid};
 });
