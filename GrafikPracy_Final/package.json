@@ -8,9 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "node --test tests/production-hardening.test.js",
-    "check": "npm test",
-    "postinstall": "node scripts/fix-app-build.js && node scripts/fix-chat-build.js"
+    "test": "node --test tests/production-hardening.test.js tests/stage3-regression.test.js",
+    "check": "npm test"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

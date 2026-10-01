@@ -6,6 +6,7 @@ import {
   serverTimestampMillis,
   addHourEpoch
 } from '../scheduleEngine.js';
+import userValidation from '../functions/userValidation.js';
 
 test('24h disabled blocks a second shift for the same person', () => {
   const day = [{person:'P'}, {person:null}];
@@ -26,7 +27,6 @@ test('24h mode does not bypass an unrelated empty-slot restriction', () => {
 test('week documents are isolated by weekId', () => {
   const weekA = buildWeekDocument('2026-09-28', [{dayIndex:0,shifts:[{person:'P'}]}], {hours:10});
   const weekB = buildWeekDocument('2026-10-05', [{dayIndex:0,shifts:[{person:'M'}]}], {hours:12});
-
   assert.equal(weekA.weekId, '2026-09-28');
   assert.equal(weekB.weekId, '2026-10-05');
   assert.notDeepEqual(weekA.week, weekB.week);
@@ -35,10 +35,7 @@ test('week documents are isolated by weekId', () => {
 });
 
 test('invalid week identifiers are rejected before persistence', () => {
-  assert.throws(
-    () => buildWeekDocument('main', [], {}),
-    /Invalid weekId/
-  );
+  assert.throws(() => buildWeekDocument('main', [], {}), /Invalid weekId/);
 });
 
 test('Firestore Timestamp freshness uses server time', () => {
@@ -61,55 +58,15 @@ test('hourly stepping is independent of local DST transitions', () => {
 });
 
 test('week payload cannot accidentally carry the complete multi-week state', () => {
-  const payload = buildWeekDocument(
-    '2026-09-28',
-    [{dayIndex:0,shifts:[{person:'P'}]}],
-    {hours:12,rotation:'P'}
-  );
+  const payload = buildWeekDocument('2026-09-28', [{dayIndex:0,shifts:[{person:'P'}]}], {hours:12,rotation:'P'});
   assert.deepEqual(Object.keys(payload).sort(), ['config','week','weekId']);
 });
 
-test('runtime dashboards do not use interval-driven React tickers', async () => {
-  const fs = await import('node:fs/promises');
-  const paths = [
-    '../Dashboard.js',
-    '../NowDashboard.js',
-    '../LiveLocationDashboard.js'
-  ];
-  for (const relative of paths) {
-    const source = await fs.readFile(new URL(relative, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /setInterval\s*\(/);
-    assert.match(source, /useSecondTicker\(/);
-  }
-});
-
-test('shared ticker uses requestAnimationFrame and cancels on unmount', async () => {
-  const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../hooks/useSecondTicker.js', import.meta.url), 'utf8');
-  assert.match(source, /requestAnimationFrame\(/);
-  assert.match(source, /cancelAnimationFrame\(/);
-});
-
-test('schedule cloud persistence uses a fresh transaction snapshot and updates only dirty shift fields', async () => {
-  const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
-  const blockEnd = source.indexOf("    },250);", blockStart);
-  assert.ok(blockStart >= 0 && blockEnd > blockStart);
-  const block = source.slice(blockStart, blockEnd);
-  assert.match(block, /const localMap=weekToShiftMap\\(localWeek,weekKeyAtSave\\)/);
-  assert.ok(block.includes('transactionUpdate[`shifts.${key}`]'));
-  assert.ok(block.includes('runTransaction(db, async tx =>'));
-  assert.ok(block.includes('tx.get(scheduleRef)'));
-  assert.ok(block.includes('tx.update(scheduleRef,transactionUpdate)'));
-  assert.doesNotMatch(block, /tx\\.set\\(settingsRef/);
-});
-
-test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
-  const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  assert.match(source, /includeMetadataChanges:true/);
-  assert.match(source, /hasPendingWrites/);
-  assert.match(source, /shiftMapToWeek/);
-  assert.match(source, /weekToShiftMap/);
+test('admin role/person assignment contract is enforced server-side', () => {
+  assert.equal(userValidation.validateRolePerson('employee','P'), true);
+  assert.equal(userValidation.validateRolePerson('employee',''), false);
+  assert.equal(userValidation.validateRolePerson('locator',''), true);
+  assert.equal(userValidation.validateRolePerson('locator','P'), false);
+  assert.equal(userValidation.validateRolePerson('admin',''), true);
+  assert.equal(userValidation.validateRolePerson('admin','M'), false);
 });

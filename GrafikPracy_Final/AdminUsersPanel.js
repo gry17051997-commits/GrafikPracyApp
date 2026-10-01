@@ -2,7 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {collection, onSnapshot} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED} from './firebaseConfig';
-import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions} from './AdminUserService';
+import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions, deleteUserAccount} from './AdminUserService';
 
 const KEYS=['P','M','L'];
 const ROLES=['employee','locator','admin'];
@@ -32,7 +32,7 @@ export default function AdminUsersPanel({cloudUser}) {
     if(!modal)return;
     setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
     try{
-      if(modal.mode==='create') await createUserWithoutFunctions(form, cloudUser?.uid);
+      if(modal.mode==='create') await createUserWithoutFunctions(form);
       else await updateUserProfileWithoutFunctions(modal.user.uid,form);
       setModal(null);
       Alert.alert('Gotowe',modal.mode==='create'?(form.role==='locator'?'Lokalizator został dodany.':form.role==='admin'?'Administrator został dodany.':'Pracownik został dodany.'):(form.role==='locator'?'Dane lokalizatora zapisane.':form.role==='admin'?'Dane administratora zapisane.':'Dane pracownika zapisane.'));
@@ -52,12 +52,22 @@ export default function AdminUsersPanel({cloudUser}) {
 
   const remove=async u=>{
     if(!u?.uid||u.uid===cloudUser?.uid)return;
-    Alert.alert('Dezaktywuj konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie wyłączone. Konto Auth pozostanie w Firebase — pełne usunięcie wymaga backendu administracyjnego.',[{text:'Anuluj',style:'cancel'},{text:'DEZAKTYWUJ',style:'destructive',onPress:async()=>{
-      setBusy(u.uid);setError('');
-      try{await disableUserWithoutFunctions(u.uid);Alert.alert('Gotowe','Konto zostało dezaktywowane i ukryte z aktywnej listy.');}
-      catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
-      finally{setBusy('');}
-    }}]);
+    Alert.alert(
+      'Usuń konto',
+      'Konto '+(u.displayName||u.email||u.uid)+' zostanie trwale usunięte z Firebase Authentication oraz Firestore. Tej operacji nie można cofnąć.',
+      [
+        {text:'Anuluj',style:'cancel'},
+        {text:'USUŃ KONTO',style:'destructive',onPress:async()=>{
+          setBusy(u.uid);setError('');
+          try{
+            await deleteUserAccount(u.uid);
+            Alert.alert('Gotowe','Konto zostało trwale usunięte.');
+          }catch(e){
+            setError(e?.message||'Nie udało się usunąć konta.');
+          }finally{setBusy('');}
+        }}
+      ]
+    );
   };
 
   const input=(label,key,props={})=><View style={{marginBottom:9}}>
@@ -76,17 +86,29 @@ export default function AdminUsersPanel({cloudUser}) {
     </TouchableOpacity>
     {users.filter(u=>showDisabled || !u.disabled).map(u=>{
       const self=u.uid===cloudUser?.uid;
-      return <View key={u.uid} style={{backgroundColor:'#1c2029',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d'}}>
-        <View style={{flexDirection:'row',alignItems:'center'}}>
-          <View style={{flex:1}}><Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text><Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text><Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':u.role==='locator'?'📍 Lokalizator':'👤 Pracownik'}{u.personKey?' · '+u.personKey:''}</Text></View>
-          {self?<Text style={{color:'#75a1ff',fontSize:12,fontWeight:'900'}}>TO TY</Text>:<View style={{flexDirection:'row',gap:6}}>
-            {!u.disabled && <TouchableOpacity disabled={!!busy} onPress={()=>edit(u)} style={{backgroundColor:'#293c62',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>✏️</Text></TouchableOpacity>}
-            {u.disabled
-              ? <TouchableOpacity disabled={!!busy} onPress={()=>enable(u)} style={{backgroundColor:'#28644a',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>▶️</Text></TouchableOpacity>
-              : <TouchableOpacity disabled={!!busy} onPress={()=>remove(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy===u.uid?'…':'🗑️'}</Text></TouchableOpacity>
-          </View>}
+      return (
+        <View key={u.uid} style={{backgroundColor:'#1c2029',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d'}}>
+          <View style={{flexDirection:'row',alignItems:'center'}}>
+            <View style={{flex:1}}>
+              <Text style={{color:'#fff',fontSize:15,fontWeight:'900'}}>{u.displayName||u.email||'Bez nazwy'}</Text>
+              <Text style={{color:'#aab3c2',fontSize:12,marginTop:3}}>{u.email||'Brak e-maila'}</Text>
+              <Text style={{color:'#9299a8',fontSize:12,marginTop:3}}>{u.role==='admin'?'👑 Administrator':u.role==='locator'?'📍 Lokalizator':'👤 Pracownik'}{u.personKey?' · '+u.personKey:''}</Text>
+            </View>
+            {self ? (
+              <Text style={{color:'#75a1ff',fontSize:12,fontWeight:'900'}}>TO TY</Text>
+            ) : (
+              <View style={{flexDirection:'row',gap:6}}>
+                {!u.disabled && <TouchableOpacity disabled={!!busy} onPress={()=>edit(u)} style={{backgroundColor:'#293c62',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>✏️</Text></TouchableOpacity>}
+                {u.disabled ? (
+                  <TouchableOpacity disabled={!!busy} onPress={()=>enable(u)} style={{backgroundColor:'#28644a',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>▶️</Text></TouchableOpacity>
+                ) : (
+                  <TouchableOpacity disabled={!!busy} onPress={()=>remove(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy===u.uid?'…':'🗑️'}</Text></TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
         </View>
-      </View>;
+      );
     })}
     {!users.length&&<View style={{backgroundColor:'#1c2029',borderRadius:14,padding:14}}><Text style={{color:'#9299a8'}}>Brak zarejestrowanych użytkowników.</Text></View>}
 
