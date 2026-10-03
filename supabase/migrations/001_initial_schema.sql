@@ -44,6 +44,7 @@ create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
   uid uuid not null references auth.users(id) on delete cascade,
   text text not null check (char_length(text) between 1 and 500),
+  data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -51,6 +52,7 @@ create table if not exists public.whatsapp_reports (
   id uuid primary key default gen_random_uuid(),
   uid uuid not null references auth.users(id) on delete cascade,
   text text not null check (char_length(text) between 1 and 500),
+  data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -83,6 +85,9 @@ create table if not exists public.vehicle_locations (
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
+
+create index if not exists chat_messages_created_at_idx on public.chat_messages(created_at desc);
+create index if not exists whatsapp_reports_uid_created_at_idx on public.whatsapp_reports(uid, created_at desc);
 
 create index if not exists vehicle_locations_vehicle_time_idx
   on public.vehicle_locations(vehicle_id, updated_at desc);
@@ -282,3 +287,20 @@ alter publication supabase_realtime add table public.users;
 alter publication supabase_realtime add table public.vehicle_tracking;
 alter publication supabase_realtime add table public.chat_messages;
 alter publication supabase_realtime add table public.whatsapp_reports;
+
+
+-- Retention: keep vehicle history for 7 days. This function can be invoked by
+-- Supabase scheduled infrastructure without requiring Google Cloud Functions.
+create or replace function public.cleanup_vehicle_locations()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare deleted_count integer;
+begin
+  delete from public.vehicle_locations where updated_at < now() - interval '7 days';
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
+end;
+$$;
