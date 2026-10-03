@@ -97,7 +97,7 @@ test('schedule cloud persistence uses a fresh transaction snapshot and updates o
   const blockEnd = source.indexOf("    },250);", blockStart);
   assert.ok(blockStart >= 0 && blockEnd > blockStart);
   const block = source.slice(blockStart, blockEnd);
-  assert.match(block, /const localMap=weekToShiftMap\\(localWeek,weekKeyAtSave\\)/);
+  assert.match(block, /const localMap=weekToShiftMap\(localWeek,weekKeyAtSave\)/);
   assert.ok(block.includes('transactionUpdate[`shifts.${key}`]'));
   assert.ok(block.includes('runTransaction(db, async tx =>'));
   assert.ok(block.includes('tx.get(scheduleRef)'));
