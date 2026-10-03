@@ -171,7 +171,7 @@ jobs:
 
       - name: Build APK
         working-directory: GrafikPracy_Final/android
-        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
       - name: Start Android emulator and run app
         uses: reactivecircus/android-emulator-runner@v2
@@ -183,32 +183,46 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
           script: |
+            cat > /tmp/grafik-runtime-smoke.sh <<'SH'
             set +e
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+            APK="GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk"
+            adb install -r "$APK"
             INSTALL_RC=$?
             adb logcat -c
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
+            adb shell am force-stop pl.grafikpracy.app
             adb shell monkey -p pl.grafikpracy.app 1
             LAUNCH_RC=$?
-            sleep 8
+            sleep 10
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
-            adb pull /sdcard/window.xml runtime-window.xml >/dev/null 2>&1
-            adb logcat -d > runtime-logcat.txt
-            adb shell pidof pl.grafikpracy.app > runtime-pid.txt
+            adb pull /sdcard/window.xml GrafikPracy_Final/runtime-window.xml >/dev/null 2>&1
+            adb logcat -d > GrafikPracy_Final/runtime-logcat.txt
+            adb shell pidof pl.grafikpracy.app > GrafikPracy_Final/runtime-pid.txt 2>/dev/null
+            PID_RC=$?
             echo "INSTALL_RC=$INSTALL_RC"
+            echo "PID_RC=$PID_RC"
             echo "LAUNCH_RC=$LAUNCH_RC"
             echo "=== UI DUMP ==="
-            cat runtime-window.xml 2>/dev/null
+            cat GrafikPracy_Final/runtime-window.xml 2>/dev/null
             echo "=== PROCESS ==="
-            cat runtime-pid.txt 2>/dev/null
+            cat GrafikPracy_Final/runtime-pid.txt 2>/dev/null
             echo "=== FATAL/ERROR LOGS ==="
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" runtime-logcat.txt | tail -200
+            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" GrafikPracy_Final/runtime-logcat.txt | tail -200
             if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi
-            if grep -q "TEST ${{ matrix.test }}" runtime-window.xml; then
+            if grep -q "TEST ${{ matrix.test }}" GrafikPracy_Final/runtime-window.xml; then
               echo "TEST ${{ matrix.test }} UI marker FOUND"
               exit 0
             fi
+            if grep -q "packager does not seem to be running" GrafikPracy_Final/runtime-logcat.txt; then
+              echo "APP STARTED BUT JS BUNDLE WAS NOT EMBEDDED"
+              exit 3
+            fi
             echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
             exit 2
+            SH
+            bash /tmp/grafik-runtime-smoke.sh
 
       - name: Upload runtime diagnostics
         if: always()
