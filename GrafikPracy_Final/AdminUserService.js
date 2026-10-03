@@ -41,6 +41,12 @@ export async function disableUserWithoutFunctions(uid) {
   return res.data;
 }
 
+export async function deleteUserAccountWithoutFunctions(uid) {
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+  const res=await callable('deleteUserAccount')({uid});
+  return res.data;
+}
+
 export async function enableUserWithoutFunctions(uid) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
   const res=await callable('setUserDisabled')({uid,disabled:false});
