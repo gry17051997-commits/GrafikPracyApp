@@ -193,33 +193,34 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 600
           script: |
-            set +e
+            set -e
             adb wait-for-device
             adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
-            INSTALL_RC=$?
             adb logcat -c
             adb shell monkey -p pl.grafikpracy.app 1
-            LAUNCH_RC=$?
             sleep 8
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
             adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/runtime-window.xml" >/dev/null 2>&1
             adb logcat -d > "$GITHUB_WORKSPACE/runtime-logcat.txt"
-            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt"
-            echo "INSTALL_RC=$INSTALL_RC"
-            echo "LAUNCH_RC=$LAUNCH_RC"
+            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt" || true
             echo "=== UI DUMP ==="
-            cat "$GITHUB_WORKSPACE/runtime-window.xml" 2>/dev/null
+            cat "$GITHUB_WORKSPACE/runtime-window.xml" 2>/dev/null || true
             echo "=== PROCESS ==="
-            cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null
+            cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200
-            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi
-            if grep -q "TEST ${{ matrix.test }}" "$GITHUB_WORKSPACE/runtime-window.xml"; then
-              echo "TEST ${{ matrix.test }} UI marker FOUND"
-              exit 0
-            fi
-            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
-            exit 2
+            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
+            python3 - "$GITHUB_WORKSPACE/runtime-window.xml" "TEST ${{ matrix.test }}" <<'PY'
+            import sys
+            from pathlib import Path
+
+            path = Path(sys.argv[1])
+            marker = sys.argv[2]
+            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+            if marker not in text:
+                print(f"{marker} UI marker NOT FOUND")
+                raise SystemExit(2)
+            print(f"{marker} UI marker FOUND")
+            PY
 
       - name: Upload runtime diagnostics
         if: always()
