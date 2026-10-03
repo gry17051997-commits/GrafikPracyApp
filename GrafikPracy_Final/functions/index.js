@@ -245,7 +245,7 @@ exports.updateUserProfile = onCall({region:'us-central1'}, async request => {
     await auth.updateUser(uid,authUpdate);
   } catch (error) {
     try {
-      await targetRef.set(current);
+      await restoreUserFields(targetRef,current,update);
     } catch (rollbackError) {
       console.error('updateUserProfile firestore rollback error', rollbackError);
     }
