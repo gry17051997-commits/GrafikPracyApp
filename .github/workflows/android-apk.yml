@@ -209,18 +209,12 @@ jobs:
             cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
             grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
-            python3 - "$GITHUB_WORKSPACE/runtime-window.xml" "TEST ${{ matrix.test }}" <<'PY'
-            import sys
-            from pathlib import Path
-
-            path = Path(sys.argv[1])
-            marker = sys.argv[2]
-            text = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
-            if marker not in text:
-                print(f"{marker} UI marker NOT FOUND")
-                raise SystemExit(2)
-            print(f"{marker} UI marker FOUND")
-            PY
+            if grep -q "TEST ${{ matrix.test }}" "$GITHUB_WORKSPACE/runtime-window.xml"; then
+              echo "TEST ${{ matrix.test }} UI marker FOUND"
+              exit 0
+            fi
+            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
+            exit 2
 
       - name: Upload runtime diagnostics
         if: always()
