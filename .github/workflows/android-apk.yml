@@ -182,8 +182,10 @@ jobs:
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
+          emulator-boot-timeout: 15
           script: |
             set +e
+            adb wait-for-device
             adb install -r android/app/build/outputs/apk/debug/app-debug.apk
             INSTALL_RC=$?
             adb logcat -c
@@ -216,8 +218,8 @@ jobs:
         with:
           name: runtime-test-${{ matrix.test }}
           path: |
-            GrafikPracy_Final/runtime-logcat.txt
-            GrafikPracy_Final/runtime-window.xml
-            GrafikPracy_Final/runtime-pid.txt
+            runtime-logcat.txt
+            runtime-window.xml
+            runtime-pid.txt
           if-no-files-found: warn
           retention-days: 14
