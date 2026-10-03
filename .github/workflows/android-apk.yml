@@ -171,7 +171,7 @@ jobs:
 
       - name: Build APK
         working-directory: GrafikPracy_Final/android
-        run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
 
       - name: Start Android emulator and run app
         uses: reactivecircus/android-emulator-runner@v2
@@ -183,13 +183,19 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
           script: |
+            cat > /tmp/grafik-runtime-smoke.sh <<'SH'
             set +e
-            adb install -r GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk
+            APK="GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk"
+            adb install -r "$APK"
             INSTALL_RC=$?
             adb logcat -c
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
+            adb shell am force-stop pl.grafikpracy.app
             adb shell monkey -p pl.grafikpracy.app 1
             LAUNCH_RC=$?
-            sleep 8
+            sleep 10
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
             adb pull /sdcard/window.xml GrafikPracy_Final/runtime-window.xml >/dev/null 2>&1
             adb logcat -d > GrafikPracy_Final/runtime-logcat.txt
@@ -209,8 +215,14 @@ jobs:
               echo "TEST ${{ matrix.test }} UI marker FOUND"
               exit 0
             fi
+            if grep -q "packager does not seem to be running" GrafikPracy_Final/runtime-logcat.txt; then
+              echo "APP STARTED BUT JS BUNDLE WAS NOT EMBEDDED"
+              exit 3
+            fi
             echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
             exit 2
+            SH
+            bash /tmp/grafik-runtime-smoke.sh
 
       - name: Upload runtime diagnostics
         if: always()
