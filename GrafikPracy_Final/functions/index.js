@@ -2,7 +2,7 @@ const {onCall,HttpsError} = require('firebase-functions/v2/https');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {initializeApp} = require('firebase-admin/app');
 const {getAuth} = require('firebase-admin/auth');
-const {getFirestore} = require('firebase-admin/firestore');
+const {getFirestore,FieldValue} = require('firebase-admin/firestore');
 const {normalizeEmail,validateEmail,validateDisplayName,validateRolePerson} = require('./userValidation');
 
 initializeApp();
@@ -21,6 +21,24 @@ async function writeAudit(db,entry,action) {
     await db.collection('audit').add(entry);
   } catch (error) {
     console.error(action+' audit error', error);
+  }
+}
+
+async function restoreUserProfile(ref,previous,updatedFields) {
+  const patch = {};
+  for (const [key,value] of Object.entries(updatedFields)) {
+    const currentSnap = await ref.get();
+    const currentData = currentSnap.exists ? (currentSnap.data() || {}) : {};
+    if (Object.prototype.hasOwnProperty.call(currentData,key) && Object.is(currentData[key],value)) {
+      if (Object.prototype.hasOwnProperty.call(previous,key)) {
+        patch[key] = previous[key];
+      } else {
+        patch[key] = FieldValue.delete();
+      }
+    }
+  }
+  if (Object.keys(patch).length) {
+    await ref.set(patch,{merge:true});
   }
 }
 
@@ -65,12 +83,17 @@ exports.disableUserAccount = onCall({region:'us-central1'}, async request => {
   const ref=db.collection('users').doc(uid);
   const snap=await ref.get();
   if(!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
+  const updatedAt = new Date();
+  const disabledAt = new Date();
+  const update = {disabled:true,disabledAt,updatedAt,updatedBy:request.auth.uid};
   try {
+    await ref.set(update,{merge:true});
     await auth.updateUser(uid,{disabled:true});
-    await ref.set({disabled:true,disabledAt:new Date(),updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
   } catch(error) {
     console.error('disableUserAccount error',error);
-    throw new HttpsError('internal','Nie udało się dezaktywować konta.');
+    try { await restoreUserProfile(ref,snap.data() || {},update); }
+    catch(rollbackError) { console.error('disableUserAccount rollback error',rollbackError); }
+    throw new HttpsError('internal','Nie udało się dezaktywować konta. Stan konta został zabezpieczony.');
   }
   await writeAudit(db,{action:'disable-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'disableUserAccount');
   return {ok:true,uid};
@@ -88,12 +111,20 @@ exports.enableUserAccount = onCall({region:'us-central1'}, async request => {
   const ref=db.collection('users').doc(uid);
   const snap=await ref.get();
   if(!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
+  const updatedAt = new Date();
+  const update = {disabled:false,updatedAt,updatedBy:request.auth.uid};
   try {
-    await ref.set({disabled:false,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
     await auth.updateUser(uid,{disabled:false});
+    await ref.set(update,{merge:true});
   } catch(error) {
     console.error('enableUserAccount error',error);
-    try { await ref.set({disabled:true,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true}); } catch(rollbackError) { console.error('enableUserAccount rollback error',rollbackError); }
+    try {
+      await auth.updateUser(uid,{disabled:true});
+    } catch(rollbackError) {
+      console.error('enableUserAccount auth rollback error',rollbackError);
+    }
+    try { await restoreUserProfile(ref,snap.data() || {},update); }
+    catch(rollbackError) { console.error('enableUserAccount firestore rollback error',rollbackError); }
     throw new HttpsError('internal','Nie udało się aktywować konta. Stan konta został zabezpieczony jako nieaktywny.');
   }
   await writeAudit(db,{action:'enable-user',targetUid:uid,actorUid:request.auth.uid,createdAt:new Date()},'enableUserAccount');
@@ -177,7 +208,7 @@ exports.updateUserProfile = onCall({region:'us-central1'}, async request => {
     if (newPassword) authUpdate.password = newPassword;
     await auth.updateUser(uid,authUpdate);
   } catch (error) {
-    try { await targetRef.set(current); } catch (rollbackError) { console.error('updateUserProfile firestore rollback error', rollbackError); }
+    try { await restoreUserProfile(targetRef,current,update); } catch (rollbackError) { console.error('updateUserProfile firestore rollback error', rollbackError); }
     if (error?.code === 'auth/email-already-exists') throw new HttpsError('already-exists','Ten adres e-mail jest już używany.');
     if (error?.code === 'auth/user-not-found') throw new HttpsError('not-found','Konto logowania użytkownika nie istnieje.');
     console.error('updateUserProfile auth error', error);
