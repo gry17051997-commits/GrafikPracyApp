@@ -2,7 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {collection, onSnapshot} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED} from './firebaseConfig';
-import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions} from './AdminUserService';
+import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions, deleteUserAccountWithoutFunctions} from './AdminUserService';
 
 const KEYS=['P','M','L'];
 const ROLES=['employee','locator','admin'];
@@ -52,12 +52,18 @@ export default function AdminUsersPanel({cloudUser}) {
 
   const remove=async u=>{
     if(!u?.uid||u.uid===cloudUser?.uid)return;
-    Alert.alert('Dezaktywuj konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie wyłączone. Konto Auth pozostanie w Firebase — pełne usunięcie wymaga backendu administracyjnego.',[{text:'Anuluj',style:'cancel'},{text:'DEZAKTYWUJ',style:'destructive',onPress:async()=>{
-      setBusy(u.uid);setError('');
-      try{await disableUserWithoutFunctions(u.uid);Alert.alert('Gotowe','Konto zostało dezaktywowane i ukryte z aktywnej listy.');}
-      catch(e){setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');}
-      finally{setBusy('');}
-    }}]);
+    Alert.alert('Usuń konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie trwale usunięte z Firebase Authentication oraz profilu Firestore. Tej operacji nie można cofnąć.',[
+      {text:'Anuluj',style:'cancel'},
+      {text:'USUŃ TRWALE',style:'destructive',onPress:async()=>{
+        setBusy(u.uid);setError('');
+        try{
+          await deleteUserAccountWithoutFunctions(u.uid);
+          Alert.alert('Gotowe','Konto zostało trwale usunięte.');
+        }catch(e){
+          setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');
+        }finally{setBusy('');}
+      }}
+    ]);
   };
 
   const input=(label,key,props={})=><View style={{marginBottom:9}}>
