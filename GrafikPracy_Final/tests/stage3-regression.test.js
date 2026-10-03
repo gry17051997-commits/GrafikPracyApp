@@ -940,3 +940,13 @@ test('live GPS cache is not blocked by history write failure', () => {
   assert.match(block, /LOCATION_HISTORY_WRITE_ERROR/);
   assert.match(block, /await AsyncStorage\.setItem\(LOCATION_CURRENT_KEY/);
 });
+
+
+test('admin user removal invokes the backend account deletion function, not soft-disable', () => {
+  const panel = read('AdminUsersPanel.js');
+  const service = read('AdminUserService.js');
+  assert.match(panel, /deleteUserAccountWithoutFunctions/);
+  assert.match(panel, /USUŃ TRWALE/);
+  assert.match(service, /callable\('deleteUserAccount'\)/);
+  assert.doesNotMatch(panel, /remove=async u=>[\\s\\S]*DEZAKTYWUJ/);
+});
