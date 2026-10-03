@@ -173,6 +173,15 @@ jobs:
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
 
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo usermod -aG kvm "$USER"
+          ls -l /dev/kvm
+          groups
+
       - name: Start Android emulator and run app
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -182,7 +191,7 @@ jobs:
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
-          emulator-boot-timeout: 15
+          emulator-boot-timeout: 600
           script: |
             set +e
             adb wait-for-device
