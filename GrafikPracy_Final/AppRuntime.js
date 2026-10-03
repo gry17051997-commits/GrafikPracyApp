@@ -421,7 +421,13 @@ export default function App() {
         // przypisania pojazdu. Chroni to przed startem GPS na starym aucie
         // zapisanym lokalnie, zanim Firestore zdąży dostarczyć nowe przypisanie.
         if (cloudRole === 'locator') {
-          setLocationTracking(false);
+          const result = c.enabled === true
+            ? await ensureVehicleLocationTracking()
+            : await startVehicleLocationTracking({
+                vehicleId: c.vehicleId || vehicleRegistration,
+                registration: c.registration || vehicleRegistration
+              });
+          if (mounted) setLocationTracking(result.ok === true);
           return;
         }
         setLocationTracking(c.enabled === true && !!c.vehicleId);
@@ -436,7 +442,7 @@ export default function App() {
       if(state==='active') refreshLocationState();
     });
     return ()=>{mounted=false; sub?.remove?.();};
-  },[ready,cloudRole]);
+  },[ready,cloudRole,vehicleRegistration]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
