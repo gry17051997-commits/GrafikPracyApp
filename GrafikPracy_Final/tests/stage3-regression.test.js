@@ -28,7 +28,7 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
-  assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| \(signedIn\(\)/);
+  assert.match(rules, /allow read:\s*if\s+(?:isAdmin\(\)|activeUser\(\))/);
   assert.match(rules, /locationConfig\/main\).*vehicleId == vehicleId/);
 });
 
@@ -40,7 +40,7 @@ test('Firestore rules keep role escalation and admin-only profile deletion', () 
 });
 
 test('logout and auth loss stop background GPS tracking', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /await stopVehicleLocationTracking\(\)/);
   assert.match(app, /onAuthStateChanged/);
   assert.match(app, /!user/);
@@ -73,7 +73,7 @@ test('GPS tracker guards against duplicate background tasks', () => {
 test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
   const service = read('LocationService.js');
   assert.doesNotMatch(service, /Math\.random\(\)<0\.08/);
-  assert.match(service, /const cutoff=now-7\*24\*60\*60\*1000/);
+  assert.match(service, /const cutoff\s*=\s*now-7\*24\*60\*60\*1000/);
   assert.match(service, /const cutoffTimestamp=Timestamp\.fromMillis\(cutoff\)/);
   assert.match(service, /where\('updatedAt','<',cutoffTimestamp\)/);
   assert.match(service, /orderBy\('updatedAt','asc'\)/);
@@ -89,7 +89,7 @@ test('report widget filters shared history to the current worker', () => {
 });
 
 test('report alarm persists a bounded set of handled notification IDs', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const handled = raw \? JSON\.parse\(raw\) : \[\]/);
   assert.match(app, /const handledIds = Array\.isArray\(handled\) \? handled : \(raw \? \[raw\] : \[\]\)/);
   assert.match(app, /handledIds\.includes\(id\)/);
@@ -107,7 +107,7 @@ test('LocationService closes saveLocationInternal before declaring the serialize
 });
 
 test('schedule notification date calculation uses stored Monday weeks without shifting days twice', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /for \(let weekOffset = 0; weekOffset < 2; weekOffset\+\+\)/);
   assert.match(app, /const weekStart = addDays\(startDay,weekOffset \* 7\);/);
   assert.match(app, /const key = iso\(weekStart\);/);
@@ -115,7 +115,7 @@ test('schedule notification date calculation uses stored Monday weeks without sh
 });
 
 test('schedule generator keeps weekday rotation while Sunday Łukasz is supplied by editable MUST defaults', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const pairs = \[/);
   assert.doesNotMatch(app, /w\[6\]\.shifts\[0\]\.person = 'L'/);
   assert.doesNotMatch(app, /w\[6\]\.shifts\[1\]\.person = 'L'/);
@@ -136,7 +136,7 @@ test('Web deployment uses the lockfile for deterministic dependency installation
 });
 
 test('bottom navigation stays usable on narrow screens', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /navDock:\{flex:1,flexDirection:'row'/);
   assert.match(app, /navBtn:\{flex:1,minWidth:0/);
   assert.match(app, /navText:\{color:'#8f99aa'.*fontSize:10/);
@@ -145,7 +145,7 @@ test('bottom navigation stays usable on narrow screens', () => {
 });
 
 test('weekly totals use the configured hours for the displayed week', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const currentWeekHours = currentWeekConfig\.hours \|\| hours/);
   assert.match(app, /result\.all\.hours \+= currentWeekHours/);
   assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
@@ -165,7 +165,7 @@ test('web and Android acceptance surfaces remain wired', () => {
 
 
 test('cloud snapshot apply guard remains owned by the cloud save effect', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('useEffect(() => {\n    if (!ready || !scheduleHydratedRef.current) return;');
   const end = app.indexOf("useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;", start);
   const block = app.slice(start, end);
@@ -175,7 +175,7 @@ test('cloud snapshot apply guard remains owned by the cloud save effect', () => 
 
 test('GPS cache is cleared when the assigned vehicle changes or tracking stops', () => {
   const service = read('LocationService.js');
-  assert.match(service, /safeVehicleId\(old\.vehicleId\|\|old\.registration\) !== vehicle/);
+  assert.match(service, /normalizeVehicleId\(old\.vehicleId\|\|old\.registration\) !== vehicle/);
   assert.match(service, /removeItem\(LOCATION_CURRENT_KEY\)/);
 });
 
@@ -187,7 +187,7 @@ test('GPS widget only exposes cached coordinates for the currently assigned vehi
 });
 
 test('offline schedule state is durable and cache snapshots cannot discard it', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /cloudPending:cloudDirtyRef\.current/);
   assert.match(app, /cloudBaseUpdatedAt:cloudUpdatedAtRef\.current/);
   assert.match(app, /onSnapshot\(doc\(db,'schedules','main'\), \{includeMetadataChanges:true\}/);
@@ -197,7 +197,7 @@ test('offline schedule state is durable and cache snapshots cannot discard it', 
 });
 
 test('schedule save refuses to overwrite an existing remote document before initial sync', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const payload = {hours,rotation,warehouse,weeks');
   const end = app.indexOf('const parseHM =', start);
   const block = app.slice(start, end);
@@ -206,7 +206,7 @@ test('schedule save refuses to overwrite an existing remote document before init
 });
 
 test('rotation changes never overwrite manual, locked or recovery OFF assignments', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const changeRotation =');
   const end = app.indexOf('  const openWeekSetup =', start);
   const block = app.slice(start, end);
@@ -216,7 +216,7 @@ test('rotation changes never overwrite manual, locked or recovery OFF assignment
 });
 
 test('reselecting the current rotation is a no-op', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const changeRotation =');
   const end = app.indexOf('  const openWeekSetup =', start);
   const block = app.slice(start, end);
@@ -225,7 +225,7 @@ test('reselecting the current rotation is a no-op', () => {
 });
 
 test('week setup preserves an existing week instead of replacing its assignments', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const confirmWeekSetup =');
   const end = app.indexOf('  const moveWeek =', start);
   const block = app.slice(start, end);
@@ -233,7 +233,7 @@ test('week setup preserves an existing week instead of replacing its assignments
 });
 
 test('offline swap approval validates the current assignments before marking approved', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const approveProposal = async proposal => {');
   const end = app.indexOf('  const rejectProposal = async id => {', start);
   const block = app.slice(start, end);
@@ -244,7 +244,7 @@ test('offline swap approval validates the current assignments before marking app
 });
 
 test('advanced generator treats person-specific OFF as a candidate restriction and detects conflicting MUST rules', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /c\.type==='off' && !c\.person && conditionApplies\(c,''/);
   assert.match(app, /const mustErrors=\[\];/);
   assert.match(app, /sprzeczne MUST/);
@@ -268,7 +268,7 @@ test('GPS history writes are serialized to prevent concurrent duplicate-history 
 });
 
 test('hourly report notifications use alarm presentation and handoff to report', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /title: '🚨 RAPORT GODZINOWY'/);
   assert.match(app, /sound: 'default'/);
   assert.match(app, /data: \{type:'work-report', alarm:true\}/);
@@ -278,7 +278,7 @@ test('hourly report notifications use alarm presentation and handoff to report',
 });
 
 test('work report notification refreshes continuity before opening modal', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const openReportAlarm = async response =>/);
   const start = app.indexOf('const openReportAlarm = async response =>');
   const end = app.indexOf('const sub = Notifications.addNotificationResponseReceivedListener', start);
@@ -290,7 +290,7 @@ test('work report notification refreshes continuity before opening modal', () =>
 });
 
 test('report notification scheduling reacts to per-week configuration changes', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("useEffect(() => {\n    if (!ready || Platform.OS === 'web') return;\n    const timer = setTimeout(() => { scheduleReportNotifications().catch(()=>{}); }, 800);");
   const end = app.indexOf("  },[ready,reportsEnabled,myPerson,weeks,weekConfigs,times,vehicleRegistration]);", start);
   assert.ok(start >= 0 && end > start);
@@ -302,7 +302,7 @@ test('report notification scheduling reacts to per-week configuration changes', 
 
 
 test('Sunday 24h for Łukasz is an editable default MUST rule, not hardcoded in generateWeek', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.doesNotMatch(app, /w\[6\]\.shifts\[0\]\.person\s*=\s*'L'/);
   assert.doesNotMatch(app, /w\[6\]\.shifts\[1\]\.person\s*=\s*'L'/);
   assert.match(app, /id:'default-sunday-l-1',type:'must',person:'L',dayIndex:6,shift:1/);
@@ -311,7 +311,7 @@ test('Sunday 24h for Łukasz is an editable default MUST rule, not hardcoded in 
 });
 
 test('Changing hours in the schedule view does not mutate global hours or times', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const changeHours = h => {');
   const end = app.indexOf('\n  };', start);
   const block = app.slice(start, end);
@@ -322,28 +322,28 @@ test('Changing hours in the schedule view does not mutate global hours or times'
 
 
 test('advanced generator never overwrites manual or locked assignments', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /if \(dayHasPassed\(di\) \|\| s\.locked \|\| s\.manual\) return;/);
   assert.match(app, /if \(dayHasPassed\(di\) \|\| s\.locked \|\| s\.manual\) return;/);
   assert.match(app, /MUST dla \$\{PEOPLE\[c\.person\]\.name\} koliduje z istniejącą blokadą/);
 });
 
 test('advanced generator validates existing assignments against hard OFF and FORBID rules', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /jest obsadzony mimo globalnego OFF/);
   assert.match(app, /ma OFF przy istniejącej obsadzie/);
   assert.match(app, /łamie NIE MOŻE/);
 });
 
 test('weekly totals read the displayed week hours instead of global hours', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /result\.all\.hours \+= currentWeekHours/);
   assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
 });
 
 
 test('OFF without replacement remains an auto-fillable vacancy and remembers its original owner', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /s\.off\s*===\s*true/);
   assert.match(app, /s\.person\s*===\s*null/);
   assert.match(app, /offOriginalPerson/);
@@ -351,33 +351,33 @@ test('OFF without replacement remains an auto-fillable vacancy and remembers its
 });
 
 test('generator never assigns the original owner back into their own OFF vacancy', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /slot\.offOriginalPerson/);
   assert.match(app, /person === slot\.offOriginalPerson/);
 });
 
 test('replacement on an OFF shift remains manual and is not overwritten by generation', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /sh\.person=offReplacement \|\| null/);
   assert.match(app, /sh\.manual=true/);
 });
 
 
 test('recover debt does not grow from already locked or historical replacement shifts', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const baseTargetCounts/);
   assert.match(app, /generateWeek\(currentWeekConfig\.rotation \|\| rotation,currentWeekWarehouse\)/);
   assert.doesNotMatch(app, /targets\[p\]=Math\.max\(targets\[p\]===null\?counts\[p\]:targets\[p\],counts\[p\]\+recoveryTarget\[p\]\)/);
 });
 
 test('recover target is based on the clean weekly template plus one recovery debt', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const baseTarget=targets\[p\]===null\?baseTargetCounts\[p\]:targets\[p\]/);
   assert.match(app, /targets\[p\]\s*=\s*baseTarget\+recoveryTarget\s*;/);
 });
 
 test('generator uses a soft capacity limit instead of cancelling a valid partial schedule', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const capacityWarnings=\[\];/);
   assert.match(app, /const maxAvailable=counts\[p\]\+availableDays\.size/);
   assert.match(app, /Math\.min\(requestedTarget,maxAvailable\)/);
@@ -386,20 +386,20 @@ test('generator uses a soft capacity limit instead of cancelling a valid partial
 });
 
 test('automatic capacity respects one-shift-per-day when calculating max available', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const availableDays=new Set\(\);/);
   assert.match(app, /availableDays\.add\(slot\.di\)/);
   assert.match(app, /result\[slot\.di\]\.shifts\.some\(x=>x\.person===p\)/);
 });
 
 test('soft target clipping never lowers target below already realized assignments', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /Math\.max\(counts\[p\],Math\.min\(requestedTarget,maxAvailable\)\)/);
 });
 
 
 test('recovery ledger contract: recover OFF adds exactly one debt entry', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /recoveryBalances/);
   assert.match(app, /recoveryLedger/);
   assert.match(app, /offMode==='recover'/);
@@ -407,7 +407,7 @@ test('recovery ledger contract: recover OFF adds exactly one debt entry', () => 
 });
 
 test('recovery ledger entry ids are not based on timestamp alone', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const appendRecoveryLedger =');
   const end = app.indexOf('const confirmRecovery =', start);
   const block = app.slice(start, end);
@@ -415,7 +415,7 @@ test('recovery ledger entry ids are not based on timestamp alone', () => {
 });
 
 test('recovery ledger is read-only from the advanced generator', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const generateAdvancedWeek = () => {');
   const end = app.indexOf('  const regenerate = () => {', start);
   const block = app.slice(start, end);
@@ -426,7 +426,7 @@ test('recovery ledger is read-only from the advanced generator', () => {
 });
 
 test('repeated generation cannot mutate recovery ledger state', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const recoveryBalancesSnapshot/);
   assert.match(app, /const recoveryTarget/);
   assert.match(app, /baseTarget\+recoveryTarget/);
@@ -434,7 +434,7 @@ test('repeated generation cannot mutate recovery ledger state', () => {
 });
 
 test('clearing the current week never clears or decrements recovery debt', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const clearCurrentWeek = () => {');
   const end = app.indexOf('  const clearWholeWeekShift =', start);
   const block = app.slice(start, end);
@@ -443,21 +443,21 @@ test('clearing the current week never clears or decrements recovery debt', () =>
 });
 
 test('confirmRecovery decrements debt with an auditable ledger entry', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const confirmRecovery\s*=\s*\(?person\)?\s*=>/);
   assert.match(app, /Math\.max\(0,/);
   assert.match(app, /appendRecoveryLedger\(person,-1,'recovery-confirmed'\)/);
 });
 
 test('recovery repayment at zero is idempotent and cannot create negative balance', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /if\s*\(current\s*<=\s*0\)/);
   assert.match(app, /return\s*;/);
   assert.match(app, /Math\.max\(0,\(Number\(prev\[person\]\)\|\|0\)-1\)/);
 });
 
 test('manual negative recovery correction is clamped at zero and audited', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /adjustRecoveryBalance/);
   assert.match(app, /Math\.max\(0,/);
   assert.match(app, /appendRecoveryLedger\(person,applied,'manual-correction'/);
@@ -465,14 +465,14 @@ test('manual negative recovery correction is clamped at zero and audited', () =>
 });
 
 test('swap proposals snapshot the week and expected assignments', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /weekKey:wkKey/);
   assert.match(app, /fromExpectedPerson:swapModal\.person \|\| null/);
   assert.match(app, /toExpectedPerson:swapTarget/);
 });
 
 test('swap approval uses the proposal week and rejects stale or locked shifts', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const approveProposal = async proposal => {');
   const end = app.indexOf('  const rejectProposal = async id => {', start);
   const block = app.slice(start, end);
@@ -486,7 +486,7 @@ test('swap approval uses the proposal week and rejects stale or locked shifts', 
 });
 
 test('manual negative recovery correction records the actually applied delta', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const adjustRecoveryBalance =');
   const end = app.indexOf('  const saveOff =', start);
   const block = app.slice(start, end);
@@ -499,7 +499,7 @@ test('manual negative recovery correction records the actually applied delta', (
 });
 
 test('backup contains all locally persisted schedule and business state', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const buildBackupPayload = \(\) =>/);
   assert.match(app, /weekConfigs,autoGenerateWeeks/);
   assert.match(app, /conditions,proposals,myPerson/);
@@ -508,7 +508,7 @@ test('backup contains all locally persisted schedule and business state', () => 
 });
 
 test('restore rejects negative recovery balances and malformed ledger entries', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const restoreBackup = () =>');
   const end = app.indexOf('  const shareFile =', start);
   const block = app.slice(start, end);
@@ -521,7 +521,7 @@ test('restore rejects negative recovery balances and malformed ledger entries', 
 });
 
 test('restore restores persisted state beyond the base schedule', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /setWeekConfigs\(data\.weekConfigs \|\| \{\}\)/);
   assert.match(app, /setAutoGenerateWeeks\(!!data\.autoGenerateWeeks\)/);
   assert.match(app, /setRecoveryBalances/);
@@ -532,7 +532,7 @@ test('restore restores persisted state beyond the base schedule', () => {
 });
 
 test('reset clears local auxiliary state as well as the main schedule', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /AsyncStorage\.removeItem\(LEGACY_KEY\)/);
   assert.match(app, /AsyncStorage\.removeItem\(REPORT_HISTORY_KEY\)/);
   assert.match(app, /AsyncStorage\.removeItem\(LOCATION_CONFIG_KEY\)/);
@@ -542,7 +542,7 @@ test('reset clears local auxiliary state as well as the main schedule', () => {
 });
 
 test('PDF export headers use the displayed week time configuration', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /I · \$\{escapeHtml\(currentWeekTimes\.s1\)/);
   assert.match(app, /II · \$\{escapeHtml\(currentWeekTimes\.s2\)/);
   assert.doesNotMatch(app, /I · \$\{escapeHtml\(times\.s1\)/);
@@ -550,7 +550,7 @@ test('PDF export headers use the displayed week time configuration', () => {
 
 
 test('default Sunday Łukasz MUST conditions survive backup restore and full reset', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const restoreStart = app.indexOf('const restoreBackup = () => {');
   const restoreEnd = app.indexOf('  const shareFile =', restoreStart);
   const restoreBlock = app.slice(restoreStart, restoreEnd);
@@ -569,7 +569,7 @@ test('locator role is available for account creation and accepted by client/rule
   const panel = read('AdminUsersPanel.js');
   const service = read('AdminUserService.js');
   const rules = read('firestore.rules');
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(panel, /const ROLES=\['employee','locator','admin'\]/);
   assert.match(panel, /📍 LOKALIZATOR/);
   assert.match(service, /createUserWithEmailAndPassword/);
@@ -586,7 +586,7 @@ test('locator role is required for vehicle GPS writes', () => {
 });
 
 test('locator interface hides schedule, summary and chat navigation', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /cloudRole==='locator'\s*\?\s*\[\]\s*:\s*\[\['grafik','📅','Grafik'\]\]/);
   assert.match(app, /cloudRole==='locator'\s*\?\s*\[\]\s*:\s*\[\['summary','📊','Suma'\],\['chat','💬','Czat'\]\]/);
   assert.match(app, /cloudRole==='locator'\s*\?\s*locatorSettings\s*:\s*settings/);
@@ -600,7 +600,7 @@ test('live GPS dashboard does not claim the transmitter must be an employee acco
 });
 
 test('locator GPS UI uses the admin-assigned vehicle and cannot edit the registration locally', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const locatorSettings = (');
   const end = app.indexOf('const settings = (', start);
   const block = app.slice(start, end);
@@ -614,7 +614,7 @@ test('locator GPS UI uses the admin-assigned vehicle and cannot edit the registr
 });
 
 test('admin vehicle assignment is written to the central GPS config', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("await saveVehicleLocationAssignment(reg);");
   const end = app.indexOf("setVehicleRegistration(reg);", start);
   const block = app.slice(start, end);
@@ -626,7 +626,7 @@ test('admin vehicle assignment is written to the central GPS config', () => {
 });
 
 test('locator syncs local GPS assignment when admin changes the vehicle', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("const data = snap.data() || {};");
   const end = app.indexOf("    });", start);
   const block = app.slice(start, end);
@@ -706,7 +706,7 @@ test('locator activation with no local vehicle input uses central assignment', (
 });
 
 test('removing central vehicle assignment stops an active locator GPS transmitter', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("if (!snap.exists())");
   const end = app.indexOf("        return;", start) + "        return;".length;
   const block = app.slice(start, end);
@@ -717,7 +717,7 @@ test('removing central vehicle assignment stops an active locator GPS transmitte
 
 
 test('recovery OFF keeps debt attached to the original employee, not the replacement', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const saveOff = () =>');
   const end = app.indexOf('const submitSwap = async () =>', start);
   const block = app.slice(start, end);
@@ -729,7 +729,7 @@ test('recovery OFF keeps debt attached to the original employee, not the replace
 });
 
 test('changing recovery OFF back to plain OFF reverses the recovery ledger entry', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const saveOff = () =>');
   const end = app.indexOf('const submitSwap = async () =>', start);
   const block = app.slice(start, end);
@@ -740,7 +740,7 @@ test('changing recovery OFF back to plain OFF reverses the recovery ledger entry
 
 
 test('cloud recovery snapshots are sanitized before entering app state', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const normalizeRecoveryBalances = value =>/);
   assert.match(app, /Number\.isFinite\(n\) && n >= 0/);
   assert.match(app, /const normalizeRecoveryLedger = value =>/);
@@ -751,7 +751,7 @@ test('cloud recovery snapshots are sanitized before entering app state', () => {
 });
 
 test('online schedule persistence includes recovery balance and ledger changes', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("const payload = {hours,rotation,warehouse,weeks,weekConfigs");
   const end = app.indexOf("},[ready,hours", start);
   const effect = app.slice(start, end);
@@ -761,7 +761,7 @@ test('online schedule persistence includes recovery balance and ledger changes',
 });
 
 test('swap approval uses a Firestore transaction against the current proposal and schedule', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const approveProposal = async proposal =>');
   const end = app.indexOf('const rejectProposal = async id =>', start);
   const block = app.slice(start, end);
@@ -775,7 +775,7 @@ test('swap approval uses a Firestore transaction against the current proposal an
 
 
 test('shared schedule save guards against stale remote updates', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
   const end = app.indexOf("\n\n  const parseHM", start);
   const block = app.slice(start, end);
@@ -788,7 +788,7 @@ test('shared schedule save guards against stale remote updates', () => {
 
 
 test('schedule conflict immediately reloads the authoritative remote snapshot', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
   const end = app.indexOf("\n\n  const parseHM", start);
   const block = app.slice(start, end);
@@ -800,7 +800,7 @@ test('schedule conflict immediately reloads the authoritative remote snapshot', 
 });
 
 test('schedule sync coalesces rapid local state changes into one write window', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const cloudSaveTimerRef = useRef\(null\)/);
   const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
   const end = app.indexOf("\n\n  const parseHM", start);
@@ -812,7 +812,7 @@ test('schedule sync coalesces rapid local state changes into one write window', 
 });
 
 test('approved swaps are marked manual so the generator preserves them', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const approveProposal = async proposal =>');
   const end = app.indexOf('const rejectProposal = async id =>', start);
   const block = app.slice(start, end);
@@ -820,7 +820,7 @@ test('approved swaps are marked manual so the generator preserves them', () => {
 });
 
 test('manual shift editing uses immutable React state updates', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const updateShift =');
   const end = app.indexOf('const removeShift =', start);
   const block = app.slice(start, end);
@@ -830,7 +830,7 @@ test('manual shift editing uses immutable React state updates', () => {
 });
 
 test('locking a shift uses immutable React state updates', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const toggleLock =');
   const end = app.indexOf('const openOff =', start);
   const block = app.slice(start, end);
@@ -840,7 +840,7 @@ test('locking a shift uses immutable React state updates', () => {
 });
 
 test('advanced generator preserves manual and locked assignments including approved swaps', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const generateAdvancedWeek = () =>');
   const end = app.indexOf('const generateSchedule =', start);
   const block = app.slice(start, end);
@@ -850,7 +850,7 @@ test('advanced generator preserves manual and locked assignments including appro
 });
 
 test('reset all stops active locator GPS before clearing local location config', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const resetAll = () =>');
   const end = app.indexOf('const buildBackupPayload', start);
   const block = app.slice(start, end);
@@ -860,7 +860,7 @@ test('reset all stops active locator GPS before clearing local location config',
 
 
 test('backup restore validates version and core schedule schema before mutating state', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const restoreBackup = () =>');
   const end = app.indexOf('const shareFile = async', start);
   const block = app.slice(start, end);
@@ -875,7 +875,7 @@ test('backup restore validates version and core schedule schema before mutating 
 
 
 test('swap rejection is guarded by pending status', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const rejectProposal = async id =>');
   const end = app.indexOf('const changeRotation', start);
   const block = app.slice(start, end);
@@ -887,7 +887,7 @@ test('swap rejection is guarded by pending status', () => {
 
 
 test('swap proposal rejects identical source and target shifts and validates source assignment', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const submitSwap = async () =>');
   const end = app.indexOf('const approveProposal', start);
   const block = app.slice(start, end);
@@ -899,7 +899,7 @@ test('swap proposal rejects identical source and target shifts and validates sou
 
 
 test('employee swap proposal is restricted to the logged-in employee source shift', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const submitSwap = async () =>');
   const end = app.indexOf('const approveProposal', start);
   const block = app.slice(start, end);
@@ -919,7 +919,7 @@ test('Firestore proposal creation binds employee source person to the user profi
 });
 
 test('Android report alarms use a dedicated MAX-importance channel with vibration and lock-screen visibility', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /const REPORT_NOTIFICATION_CHANNEL_ID = 'work-report-alarm'/);
   assert.match(app, /Notifications\.setNotificationChannelAsync\(REPORT_NOTIFICATION_CHANNEL_ID/);
   assert.match(app, /importance: Notifications\.AndroidImportance\.MAX/);
@@ -932,7 +932,7 @@ test('Android report alarms use a dedicated MAX-importance channel with vibratio
 });
 
 test('report alarm repeats vibration while open and cancels it when dismissed', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   const start = app.indexOf('useEffect(() => {\n    if (!reportAlarm)');
   const end = app.indexOf('  const ensureReportNotificationChannel', start);
   const block = app.slice(start, end);
@@ -941,7 +941,7 @@ test('report alarm repeats vibration while open and cancels it when dismissed', 
 });
 
 test('notification response handling ignores duplicate or stale last-response deliveries', () => {
-  const app = read('App.js');
+  const app = read('AppRuntime.js');
   assert.match(app, /REPORT_LAST_HANDLED_NOTIFICATION_KEY/);
   assert.match(app, /handledReportNotificationRef\.current === id/);
   assert.match(app, /AsyncStorage\.getItem\(REPORT_LAST_HANDLED_NOTIFICATION_KEY\)/);
