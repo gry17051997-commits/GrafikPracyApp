@@ -1716,17 +1716,25 @@ export default function App() {
     const recoveryPerson = offMode === 'recover'
       ? (previousRecoveryPerson || previousShift?.person || null)
       : null;
-    setWeek(w=>{
-      const sh=w[dayIndex].shifts[shiftIndex];
-      sh.person=offReplacement || null;
-      sh.off=true;
-      sh.offMode=offMode;
-      sh.replacement=offReplacement||null;
-      sh.offOriginalPerson=recoveryPerson || null;
-      sh.recoverPerson=recoveryPerson || null;
-      sh.manual=true;
-      return w;
-    });
+    setWeek(w=>w.map((day,di)=>{
+      if(di!==dayIndex)return day;
+      return {
+        ...day,
+        shifts:(day.shifts||[]).map((shift,si)=>{
+          if(si!==shiftIndex)return shift;
+          return {
+            ...shift,
+            person:offReplacement || null,
+            off:true,
+            offMode,
+            replacement:offReplacement||null,
+            offOriginalPerson:recoveryPerson || null,
+            recoverPerson:recoveryPerson || null,
+            manual:true
+          };
+        })
+      };
+    }));
     if (previousRecoveryPerson && previousRecoveryPerson !== recoveryPerson) {
       const currentDebt=Number(recoveryBalances[previousRecoveryPerson])||0;
       if (currentDebt > 0) {
