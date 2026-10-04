@@ -1081,3 +1081,22 @@ test('npm test covers both hardening and Stage 3 regression suites', () => {
   assert.match(pkg.scripts.test, /production-hardening\.test\.js/);
   assert.match(pkg.scripts.test, /stage3-regression\.test\.js/);
 });
+
+test('local GPS cache keeps numeric timestamps while Firestore uses server timestamps', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /const firestorePayload=\{[\s\S]*updatedAt:serverTimestamp\(\)/);
+  assert.match(service, /const cachePayload=\{\.\.\.basePayload,updatedAt:now,historyAt:historyPayload\.historyAt\}/);
+  assert.match(service, /AsyncStorage\.setItem\(LOCATION_CURRENT_KEY,JSON\.stringify\(cachePayload\)\)/);
+});
+
+test('admin recovery settings are not written back into shared settings after migration', () => {
+  const app = read('AppRuntime.js');
+  const start = app.indexOf("onSnapshot(doc(db,'settings','main')");
+  const end = app.indexOf("onSnapshot(adminRef", start);
+  const block = app.slice(start, end);
+  assert.doesNotMatch(block, /setRecoveryBalances\(/);
+  assert.doesNotMatch(block, /setRecoveryLedger\(/);
+  assert.doesNotMatch(block, /recoveryBalances:/);
+  assert.doesNotMatch(block, /recoveryLedger:/);
+});
+
