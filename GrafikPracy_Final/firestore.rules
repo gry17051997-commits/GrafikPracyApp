@@ -199,7 +199,7 @@ service cloud.firestore {
 
     match /proposals/{proposalId} {
       allow read: if isAdmin() || (activeUser() && resource.data.fromUid == request.auth.uid);
-      allow create: if signedIn()
+      allow create: if activeUser()
         && request.resource.data.fromUid == request.auth.uid
         && request.resource.data.status == 'pending'
         && (isAdmin()
