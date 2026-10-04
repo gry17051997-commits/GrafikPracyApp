@@ -8,7 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "node --test tests/production-hardening.test.js",
+    "test": "node --test tests/production-hardening.test.js tests/stage3-regression.test.js",
     "check": "npm test"
   },
   "dependencies": {
