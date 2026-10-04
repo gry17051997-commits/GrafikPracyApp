@@ -1023,3 +1023,23 @@ test('runtime smoke test validates a live production process and UI marker', () 
   assert.match(workflow, /PRODUCTION APP STARTED/);
 });
 
+test('OFF editing uses immutable nested shift updates', () => {
+  const app = read('AppRuntime.js');
+  const start = app.indexOf('const saveOff = () =>');
+  const end = app.indexOf('const submitSwap = async () =>', start);
+  const block = app.slice(start, end);
+  assert.match(block, /setWeek\(w=>w\.map/);
+  assert.match(block, /shifts:\(day\.shifts\|\|\[\]\)\.map/);
+  assert.match(block, /person:offReplacement \|\| null/);
+  assert.doesNotMatch(block, /sh\.person\s*=/);
+  assert.doesNotMatch(block, /sh\.off\s*=/);
+});
+
+test('legacy cloud-function and build-mutation paths are absent from the production tree', () => {
+  const service = read('AdminUserService.js');
+  const firebase = read('firebaseConfig.js');
+  const pkg = read('package.json');
+  assert.doesNotMatch(service, /httpsCallable|firebase\/functions/);
+  assert.doesNotMatch(firebase, /firebase\/functions|getFunctions/);
+  assert.doesNotMatch(pkg, /postinstall/);
+});
