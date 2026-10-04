@@ -2,7 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {collection, onSnapshot} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED} from './firebaseConfig';
-import {updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions, deleteUserAccountWithoutFunctions} from './AdminUserService';
+import {updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions} from './AdminUserService';
 import {createUserInvite, listUserInvites, revokeUserInvite} from './UserInviteService';
 
 const KEYS=['P','M','L'];
@@ -87,17 +87,17 @@ export default function AdminUsersPanel({cloudUser}) {
     finally{setBusy('');}
   };
 
-  const remove=async u=>{
+  const deactivate=async u=>{
     if(!u?.uid||u.uid===cloudUser?.uid)return;
-    Alert.alert('Usuń konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie trwale usunięte z Firebase Authentication oraz profilu Firestore. Tej operacji nie można cofnąć.',[
+    Alert.alert('Dezaktywuj użytkownika','Profil '+(u.displayName||u.email||u.uid)+' zostanie dezaktywowany. Konto Firebase Authentication nie zostanie usunięte.',[
       {text:'Anuluj',style:'cancel'},
-      {text:'USUŃ TRWALE',style:'destructive',onPress:async()=>{
+      {text:'DEZAKTYWUJ',style:'destructive',onPress:async()=>{
         setBusy(u.uid);setError('');
         try{
-          await deleteUserAccountWithoutFunctions(u.uid);
-          Alert.alert('Gotowe','Konto zostało trwale usunięte.');
+          await disableUserWithoutFunctions(u.uid);
+          Alert.alert('Gotowe','Profil użytkownika został dezaktywowany.');
         }catch(e){
-          setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');
+          setError((e?.message||'Nie udało się dezaktywować profilu.')+' ('+(e?.code||'unknown')+')');
         }finally{setBusy('');}
       }}
     ]);
@@ -110,7 +110,7 @@ export default function AdminUsersPanel({cloudUser}) {
 
   return <View style={{marginTop:16}}>
     <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-      <View style={{flex:1}}><Text style={{color:'#fff',fontSize:19,fontWeight:'900'}}>👥 Pracownicy i konta</Text><Text style={{color:'#9299a8',fontSize:13,marginTop:3}}>Dodawanie, edycja, role, przypisanie i usuwanie.</Text></View>
+      <View style={{flex:1}}><Text style={{color:'#fff',fontSize:19,fontWeight:'900'}}>👥 Pracownicy i konta</Text><Text style={{color:'#9299a8',fontSize:13,marginTop:3}}>Zaproszenia, edycja, role, przypisanie i dezaktywacja.</Text></View>
       <TouchableOpacity onPress={create} disabled={!!busy} style={{backgroundColor:'#3f78ed',borderRadius:11,paddingVertical:10,paddingHorizontal:12}}><Text style={{color:'#fff',fontWeight:'900'}}>＋ DODAJ</Text></TouchableOpacity>
     </View>
     {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>⚠️ {error}</Text>}
@@ -149,7 +149,7 @@ export default function AdminUsersPanel({cloudUser}) {
               <Text style={{color:'#fff',fontWeight:'900'}}>▶️</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity disabled={!!busy} onPress={()=>remove(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}>
+            <TouchableOpacity disabled={!!busy} onPress={()=>deactivate(u)} style={{backgroundColor:'#7b3039',borderRadius:10,paddingVertical:9,paddingHorizontal:10}}>
               <Text style={{color:'#fff',fontWeight:'900'}}>{busy===u.uid?'…':'🗑️'}</Text>
             </TouchableOpacity>
           )}
