@@ -95,8 +95,14 @@ service cloud.firestore {
     }
 
     match /settings/main {
-      allow read: if activeUser();
+      allow read: if isAdmin()
+        || (activeUser()
+          && !resource.data.keys().hasAny(['recoveryBalances','recoveryLedger']));
       allow write: if isAdmin();
+    }
+
+    match /settings/admin {
+      allow read, write: if isAdmin();
     }
 
     match /proposals/{proposalId} {
