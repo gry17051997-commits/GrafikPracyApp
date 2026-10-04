@@ -52,6 +52,10 @@ export default function AdminUsersPanel({cloudUser}) {
 
   const save=async()=>{
     if(!modal)return;
+    if(modal.mode==='edit'&&form.role==='employee'&&!KEYS.includes(form.personKey)){
+      setError('Pracownik musi mieć przypisane P/M/L.');
+      return;
+    }
     setBusy(modal.mode==='create'?'create':modal.user.uid);setError('');
     try{
       if(modal.mode==='create'){
@@ -183,7 +187,7 @@ export default function AdminUsersPanel({cloudUser}) {
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{ROLES.map(role=><TouchableOpacity key={role} disabled={modal?.user?.uid===cloudUser?.uid&&role!=='admin'} onPress={()=>setForm(f=>({...f,role}))} style={{backgroundColor:form.role===role?'#3f78ed':'#252b35',borderRadius:10,padding:10,opacity:(modal?.user?.uid===cloudUser?.uid&&role!=='admin')?.45:1}}><Text style={{color:'#fff',fontWeight:'800'}}>{role==='admin'?'👑 ADMIN':role==='locator'?'📍 LOKALIZATOR':'👤 PRACOWNIK'}</Text></TouchableOpacity>)}</View>
             {!!error&&<Text style={{color:'#ff8a8a',fontSize:13,lineHeight:19,marginBottom:8}}>{error}</Text>}
-            <View style={{flexDirection:'row',gap:8}}><TouchableOpacity onPress={close} disabled={!!busy} style={{flex:1,backgroundColor:'#303744',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>ANULUJ</Text></TouchableOpacity><TouchableOpacity onPress={save} disabled={!!busy} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy?'ZAPISUJĘ…':modal?.mode==='create'?'UTWÓRZ ZAPROSZENIE':'ZAPISZ'}</Text></TouchableOpacity></View>
+            <View style={{flexDirection:'row',gap:8}}><TouchableOpacity onPress={close} disabled={!!busy} style={{flex:1,backgroundColor:'#303744',borderRadius:12,padding:13,alignItems:'center'}}><Text style={{color:'#fff',fontWeight:'900'}}>ANULUJ</Text></TouchableOpacity><TouchableOpacity onPress={save} disabled={!!busy||(modal?.mode==='edit'&&form.role==='employee'&&!KEYS.includes(form.personKey))} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center',opacity:modal?.mode==='edit'&&form.role==='employee'&&!KEYS.includes(form.personKey)?0.5:1}}><Text style={{color:'#fff',fontWeight:'900'}}>{busy?'ZAPISUJĘ…':modal?.mode==='create'?'UTWÓRZ ZAPROSZENIE':'ZAPISZ'}</Text></TouchableOpacity></View>
           </ScrollView>
         </View>
       </View>
