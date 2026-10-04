@@ -204,7 +204,6 @@ export default function App() {
   const adminSettingsRemoteRef = useRef(null);
   const adminSettingsApplyingRef = useRef(false);
   const adminSettingsLoadedRef = useRef(false);
-  const legacyAdminSettingsMigrationRef = useRef(false);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
   const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
@@ -760,38 +759,9 @@ export default function App() {
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
 
-    const unsub = onSnapshot(doc(db,'settings','main'), async snap => {
+    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
       if (!snap.exists()) return;
       const data = snap.data() || {};
-
-      // Legacy migration: move private recovery data out of the shared settings
-      // document the first time an administrator sees the old schema.
-      if (
-        cloudRole === 'admin'
-        && !legacyAdminSettingsMigrationRef.current
-        && (data.recoveryBalances !== undefined || data.recoveryLedger !== undefined)
-      ) {
-        legacyAdminSettingsMigrationRef.current = true;
-        try {
-          const adminRef = doc(db,'settings','admin');
-          const adminSnap = await getDoc(adminRef);
-          if (!adminSnap.exists()) {
-            await setDoc(adminRef,{
-              recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
-              recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger),
-              migratedFromSharedSettingsAt: serverTimestamp(),
-              migratedBy: cloudUser.uid
-            },{merge:true});
-          }
-          await updateDoc(doc(db,'settings','main'),{
-            recoveryBalances: deleteField(),
-            recoveryLedger: deleteField()
-          });
-        } catch(e) {
-          legacyAdminSettingsMigrationRef.current = false;
-          setCloudError('Nie udało się odseparować danych administracyjnych. Kod: ' + (e?.code || e?.message || 'unknown'));
-        }
-      }
 
       const sharedSettings = {
         hours: data.hours || 10,
@@ -823,23 +793,73 @@ export default function App() {
   },[cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin') return;
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
 
-    const unsub = onSnapshot(doc(db,'settings','admin'), snap => {
-      const data = snap.exists() ? snap.data() || {} : {};
-      const adminSettings = {
-        recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
-        recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger)
-      };
-      adminSettingsRemoteRef.current = adminSettings;
-      adminSettingsApplyingRef.current = true;
-      adminSettingsLoadedRef.current = true;
-      setRecoveryBalances(adminSettings.recoveryBalances);
-      setRecoveryLedger(adminSettings.recoveryLedger);
-    }, err => setCloudError('Brak dostępu do ustawień administracyjnych. Kod: ' + (err?.code || 'nieznany')));
+    let cancelled = false;
+    let unsub = null;
 
-    return unsub;
-  },[cloudUser,cloudRole]);
+    const bootstrapAdminSettings = async () => {
+      const mainRef = doc(db,'settings','main');
+      const adminRef = doc(db,'settings','admin');
+      try {
+        const [adminSnap,mainSnap] = await Promise.all([getDoc(adminRef),getDoc(mainRef)]);
+        if (cancelled) return;
+
+        if (!adminSnap.exists()) {
+          const mainData = mainSnap.exists() ? mainSnap.data() || {} : {};
+          const hasLegacyPrivateData =
+            mainData.recoveryBalances !== undefined
+            || mainData.recoveryLedger !== undefined;
+
+          await setDoc(adminRef,{
+            recoveryBalances: hasLegacyPrivateData
+              ? normalizeRecoveryBalances(mainData.recoveryBalances)
+              : normalizeRecoveryBalances(recoveryBalances),
+            recoveryLedger: hasLegacyPrivateData
+              ? normalizeRecoveryLedger(mainData.recoveryLedger)
+              : normalizeRecoveryLedger(recoveryLedger),
+            createdAt: serverTimestamp(),
+            createdBy: cloudUser.uid,
+            updatedAt: serverTimestamp(),
+            updatedBy: cloudUser.uid
+          },{merge:true});
+
+          if (hasLegacyPrivateData) {
+            await updateDoc(mainRef,{
+              recoveryBalances: deleteField(),
+              recoveryLedger: deleteField()
+            });
+          }
+        }
+
+        if (cancelled) return;
+        adminSettingsLoadedRef.current = true;
+
+        unsub = onSnapshot(adminRef,snap => {
+          const data = snap.exists() ? snap.data() || {} : {};
+          const adminSettings = {
+            recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
+            recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger)
+          };
+          adminSettingsRemoteRef.current = adminSettings;
+          adminSettingsApplyingRef.current = true;
+          setRecoveryBalances(adminSettings.recoveryBalances);
+          setRecoveryLedger(adminSettings.recoveryLedger);
+        }, err => setCloudError('Brak dostępu do ustawień administracyjnych. Kod: ' + (err?.code || 'nieznany')));
+      } catch(e) {
+        adminSettingsLoadedRef.current = false;
+        setCloudError('Nie udało się przygotować ustawień administracyjnych. Kod: ' + (e?.code || e?.message || 'unknown'));
+      }
+    };
+
+    bootstrapAdminSettings();
+
+    return () => {
+      cancelled = true;
+      adminSettingsLoadedRef.current = false;
+      if (unsub) unsub();
+    };
+  },[ready,cloudUser,cloudRole]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready || !settingsRemoteLoadedRef.current) return;
