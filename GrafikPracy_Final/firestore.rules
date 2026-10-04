@@ -36,30 +36,127 @@ service cloud.firestore {
         : {};
     }
 
+    function validInviteRole(role) {
+      return role in ['admin', 'employee', 'locator'];
+    }
+
+    function validInviteRolePerson(role, personKey) {
+      return (role == 'employee' && personKey in ['P', 'M', 'L'])
+        || (role in ['admin', 'locator'] && personKey == '');
+    }
+
+    function validInviteDocument(data) {
+      return data.keys().hasAll([
+          'email','displayName','role','personKey','status','expiresAt',
+          'createdAt','createdBy','claimedBy','claimedAt'
+        ])
+        && data.keys().hasOnly([
+          'email','displayName','role','personKey','status','expiresAt',
+          'createdAt','createdBy','claimedBy','claimedAt'
+        ])
+        && data.email is string
+        && data.email.size() <= 254
+        && data.email.matches('^[^@ ]+@[^@ ]+\\.[^@ ]+$')
+        && data.displayName is string
+        && data.displayName.size() >= 2
+        && data.displayName.size() <= 100
+        && validInviteRole(data.role)
+        && validInviteRolePerson(data.role, data.personKey)
+        && data.status == 'pending'
+        && data.expiresAt is timestamp
+        && data.expiresAt > request.time
+        && data.expiresAt <= request.time + duration.value(30, 'd')
+        && data.createdAt == request.time
+        && data.createdBy == request.auth.uid
+        && data.claimedBy == null
+        && data.claimedAt == null;
+    }
+
+    function validInviteClaimUpdate(inviteId) {
+      let profile = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return signedIn()
+        && request.auth.token.get('email_verified', false) == true
+        && resource.data.status == 'pending'
+        && resource.data.expiresAt > request.time
+        && resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status','claimedBy','claimedAt'])
+        && request.resource.data.status == 'claimed'
+        && request.resource.data.claimedBy == request.auth.uid
+        && request.resource.data.claimedAt == request.time
+        && profile.uid == request.auth.uid
+        && profile.inviteId == inviteId
+        && profile.email == request.auth.token.get('email', '')
+        && profile.displayName == resource.data.displayName
+        && profile.role == resource.data.role
+        && profile.personKey == resource.data.personKey
+        && profile.disabled == false
+        && profile.status == 'active'
+        && profile.createdAt == request.time
+        && profile.updatedAt == request.time;
+    }
+
+    function validInviteClaimProfile(uid) {
+      let inviteId = request.resource.data.inviteId;
+      let invitePath = /databases/$(database)/documents/userInvites/$(inviteId);
+      let invite = get(invitePath).data;
+      let inviteAfter = getAfter(invitePath).data;
+      return signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.get('email_verified', false) == true
+        && request.resource.data.keys().hasAll([
+          'uid','email','displayName','role','personKey','disabled',
+          'createdAt','updatedAt','status','inviteId'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'uid','email','displayName','role','personKey','disabled',
+          'createdAt','updatedAt','status','inviteId'
+        ])
+        && inviteId is string
+        && inviteId.matches('^[a-f0-9]{64}$')
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.get('email', '')
+        && request.resource.data.disabled == false
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && invite.status == 'pending'
+        && invite.expiresAt > request.time
+        && invite.email == request.auth.token.get('email', '')
+        && request.resource.data.displayName == invite.displayName
+        && request.resource.data.role == invite.role
+        && request.resource.data.personKey == invite.personKey
+        && inviteAfter.status == 'claimed'
+        && inviteAfter.claimedBy == request.auth.uid
+        && inviteAfter.claimedAt == request.time;
+    }
+
+    match /userInvites/{inviteId} {
+      allow get: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.token.get('email_verified', false) == true
+          && request.auth.token.get('email', '') == resource.data.email
+          && resource.data.status == 'pending'
+          && resource.data.expiresAt > request.time
+        );
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && inviteId.matches('^[a-f0-9]{64}$')
+        && validInviteDocument(request.resource.data);
+      allow update: if (
+          isAdmin()
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'revoked'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        ) || validInviteClaimUpdate(inviteId);
+      allow delete: if false;
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
 
-      allow create: if (
-        signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['email','role','createdAt'])
-        && request.resource.data.role == 'employee'
-        && request.resource.data.email is string
-      ) || (
-        isAdmin()
-        && uid == request.resource.data.uid
-        && request.resource.data.keys().hasOnly([
-          'uid','email','displayName','personKey','role',
-          'disabled','createdAt','updatedAt','createdBy'
-        ])
-        && request.resource.data.email is string
-        && request.resource.data.displayName is string
-        && request.resource.data.role in ['admin','employee','locator']
-        && request.resource.data.personKey in ['', 'P', 'M', 'L']
-        && validRolePerson(request.resource.data.role, request.resource.data.personKey)
-        && request.resource.data.disabled == false
-        && request.resource.data.createdBy == request.auth.uid
-      );
+      allow create: if validInviteClaimProfile(uid);
 
       allow update: if isAdmin()
         && uid != request.auth.uid
@@ -83,7 +180,7 @@ service cloud.firestore {
     // Legacy monolithic schedule is retained read-only for administrators during migration.
     // New clients must use schedules/{weekId}.
     match /schedules/main {
-      allow read: if signedIn();
+      allow read: if activeUser();
       allow write: if false;
     }
 
@@ -101,7 +198,7 @@ service cloud.firestore {
     }
 
     match /proposals/{proposalId} {
-      allow read: if isAdmin() || (signedIn() && resource.data.fromUid == request.auth.uid);
+      allow read: if isAdmin() || (activeUser() && resource.data.fromUid == request.auth.uid);
       allow create: if signedIn()
         && request.resource.data.fromUid == request.auth.uid
         && request.resource.data.status == 'pending'
@@ -134,7 +231,7 @@ service cloud.firestore {
 
     match /locationConfig/main {
       allow read: if isAdmin()
-        || (signedIn());
+        || activeUser();
       allow write: if isAdmin();
     }
 

@@ -8,25 +8,30 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "test": "node --test tests/production-hardening.test.js",
+    "test": "node --test tests/*.test.js",
+    "test:rules": "npx firebase-tools emulators:exec --only firestore --project demo-grafikpracy-user-invites \"node --test tests/firestore-user-invites.rules.test.js\"",
     "check": "npm test",
     "postinstall": "node scripts/fix-app-build.js && node scripts/fix-chat-build.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~54.0.0",
+    "expo-clipboard": "~8.0.8",
+    "expo-crypto": "~15.0.8",
+    "expo-location": "~19.0.8",
+    "expo-notifications": "~0.32.17",
     "expo-print": "~15.0.8",
     "expo-sharing": "~14.0.8",
+    "expo-task-manager": "~14.0.9",
+    "firebase": "^12.0.0",
     "react": "19.1.0",
     "react-dom": "^19.1.0",
     "react-native": "0.81.5",
     "react-native-view-shot": "4.0.3",
-    "firebase": "^12.0.0",
-    "expo-notifications": "~0.32.17",
-    "expo-clipboard": "~8.0.8",
     "react-native-web": "^0.21.0",
-    "expo-location": "~19.0.8",
-    "expo-task-manager": "~14.0.9",
     "react-native-webview": "~13.15.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2"
   }
 }

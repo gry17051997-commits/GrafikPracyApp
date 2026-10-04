@@ -29,15 +29,19 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
-  assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| \(signedIn\(\)/);
+  assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| activeUser\(\)/);
   assert.match(rules, /locationConfig\/main\).*vehicleId == vehicleId/);
 });
 
-test('Firestore rules keep role escalation and self-delete blocked', () => {
+test('Firestore rules bind profile creation to a verified invite claim and block self-delete', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /uid != request\.auth\.uid/);
   assert.match(rules, /allow delete: if false;/);
-  assert.match(rules, /request\.resource\.data\.role == 'employee'/);
+  assert.match(rules, /request\.auth\.token\.get\('email_verified', false\) == true/);
+  assert.match(rules, /request\.resource\.data\.role == invite\.role/);
+  assert.match(rules, /request\.resource\.data\.personKey == invite\.personKey/);
+  assert.match(rules, /request\.resource\.data\.displayName == invite\.displayName/);
+  assert.match(rules, /inviteAfter\.claimedBy == request\.auth\.uid/);
 });
 
 test('logout and auth loss stop background GPS tracking', () => {
@@ -259,9 +263,9 @@ test('advanced generator treats person-specific OFF as a candidate restriction a
 });
 
 
-test('main schedule requires authentication for reads', () => {
+test('main schedule requires an active user profile for reads', () => {
   const rules = read('firestore.rules');
-  assert.match(rules, /match \/schedules\/main \{\s*allow read: if signedIn\(\);/);
+  assert.match(rules, /match \/schedules\/main \{\s*allow read: if activeUser\(\);/);
   assert.doesNotMatch(rules, /match \/schedules\/main \{\s*allow read: if true;/);
 });
 
