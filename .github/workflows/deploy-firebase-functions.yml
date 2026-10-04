@@ -2,7 +2,7 @@ name: Deploy Firebase Functions
 
 on:
   push:
-    branches: ['main']
+    branches: ['main', 'fix/production-gps-admin-2026-10-03']
     paths:
       - 'GrafikPracy_Final/functions/**'
       - 'GrafikPracy_Final/AdminUsersPanel.js'
