@@ -669,14 +669,15 @@ test('Now dashboard reacts to central vehicle assignment changes', () => {
 });
 
 
-test('locator cannot restart GPS from stale local assignment before central assignment is loaded', () => {
-  const app = read('App.js');
+test('locator resumes GPS from the central vehicle assignment', () => {
+  const app = read('AppRuntime.js');
   const start = app.indexOf('const refreshLocationState=async()=>');
   const end = app.indexOf('    };', start) + '    };'.length;
   const block = app.slice(start, end);
   assert.match(block, /if \(cloudRole === 'locator'\)/);
-  assert.match(block, /setLocationTracking\(false\)/);
-  assert.doesNotMatch(block, /cloudRole === 'locator'[\\s\\S]*ensureVehicleLocationTracking\(\)/);
+  assert.match(block, /ensureVehicleLocationTracking\(\)/);
+  assert.match(block, /startVehicleLocationTracking\(/);
+  assert.match(block, /setLocationTracking\(result\.ok === true\)/);
 });
 
 test('removing central vehicle assignment stops an active locator GPS transmitter', () => {
@@ -949,4 +950,12 @@ test('admin user removal invokes the backend account deletion function, not soft
   assert.match(panel, /USUŃ TRWALE/);
   assert.match(service, /callable\('deleteUserAccount'\)/);
   assert.doesNotMatch(panel, /remove=async u=>[\\s\\S]*DEZAKTYWUJ/);
+});
+
+test('backend user creation enforces role and person assignment as one contract', () => {
+  const fn = read('functions/index.js');
+  const start = fn.indexOf('exports.createUserAccount');
+  const end = fn.indexOf('exports.updateUserProfile', start);
+  const block = fn.slice(start, end);
+  assert.match(block, /validateRolePerson\(role,personKey\)/);
 });

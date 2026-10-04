@@ -173,6 +173,15 @@ jobs:
         working-directory: GrafikPracy_Final/android
         run: ./gradlew assembleDebug --no-daemon --console=plain --max-workers=2
 
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo usermod -aG kvm "$USER"
+          ls -l /dev/kvm
+          groups
+
       - name: Start Android emulator and run app
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -182,33 +191,26 @@ jobs:
           profile: pixel_2
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           disable-animations: true
+          emulator-boot-timeout: 600
           script: |
-            set +e
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-            INSTALL_RC=$?
+            set -e
+            adb wait-for-device
+            adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
             adb logcat -c
             adb shell monkey -p pl.grafikpracy.app 1
-            LAUNCH_RC=$?
             sleep 8
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
-            adb pull /sdcard/window.xml runtime-window.xml >/dev/null 2>&1
-            adb logcat -d > runtime-logcat.txt
-            adb shell pidof pl.grafikpracy.app > runtime-pid.txt
-            echo "INSTALL_RC=$INSTALL_RC"
-            echo "LAUNCH_RC=$LAUNCH_RC"
+            adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/runtime-window.xml" >/dev/null 2>&1
+            adb logcat -d > "$GITHUB_WORKSPACE/runtime-logcat.txt"
+            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt" || true
             echo "=== UI DUMP ==="
-            cat runtime-window.xml 2>/dev/null
+            cat "$GITHUB_WORKSPACE/runtime-window.xml" 2>/dev/null || true
             echo "=== PROCESS ==="
-            cat runtime-pid.txt 2>/dev/null
+            cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" runtime-logcat.txt | tail -200
-            if [ "$INSTALL_RC" -ne 0 ] || [ "$LAUNCH_RC" -ne 0 ]; then exit 1; fi
-            if grep -q "TEST ${{ matrix.test }}" runtime-window.xml; then
-              echo "TEST ${{ matrix.test }} UI marker FOUND"
-              exit 0
-            fi
-            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
-            exit 2
+            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
+            grep -q "TEST ${{ matrix.test }}" "$GITHUB_WORKSPACE/runtime-window.xml"
+            echo "TEST ${{ matrix.test }} UI marker FOUND"
 
       - name: Upload runtime diagnostics
         if: always()
@@ -216,8 +218,8 @@ jobs:
         with:
           name: runtime-test-${{ matrix.test }}
           path: |
-            GrafikPracy_Final/runtime-logcat.txt
-            GrafikPracy_Final/runtime-window.xml
-            GrafikPracy_Final/runtime-pid.txt
+            ${{ github.workspace }}/runtime-logcat.txt
+            ${{ github.workspace }}/runtime-window.xml
+            ${{ github.workspace }}/runtime-pid.txt
           if-no-files-found: warn
           retention-days: 14

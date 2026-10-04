@@ -11,9 +11,31 @@ const VALID_PERSON_KEYS = new Set(['P','M','L']);
 
 function requireAdmin(request, callerSnap) {
   if (!request.auth) throw new HttpsError('unauthenticated','Musisz być zalogowany.');
-  if (!callerSnap.exists || callerSnap.data()?.role !== 'admin') {
-    throw new HttpsError('permission-denied','Tylko administrator może wykonywać tę operację.');
+  if (!callerSnap.exists || callerSnap.data()?.role !== 'admin' || callerSnap.data()?.disabled === true) {
+    throw new HttpsError('permission-denied','Tylko aktywny administrator może wykonywać tę operację.');
   }
+}
+
+function validateRolePerson(role, personKey) {
+  return validateRole(role)
+    && validatePersonKey(personKey)
+    && (
+      (role === 'employee' && VALID_PERSON_KEYS.has(personKey))
+      || (role !== 'employee' && personKey === '')
+    );
+}
+
+async function restoreUserFields(ref, previous, updatedFields) {
+  const currentSnap = await ref.get();
+  const current = currentSnap.exists ? (currentSnap.data() || {}) : {};
+  const patch = {};
+  for (const [key,value] of Object.entries(updatedFields)) {
+    if (!Object.prototype.hasOwnProperty.call(current,key)) continue;
+    if (!Object.is(current[key],value)) continue;
+    if (Object.prototype.hasOwnProperty.call(previous,key)) patch[key] = previous[key];
+    else patch[key] = require('firebase-admin/firestore').FieldValue.delete();
+  }
+  if (Object.keys(patch).length) await ref.set(patch,{merge:true});
 }
 
 function normalizeEmail(value) {
@@ -107,11 +129,8 @@ exports.createUserAccount = onCall({region:'us-central1'}, async request => {
   if (!validateDisplayName(displayName)) {
     throw new HttpsError('invalid-argument','Imię i nazwisko musi mieć od 2 do 100 znaków.');
   }
-  if (!validatePersonKey(personKey)) {
-    throw new HttpsError('invalid-argument','Nieprawidłowy identyfikator pracownika.');
-  }
-  if (!validateRole(role)) {
-    throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  if (!validateRolePerson(role,personKey)) {
+    throw new HttpsError('invalid-argument','Nieprawidłowe połączenie roli i przypisania pracownika.');
   }
 
   if (personKey) {
@@ -181,7 +200,7 @@ exports.updateUserProfile = onCall({region:'us-central1'}, async request => {
   const email = normalizeEmail(data.email ?? current.email);
   const newPassword = String(data.password || '');
 
-  if (!validateRole(role)) throw new HttpsError('invalid-argument','Nieprawidłowa rola użytkownika.');
+  if (!validateRolePerson(role,personKey)) throw new HttpsError('invalid-argument','Nieprawidłowe połączenie roli i przypisania pracownika.');
   if (!validateDisplayName(displayName)) {
     throw new HttpsError('invalid-argument','Imię i nazwisko musi mieć od 2 do 100 znaków.');
   }
@@ -226,7 +245,7 @@ exports.updateUserProfile = onCall({region:'us-central1'}, async request => {
     await auth.updateUser(uid,authUpdate);
   } catch (error) {
     try {
-      await targetRef.set(current);
+      await restoreUserFields(targetRef,current,update);
     } catch (rollbackError) {
       console.error('updateUserProfile firestore rollback error', rollbackError);
     }
@@ -308,11 +327,12 @@ exports.setUserDisabled = onCall({region:'us-central1'}, async request => {
   const snap = await ref.get();
   if (!snap.exists) throw new HttpsError('not-found','Profil użytkownika nie istnieje.');
   const previous = snap.data() || {};
+  const update = {disabled,disabledAt:disabled?new Date():null,updatedAt:new Date(),updatedBy:request.auth.uid};
   try {
-    await ref.set({disabled,disabledAt:disabled?new Date():null,updatedAt:new Date(),updatedBy:request.auth.uid},{merge:true});
+    await ref.set(update,{merge:true});
     await adminAuth.updateUser(uid,{disabled});
   } catch(error) {
-    try { await ref.set(previous); } catch(rollbackError) { console.error('setUserDisabled rollback error',rollbackError); }
+    try { await restoreUserFields(ref,previous,update); } catch(rollbackError) { console.error('setUserDisabled rollback error',rollbackError); }
     if (error?.code === 'auth/user-not-found') throw new HttpsError('not-found','Konto logowania użytkownika nie istnieje.');
     console.error('setUserDisabled error',error);
     throw new HttpsError('internal','Nie udało się zmienić stanu konta.');
