@@ -175,13 +175,13 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
   });
 }
 
-export async function saveVehicleLocationAssignment(registration) {
+export async function saveVehicleLocationAssignment(registration,{allowCentralChange=false}={}) {
   const reg=String(registration||'').trim().toUpperCase();
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
   const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
   const central=await getCentralVehicleAssignment();
-  if (central.exists && central.vehicleId && central.vehicleId !== vehicle) {
+  if (!allowCentralChange && central.exists && central.vehicleId && central.vehicleId !== vehicle) {
     throw new Error(`Pojazd nie zgadza się z centralnym przypisaniem: ${central.vehicleId}`);
   }
   if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
