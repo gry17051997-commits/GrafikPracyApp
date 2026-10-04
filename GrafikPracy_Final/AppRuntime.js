@@ -198,6 +198,13 @@ export default function App() {
   const weeksRef = useRef({});
   weeksRef.current = weeks;
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
+  const settingsRemoteRef = useRef(null);
+  const settingsApplyingRef = useRef(false);
+  const settingsRemoteLoadedRef = useRef(false);
+  const adminSettingsRemoteRef = useRef(null);
+  const adminSettingsApplyingRef = useRef(false);
+  const adminSettingsLoadedRef = useRef(false);
+  const legacyAdminSettingsMigrationRef = useRef(false);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
   const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
@@ -751,10 +758,41 @@ export default function App() {
     return unsub;
   },[cloudUser,cloudRole]);
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser)) return;
-    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+
+    const unsub = onSnapshot(doc(db,'settings','main'), async snap => {
       if (!snap.exists()) return;
       const data = snap.data() || {};
+
+      // Legacy migration: move private recovery data out of the shared settings
+      // document the first time an administrator sees the old schema.
+      if (
+        cloudRole === 'admin'
+        && !legacyAdminSettingsMigrationRef.current
+        && (data.recoveryBalances !== undefined || data.recoveryLedger !== undefined)
+      ) {
+        legacyAdminSettingsMigrationRef.current = true;
+        try {
+          const adminRef = doc(db,'settings','admin');
+          const adminSnap = await getDoc(adminRef);
+          if (!adminSnap.exists()) {
+            await setDoc(adminRef,{
+              recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
+              recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger),
+              migratedFromSharedSettingsAt: serverTimestamp(),
+              migratedBy: cloudUser.uid
+            },{merge:true});
+          }
+          await updateDoc(doc(db,'settings','main'),{
+            recoveryBalances: deleteField(),
+            recoveryLedger: deleteField()
+          });
+        } catch(e) {
+          legacyAdminSettingsMigrationRef.current = false;
+          setCloudError('Nie udało się odseparować danych administracyjnych. Kod: ' + (e?.code || e?.message || 'unknown'));
+        }
+      }
+
       const sharedSettings = {
         hours: data.hours || 10,
         rotation: data.rotation || 'P',
@@ -763,14 +801,14 @@ export default function App() {
         allow24h: typeof data.allow24h === 'boolean' ? data.allow24h : false,
         times: data.times || DEFAULT_TIMES,
         personColors: data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
-        conditions: Array.isArray(data.conditions) ? data.conditions : [],
-        recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
-        recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger)
+        conditions: Array.isArray(data.conditions) ? data.conditions : []
       };
+
       settingsRemoteRef.current = sharedSettings;
       settingsApplyingRef.current = true;
       settingsRemoteLoadedRef.current = true;
       cloudApplying.current = true;
+
       setHours(sharedSettings.hours);
       setRotation(sharedSettings.rotation);
       setWarehouse(sharedSettings.warehouse);
@@ -778,15 +816,34 @@ export default function App() {
       setAllow24h(sharedSettings.allow24h);
       setPersonColors(sharedSettings.personColors);
       setConditions(sharedSettings.conditions);
-      setRecoveryBalances(sharedSettings.recoveryBalances);
-      setRecoveryLedger(sharedSettings.recoveryLedger);
       setTimes(sharedSettings.times[sharedSettings.hours] || DEFAULT_TIMES[sharedSettings.hours] || times);
     }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
+
     return unsub;
-  },[cloudUser]);
+  },[cloudUser,cloudRole]);
+
+  useEffect(() => {
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin') return;
+
+    const unsub = onSnapshot(doc(db,'settings','admin'), snap => {
+      const data = snap.exists() ? snap.data() || {} : {};
+      const adminSettings = {
+        recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
+        recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger)
+      };
+      adminSettingsRemoteRef.current = adminSettings;
+      adminSettingsApplyingRef.current = true;
+      adminSettingsLoadedRef.current = true;
+      setRecoveryBalances(adminSettings.recoveryBalances);
+      setRecoveryLedger(adminSettings.recoveryLedger);
+    }, err => setCloudError('Brak dostępu do ustawień administracyjnych. Kod: ' + (err?.code || 'nieznany')));
+
+    return unsub;
+  },[cloudUser,cloudRole]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready || !settingsRemoteLoadedRef.current) return;
+
     if (settingsApplyingRef.current) {
       settingsApplyingRef.current = false;
       cloudApplying.current = false;
@@ -805,202 +862,48 @@ export default function App() {
         [hours]: times
       },
       personColors,
-      conditions: Array.isArray(conditions) ? conditions : [],
-      recoveryBalances: normalizeRecoveryBalances(recoveryBalances),
-      recoveryLedger: normalizeRecoveryLedger(recoveryLedger)
+      conditions: Array.isArray(conditions) ? conditions : []
     };
 
     if (JSON.stringify(settingsRemoteRef.current) === JSON.stringify(nextSettings)) return;
 
-    const saveSettings = async () => {
-      await setDoc(doc(db,'settings','main'), {
-        ...nextSettings,
-        updatedAt: serverTimestamp(),
-        updatedBy: cloudUser.uid
-      }, {merge:true});
+    setDoc(doc(db,'settings','main'),{
+      ...nextSettings,
+      updatedAt: serverTimestamp(),
+      updatedBy: cloudUser.uid
+    },{merge:true}).then(()=>{
       settingsRemoteRef.current = nextSettings;
-    };
-
-    saveSettings().catch(e => setCloudError('Nie udało się zsynchronizować ustawień. Kod: ' + (e?.code || e?.message || 'unknown')));
-  },[hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger,ready,cloudUser,cloudRole]);
-  useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const q = cloudRole === 'admin'
-      ? collection(db,'proposals')
-      : query(collection(db,'proposals'),where('fromUid','==',cloudUser.uid));
-    const unsub = onSnapshot(q, snap => {
-      setProposals(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))));
-    }, err => setCloudError('Brak dostępu do propozycji zamian. Kod: ' + (err?.code || 'unknown')));
-    return unsub;
-  },[cloudUser,cloudRole]);
-
-  useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const unsub=onSnapshot(doc(db,'users',cloudUser.uid), snap => {
-      const key=snap.exists()?snap.data()?.personKey:null;
-      if(key && PERSON_KEYS.includes(key)) setMyPerson(key);
+    }).catch(e=>{
+      setCloudError('Nie udało się zsynchronizować ustawień. Kod: ' + (e?.code || e?.message || 'unknown'));
     });
-    return unsub;
-  },[cloudUser]);
+  },[hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,ready,cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!ready || !scheduleHydratedRef.current) return;
-    if (!scheduleDirtyTrackingStartedRef.current) {
-      scheduleDirtyTrackingStartedRef.current = true;
-      return;
-    }
-    if (cloudApplying.current) {
-      cloudApplying.current = false;
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready || !adminSettingsLoadedRef.current) return;
+
+    if (adminSettingsApplyingRef.current) {
+      adminSettingsApplyingRef.current = false;
       return;
     }
 
-    Object.keys(weeks || {}).forEach(key => {
-      const localMap = weekToShiftMap(weeks[key], key);
-      const remoteMap = remoteShiftMapByWeekRef.current[key] || {};
-      const dirty = new Set();
-      Object.keys(localMap).forEach(shiftKey => {
-        if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) dirty.add(shiftKey);
-      });
-      Object.keys(remoteMap).forEach(shiftKey => {
-        if (!Object.prototype.hasOwnProperty.call(localMap, shiftKey)) dirty.add(shiftKey);
-      });
-      localDirtyShiftKeysRef.current[key] = Array.from(dirty);
-
-      const localConfig = weekConfigs[key] || null;
-      const remoteConfig = remoteWeekConfigByWeekRef.current[key] || null;
-      if (JSON.stringify(localConfig) !== JSON.stringify(remoteConfig)) localDirtyWeekConfigRef.current[key] = true;
-      else delete localDirtyWeekConfigRef.current[key];
-    });
-
-    cloudDirtyRef.current =
-      Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
-      || Object.keys(localDirtyWeekConfigRef.current).length > 0;
-  },[ready,weeks,weekConfigs]);
-
-  useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
-    if (!cloudDirtyRef.current) return;
-
-    if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
-    cloudSaveTimerRef.current=setTimeout(async () => {
-      const dirtyWeekKeys = Array.from(new Set([
-        ...Object.keys(localDirtyShiftKeysRef.current).filter(key => (localDirtyShiftKeysRef.current[key] || []).length > 0),
-        ...Object.keys(localDirtyWeekConfigRef.current).filter(key => localDirtyWeekConfigRef.current[key] === true)
-      ]));
-
-      if (!dirtyWeekKeys.length) {
-        cloudDirtyRef.current=false;
-        return;
-      }
-
-      for (const weekKeyAtSave of dirtyWeekKeys) {
-        const localWeek = weeksRef.current[weekKeyAtSave];
-        if (!localWeek) continue;
-
-        const localMap = weekToShiftMap(localWeek,weekKeyAtSave);
-        const dirtyAtSave = new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
-        const config = weekConfigs[weekKeyAtSave] || {
-          hours,
-          rotation,
-          warehouse,
-          times
-        };
-        const configDirtyAtSave = localDirtyWeekConfigRef.current[weekKeyAtSave] === true;
-        const scheduleRef = doc(db,'schedules',weekKeyAtSave);
-
-        try {
-          if (dirtyAtSave.size === 0 && !configDirtyAtSave) continue;
-
-          await runTransaction(db, async tx => {
-            const snap=await tx.get(scheduleRef);
-
-            if (!snap.exists()) {
-              tx.set(scheduleRef,{
-                weekId:weekKeyAtSave,
-                shifts:localMap,
-                config,
-                updatedAt:serverTimestamp(),
-                updatedBy:cloudUser.uid
-              });
-              return;
-            }
-
-            const current=snap.data() || {};
-            const currentMap=current.shifts && typeof current.shifts === 'object'
-              ? current.shifts
-              : weekToShiftMap(current.week || [],weekKeyAtSave);
-
-            const transactionUpdate={
-              updatedAt:serverTimestamp(),
-              updatedBy:cloudUser.uid
-            };
-
-            dirtyAtSave.forEach(key => {
-              if (Object.prototype.hasOwnProperty.call(localMap,key)) {
-                transactionUpdate[`shifts.${key}`]=localMap[key];
-              } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
-                transactionUpdate[`shifts.${key}`]=deleteField();
-              }
-            });
-
-            if (configDirtyAtSave) transactionUpdate.config=config;
-
-            if (Object.keys(transactionUpdate).some(key => key.startsWith('shifts.') || key === 'config')) {
-              tx.update(scheduleRef,transactionUpdate);
-            }
-          });
-
-          const latest=await getDoc(scheduleRef);
-          const latestData=latest.exists()?latest.data():{};
-          const latestMap=latestData.shifts && typeof latestData.shifts === 'object'
-            ? latestData.shifts
-            : localMap;
-
-          remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestMap;
-          if (latestData.config) {
-            remoteWeekConfigByWeekRef.current[weekKeyAtSave]=latestData.config;
-          }
-          cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
-
-          const currentLocalMap=weekToShiftMap(
-            weeksRef.current[weekKeyAtSave] || localWeek,
-            weekKeyAtSave
-          );
-          const remaining=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
-
-          dirtyAtSave.forEach(key => {
-            if (JSON.stringify(currentLocalMap[key]) === JSON.stringify(localMap[key])) {
-              remaining.delete(key);
-            }
-          });
-
-          localDirtyShiftKeysRef.current[weekKeyAtSave]=Array.from(remaining);
-
-          if (
-            configDirtyAtSave
-            && JSON.stringify(weekConfigs[weekKeyAtSave] || null) === JSON.stringify(config)
-          ) {
-            delete localDirtyWeekConfigRef.current[weekKeyAtSave];
-          }
-        } catch(e) {
-          setCloudError(
-            `Nie udało się zapisać tygodnia ${weekKeyAtSave}. Kod: ${e?.code || e?.message || 'unknown'}`
-          );
-        }
-      }
-
-      cloudDirtyRef.current=
-        Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
-        || Object.keys(localDirtyWeekConfigRef.current).length > 0;
-    },250);
-
-    return () => {
-      if (cloudSaveTimerRef.current) {
-        clearTimeout(cloudSaveTimerRef.current);
-        cloudSaveTimerRef.current=null;
-      }
+    const nextAdminSettings = {
+      recoveryBalances: normalizeRecoveryBalances(recoveryBalances),
+      recoveryLedger: normalizeRecoveryLedger(recoveryLedger)
     };
-  },[ready,weeks,weekConfigs,hours,rotation,warehouse,times,cloudUser,cloudRole]);
+
+    if (JSON.stringify(adminSettingsRemoteRef.current) === JSON.stringify(nextAdminSettings)) return;
+
+    setDoc(doc(db,'settings','admin'),{
+      ...nextAdminSettings,
+      updatedAt: serverTimestamp(),
+      updatedBy: cloudUser.uid
+    },{merge:true}).then(()=>{
+      adminSettingsRemoteRef.current = nextAdminSettings;
+    }).catch(e=>{
+      setCloudError('Nie udało się zsynchronizować danych administracyjnych. Kod: ' + (e?.code || e?.message || 'unknown'));
+    });
+  },[recoveryBalances,recoveryLedger,ready,cloudUser,cloudRole]);
+
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
