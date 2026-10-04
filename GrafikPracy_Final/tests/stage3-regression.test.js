@@ -691,6 +691,15 @@ test('locator activation does not trust a stale local vehicle registration', () 
   assert.match(block, /\? \{\}/);
 });
 
+test('locator activation with no local vehicle input uses central assignment', () => {
+  const service = read('LocationService.js');
+  const start = service.indexOf('export async function startVehicleLocationTracking');
+  const block = service.slice(start);
+  assert.match(block, /const requestedRaw=vehicleId\\|\\|registration\\|\\|''/);
+  assert.match(block, /const requestedVehicle=requestedRaw \? normalizeVehicleId\(requestedRaw\) : ''/);
+  assert.match(block, /const vehicle=centralVehicleId\\|\\|requestedVehicle/);
+});
+
 test('removing central vehicle assignment stops an active locator GPS transmitter', () => {
   const app = read('App.js');
   const start = app.indexOf("if (!snap.exists())");
