@@ -209,12 +209,8 @@ jobs:
             cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
             grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
-            if grep -q "TEST ${{ matrix.test }}" "$GITHUB_WORKSPACE/runtime-window.xml"; then
-              echo "TEST ${{ matrix.test }} UI marker FOUND"
-              exit 0
-            fi
-            echo "TEST ${{ matrix.test }} UI marker NOT FOUND"
-            exit 2
+            grep -q "TEST ${{ matrix.test }}" "$GITHUB_WORKSPACE/runtime-window.xml"
+            echo "TEST ${{ matrix.test }} UI marker FOUND"
 
       - name: Upload runtime diagnostics
         if: always()
