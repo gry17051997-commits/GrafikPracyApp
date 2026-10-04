@@ -655,10 +655,12 @@ test('GPS dashboard subscribes to central vehicle assignment changes', () => {
   assert.match(live, /if\(configUnsub\) configUnsub\(\)/);
 });
 
-test('Now dashboard scopes GPS reads to the assigned vehicle when one is configured', () => {
+test('Now dashboard scopes GPS reads to the central assigned vehicle only', () => {
   const now = read('NowDashboard.js');
-  assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
-  assert.match(now, /onSnapshot\(vehicleSource,snap=>handleSnapshot\(snap,Boolean\(requested\)\)/);
+  assert.match(now, /const requested=idFor\(cfg\.vehicleId\|\|cfg\.registration\|\|vehicleRegistration\)/);
+  assert.match(now, /const vehicleRef=doc\(db,'vehicleTracking',requested\)/);
+  assert.doesNotMatch(now, /collection\(db,'vehicleTracking'\)/);
+  assert.match(now, /setLocationError\('Brak centralnego przypisania pojazdu'\)/);
 });
 
 test('Now dashboard reacts to central vehicle assignment changes', () => {
