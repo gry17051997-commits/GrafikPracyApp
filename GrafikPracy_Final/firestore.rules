@@ -219,7 +219,10 @@ service cloud.firestore {
             && request.resource.data.longitude >= -180
             && request.resource.data.longitude <= 180);
 
-        allow delete: if isAdmin();
+        allow delete: if isAdmin()
+          || (activeUser()
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'locator'
+            && get(/databases/$(database)/documents/locationConfig/main).data.get('vehicleId', '') == vehicleId);
       }
     }
 
