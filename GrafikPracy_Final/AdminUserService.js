@@ -1,9 +1,10 @@
-import { httpsCallable } from 'firebase/functions';
-import { functions } from './firebaseConfig';
+import {initializeApp,deleteApp} from 'firebase/app';
+import {createUserWithEmailAndPassword,initializeAuth,inMemoryPersistence,signOut,updateProfile} from 'firebase/auth';
+import {doc,deleteDoc,setDoc,serverTimestamp,updateDoc} from 'firebase/firestore';
+import {auth,db,firebaseApp,firebaseConfig} from './firebaseConfig';
 
-function callable(name) {
-  if (!functions) throw new Error('Firebase Functions jest niedostępne.');
-  return httpsCallable(functions,name);
+function assertReady(){
+  if(!firebaseApp || !auth || !db) throw new Error('Firebase nie jest dostępny.');
 }
 
 function validateInput(form, requirePassword=true) {
@@ -22,53 +23,116 @@ function validateInput(form, requirePassword=true) {
   return {email,password,displayName,personKey,role};
 }
 
+async function createSecondaryAuth(){
+  const secondary=initializeApp(firebaseConfig,'grafik-pracy-admin-create-'+Date.now());
+  const secondaryAuth=initializeAuth(secondary,{persistence:inMemoryPersistence});
+  return {secondary,secondaryAuth};
+}
+
 export async function createUserWithoutFunctions(form) {
+  assertReady();
   const data=validateInput(form,true);
-  const res=await callable('createUserAccount')(data);
-  return res.data;
+  const {secondary,secondaryAuth}=await createSecondaryAuth();
+  let createdUid='';
+  try {
+    const cred=await createUserWithEmailAndPassword(secondaryAuth,data.email,data.password);
+    createdUid=cred.user.uid;
+    await updateProfile(cred.user,{displayName:data.displayName});
+    await setDoc(doc(db,'users',createdUid),{
+      uid:createdUid,
+      email:data.email,
+      displayName:data.displayName,
+      personKey:data.personKey,
+      role:data.role,
+      disabled:false,
+      createdAt:serverTimestamp(),
+      updatedAt:serverTimestamp(),
+      createdBy:auth.currentUser.uid
+    });
+    return {ok:true,uid:createdUid,email:data.email};
+  } catch(error) {
+    if(createdUid){
+      try { await secondaryAuth.currentUser?.delete(); } catch(e) {}
+      try { await deleteDoc(doc(db,'users',createdUid)); } catch(e) {}
+    }
+    if(error?.code==='auth/email-already-in-use') throw new Error('Konto z tym adresem e-mail już istnieje.');
+    if(error?.code==='auth/invalid-email') throw new Error('Podaj prawidłowy e-mail.');
+    if(error?.code==='auth/weak-password') throw new Error('Hasło jest zbyt słabe.');
+    if(error?.code==='permission-denied') throw new Error('Brak uprawnień administratora do utworzenia profilu.');
+    throw error;
+  } finally {
+    try { await signOut(secondaryAuth); } catch(e) {}
+    try { await deleteApp(secondary); } catch(e) {}
+  }
 }
 
 export async function updateUserProfileWithoutFunctions(uid,form) {
+  assertReady();
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const data=validateInput(form,false);
-  const res=await callable('updateUserProfile')({uid,...data});
-  return res.data;
-}
-
-export async function disableUserWithoutFunctions(uid) {
-  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const res=await callable('setUserDisabled')({uid,disabled:true});
-  return res.data;
+  const data=validateInput({...form,password:''},false);
+  if(data.email && form.emailChanged===true) {
+    throw new Error('Zmiana e-maila istniejącego konta wymaga logowania tego użytkownika. Zmień dane profilu bez zmiany e-maila.');
+  }
+  await updateDoc(doc(db,'users',uid),{
+    displayName:data.displayName,
+    personKey:data.personKey,
+    role:data.role,
+    updatedAt:serverTimestamp(),
+    updatedBy:auth.currentUser.uid
+  });
+  return {ok:true,uid};
 }
 
 export async function deleteUserAccountWithoutFunctions(uid) {
+  assertReady();
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const res=await callable('deleteUserAccount')({uid});
-  return res.data;
+  if (uid===auth.currentUser?.uid) throw new Error('Administrator nie może usunąć własnego konta.');
+  await deleteDoc(doc(db,'users',uid));
+  return {ok:true,uid};
+}
+
+export async function disableUserWithoutFunctions(uid) {
+  assertReady();
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+  if (uid===auth.currentUser?.uid) throw new Error('Nie możesz wyłączyć własnego konta.');
+  await updateDoc(doc(db,'users',uid),{disabled:true,disabledAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:auth.currentUser.uid});
+  return {ok:true,uid,disabled:true};
 }
 
 export async function enableUserWithoutFunctions(uid) {
+  assertReady();
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const res=await callable('setUserDisabled')({uid,disabled:false});
-  return res.data;
+  if (uid===auth.currentUser?.uid) return {ok:true,uid,disabled:false};
+  await updateDoc(doc(db,'users',uid),{disabled:false,disabledAt:null,updatedAt:serverTimestamp(),updatedBy:auth.currentUser.uid});
+  return {ok:true,uid,disabled:false};
 }
 
 export async function setUserRoleAdmin(uid,role) {
-  const res=await callable('setUserRole')({uid,role});
-  return res.data;
+  assertReady();
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+  if (!['admin','employee','locator'].includes(role)) throw new Error('Nieprawidłowa rola.');
+  await updateDoc(doc(db,'users',uid),{role,updatedAt:serverTimestamp(),updatedBy:auth.currentUser.uid});
+  return {ok:true,uid,role};
 }
 
 export async function setUserDisabledAdmin(uid,disabled) {
-  const res=await callable('setUserDisabled')({uid,disabled:!!disabled});
-  return res.data;
+  return disabled ? disableUserWithoutFunctions(uid) : enableUserWithoutFunctions(uid);
 }
 
 export async function assignVehicleRegistrationAdmin(registration) {
-  const res=await callable('assignVehicleRegistration')({registration});
-  return res.data;
+  assertReady();
+  const reg=String(registration||'').trim().toUpperCase();
+  if(!reg) throw new Error('Brak numeru rejestracyjnego.');
+  const vehicleId=reg.replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]/gi,'_').slice(0,40);
+  await setDoc(doc(db,'locationConfig','main'),{
+    vehicleId,
+    registration:reg,
+    updatedAt:serverTimestamp(),
+    updatedBy:auth.currentUser.uid
+  },{merge:true});
+  return {ok:true,vehicleId,registration:reg};
 }
 
 export async function adjustRecoveryBalanceAdmin(person,delta) {
-  const res=await callable('adjustRecoveryBalance')({person,delta});
-  return res.data;
+  throw new Error('Ta operacja wymaga backendu uprzywilejowanego i nie jest dostępna bez Firebase Functions.');
 }
