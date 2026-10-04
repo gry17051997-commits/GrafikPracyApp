@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Pobierz repozytorium
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Zainstaluj Firebase CLI
         run: npm install -g firebase-tools
