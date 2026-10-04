@@ -73,10 +73,13 @@ test('GPS tracker guards against duplicate background tasks', () => {
 test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
   const service = read('LocationService.js');
   assert.doesNotMatch(service, /Math\.random\(\)<0\.08/);
-  assert.match(service, /const cutoff=Date\.now\(\)-7\*24\*60\*60\*1000/);
-  assert.match(service, /where\('updatedAt','<',cutoff\)/);
+  assert.match(service, /const cutoff=now-7\*24\*60\*60\*1000/);
+  assert.match(service, /const cutoffTimestamp=Timestamp\.fromMillis\(cutoff\)/);
+  assert.match(service, /where\('updatedAt','<',cutoffTimestamp\)/);
+  assert.match(service, /orderBy\('updatedAt','asc'\)/);
   assert.match(service, /limit\(100\)/);
-  assert.match(service, /deleteDoc\(d\.ref\)/);
+  assert.match(service, /Promise\.all\(snap\.docs\.map\(d => deleteDoc\(d\.ref\)\)\)/);
+  assert.match(service, /6 \* 60 \* 60 \* 1000/);
 });
 
 test('report widget filters shared history to the current worker', () => {
