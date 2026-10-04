@@ -210,7 +210,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
   }
 
-  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
+  const requestedRaw=vehicleId||registration||'';
+  const requestedVehicle=requestedRaw ? normalizeVehicleId(requestedRaw) : '';
   const vehicle=centralVehicleId||requestedVehicle;
   if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
   if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {
