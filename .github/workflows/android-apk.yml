@@ -121,9 +121,10 @@ jobs:
             cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
             grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
-            python3 - <<'PY'
+            python3 - "$GITHUB_WORKSPACE/runtime-window.xml" <<'PY'
+            import sys
             from pathlib import Path
-            xml = Path("$GITHUB_WORKSPACE/runtime-window.xml").read_text(encoding="utf-8", errors="ignore")
+            xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
             if "ZALOGUJ SIĘ" in xml:
                 print("PRODUCTION LOGIN UI MARKER FOUND")
             elif "Grafik Pracy" in xml:
