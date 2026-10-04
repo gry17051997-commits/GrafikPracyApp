@@ -121,14 +121,17 @@ jobs:
             cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
             grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
-            if grep -q "ZALOGUJ SIĘ" "$GITHUB_WORKSPACE/runtime-window.xml"; then
-              echo "PRODUCTION LOGIN UI MARKER FOUND"
-            elif grep -q "Grafik Pracy" "$GITHUB_WORKSPACE/runtime-window.xml"; then
-              echo "PRODUCTION APP UI MARKER FOUND"
-            else
-              echo "PRODUCTION APP UI MARKER NOT FOUND"
-              exit 2
-            fi
+            python3 - <<'PY'
+            from pathlib import Path
+            xml = Path("$GITHUB_WORKSPACE/runtime-window.xml").read_text(encoding="utf-8", errors="ignore")
+            if "ZALOGUJ SIĘ" in xml:
+                print("PRODUCTION LOGIN UI MARKER FOUND")
+            elif "Grafik Pracy" in xml:
+                print("PRODUCTION APP UI MARKER FOUND")
+            else:
+                print("PRODUCTION APP UI MARKER NOT FOUND")
+                raise SystemExit(2)
+            PY
 
       - name: Upload runtime diagnostics
         if: always()
