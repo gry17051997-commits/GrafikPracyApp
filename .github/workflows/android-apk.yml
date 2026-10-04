@@ -2,12 +2,6 @@ name: Android Runtime Diagnostics
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - fix/real-gps-central-assignment-ci-2026-10-04
-    paths:
-      - "GrafikPracy_Final/**"
-      - ".github/workflows/android-apk.yml"
   pull_request:
     branches:
       - main
@@ -19,23 +13,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: grafik-pracy-runtime-diagnostics
+  group: grafik-pracy-runtime-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  EXPO_NO_TELEMETRY: "1"
 
 jobs:
-  runtime_test:
-    name: Runtime TEST ${{ matrix.test }}
+  runtime_smoke:
+    name: Android runtime smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        test: [1, 2, 3, 4]
-
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: GrafikPracy_Final
@@ -60,12 +50,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Verify production App.js
+      - name: Verify production entry point
         run: |
           test -f App.js
           grep -q "export default function App" App.js
           grep -q "AppRuntime" App.js
-          echo "Production App.js is selected; no test stub will replace it."
+          test -f AppRuntime.js
+          test -f LocationService.js
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
@@ -75,7 +66,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           path = Path("android/app/build.gradle")
-          text = path.read_text()
+          text = path.read_text(encoding="utf-8")
           marker = "react {\n"
           if marker not in text:
               raise SystemExit("React Gradle configuration block not found")
@@ -84,7 +75,7 @@ jobs:
               bundleCommand = "export:embed"
               debuggableVariants = []
           '''
-          path.write_text(text.replace(marker, block, 1))
+          path.write_text(text.replace(marker, block, 1), encoding="utf-8")
           PY
 
       - name: Build APK
@@ -97,10 +88,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
           sudo usermod -aG kvm "$USER"
-          ls -l /dev/kvm
-          groups
+          test -e /dev/kvm
 
-      - name: Start Android emulator and run app
+      - name: Start Android emulator and run production app
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -111,34 +101,35 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 600
           script: |
-            set -e
+            set -eu
             adb wait-for-device
             adb install -r "$GITHUB_WORKSPACE/GrafikPracy_Final/android/app/build/outputs/apk/debug/app-debug.apk"
             adb logcat -c
             adb shell monkey -p pl.grafikpracy.app 1
             sleep 8
+
             adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1
             adb pull /sdcard/window.xml "$GITHUB_WORKSPACE/runtime-window.xml" >/dev/null 2>&1
             adb logcat -d > "$GITHUB_WORKSPACE/runtime-logcat.txt"
-            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt" || true
-            echo "=== UI DUMP ==="
-            cat "$GITHUB_WORKSPACE/runtime-window.xml" 2>/dev/null || true
-            echo "=== PROCESS ==="
-            cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
-            echo "=== FATAL/ERROR LOGS ==="
-            grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
-            if grep -Eq "ZALOGUJ SIĘ|Grafik Pracy" "$GITHUB_WORKSPACE/runtime-window.xml"; then
-              echo "PRODUCTION APP UI MARKER FOUND"
-            else
-              echo "PRODUCTION APP UI MARKER NOT FOUND"
-              exit 2
+            adb shell pidof pl.grafikpracy.app > "$GITHUB_WORKSPACE/runtime-pid.txt"
+
+            test -s "$GITHUB_WORKSPACE/runtime-pid.txt"
+            grep -Eq "ZALOGUJ SIĘ|Grafik Pracy" "$GITHUB_WORKSPACE/runtime-window.xml"
+
+            if grep -Eq "FATAL EXCEPTION|Unable to load script|Could not connect to Metro" "$GITHUB_WORKSPACE/runtime-logcat.txt"; then
+              echo "Production app reported a fatal startup/runtime error."
+              exit 1
             fi
+
+            echo "PRODUCTION APP STARTED"
+            echo "PRODUCTION UI MARKER FOUND"
+            echo "PRODUCTION PROCESS ALIVE"
 
       - name: Upload runtime diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: runtime-test-${{ matrix.test }}
+          name: grafik-pracy-runtime-smoke
           path: |
             ${{ github.workspace }}/runtime-logcat.txt
             ${{ github.workspace }}/runtime-window.xml
