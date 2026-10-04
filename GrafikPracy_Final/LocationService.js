@@ -23,7 +23,8 @@ async function getCentralVehicleAssignment() {
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (!snap.exists()) return {vehicleId:'',registration:'',exists:false};
     const data=snap.data() || {};
-    const vehicleId=normalizeVehicleId(data.vehicleId || data.registration || '');
+    const rawVehicleId=data.vehicleId || data.registration || '';
+    const vehicleId=rawVehicleId ? normalizeVehicleId(rawVehicleId) : '';
     const registration=String(data.registration || data.vehicleId || '').trim().toUpperCase();
     return {vehicleId,registration,exists:!!(vehicleId || registration)};
   } catch(error) {
@@ -38,7 +39,8 @@ async function stopIfCentralAssignmentChanged(localConfig=null) {
     if (cfg.enabled===true) await stopVehicleLocationTracking();
     return {ok:false,reason:'central-assignment-missing'};
   }
-  const localVehicle=normalizeVehicleId(cfg.vehicleId || cfg.registration || '');
+  const localVehicleRaw=cfg.vehicleId || cfg.registration || '';
+  const localVehicle=localVehicleRaw ? normalizeVehicleId(localVehicleRaw) : '';
   const localRegistration=String(cfg.registration || cfg.vehicleId || '').trim().toUpperCase();
   if (central.vehicleId && localVehicle && central.vehicleId !== localVehicle) {
     await stopVehicleLocationTracking();
@@ -203,7 +205,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (snap.exists()) {
       const data=snap.data()||{};
-      centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
+      const rawVehicleId=data.vehicleId||data.registration||'';
+      centralVehicleId=rawVehicleId ? normalizeVehicleId(rawVehicleId) : '';
       centralRegistration=String(data.registration||data.vehicleId||'').trim().toUpperCase();
     }
   } catch(e) {
