@@ -134,7 +134,7 @@ async function saveLocationInternal(location) {
   if(currentConfig.enabled!==true) return;
   if(expectedUid && ownerUid!==expectedUid) return;
   if(auth?.currentUser?.uid!==ownerUid) return;
-  const payload={
+  const basePayload={
     vehicleId,
     ownerUid,
     registration:cfg.registration||vehicleId,
@@ -144,15 +144,18 @@ async function saveLocationInternal(location) {
     altitude:Number(c.altitude||0),
     speed:Number.isFinite(c.speed)?Number(c.speed):null,
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
-    // Server time is authoritative for freshness; clientObservedAt is only diagnostic/local fallback.
-    updatedAt:serverTimestamp(),
     clientObservedAt:now
+  };
+  const firestorePayload={
+    ...basePayload,
+    // Server time is authoritative for freshness.
+    updatedAt:serverTimestamp()
   };
   let saved=false;
   let lastError=null;
   for(let attempt=0;attempt<3 && !saved;attempt++){
     try {
-      await setDoc(doc(db,'vehicleTracking',vehicleId),payload,{merge:true});
+      await setDoc(doc(db,'vehicleTracking',vehicleId),firestorePayload,{merge:true});
       saved=true;
     } catch(e) {
       lastError=e;
@@ -169,20 +172,24 @@ async function saveLocationInternal(location) {
     last=raw?JSON.parse(raw):null;
   } catch(e) {}
 
-  const moved=last?distanceMeters(last,payload):Infinity;
+  const moved=last?distanceMeters(last,basePayload):Infinity;
   const lastHistoryAt=Number(last?.historyAt||0);
   const shouldStoreHistory=!last || moved>=80 || now-lastHistoryAt>=120000;
-  payload.historyAt=shouldStoreHistory?now:lastHistoryAt;
+  const historyPayload={
+    ...firestorePayload,
+    historyAt:shouldStoreHistory?now:lastHistoryAt
+  };
 
   if (shouldStoreHistory) {
     try {
-      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
+      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),historyPayload);
     } catch(e) {
       console.log('LOCATION_HISTORY_WRITE_ERROR',e);
     }
   }
 
-  await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
+  const cachePayload={...basePayload,updatedAt:now,historyAt:historyPayload.historyAt};
+  await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(cachePayload));
   // Retencja 7 dni jest sprzątana najwyżej raz na 6 godzin na aktywnym nadajniku.
   // Limit 100 rekordów na przebieg ogranicza koszt pojedynczego sprzątania.
   await cleanupExpiredLocationHistory(vehicleId);
