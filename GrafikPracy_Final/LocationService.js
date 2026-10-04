@@ -2,12 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
+import {collection, doc, getDoc, getDocs, limit, orderBy, query, setDoc, serverTimestamp, Timestamp, where, deleteDoc} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
 export const LOCATION_CONFIG_KEY = 'grafik-pracy-location-config-v1';
 export const LOCATION_CURRENT_KEY = 'grafik-pracy-location-current-v1';
+export const LOCATION_HISTORY_LAST_CLEANUP_KEY = 'grafik-pracy-location-history-cleanup-v1';
 
 export const normalizeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
 
@@ -89,6 +90,31 @@ const LOCATION_OPTIONS={
 
 let locationSaveQueue = Promise.resolve();
 
+async function cleanupExpiredLocationHistory(vehicleId) {
+  if (!vehicleId || !FIREBASE_ENABLED || !db) return;
+
+  const now = Date.now();
+  const lastRaw = await AsyncStorage.getItem(LOCATION_HISTORY_LAST_CLEANUP_KEY).catch(() => null);
+  const lastCleanup = Number(lastRaw || 0);
+  if (Number.isFinite(lastCleanup) && now - lastCleanup < 6 * 60 * 60 * 1000) return;
+
+  const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+  const cutoffTimestamp = Timestamp.fromMillis(cutoff);
+  try {
+    const q = query(
+      collection(db,'vehicleTracking',vehicleId,'locations'),
+      where('updatedAt','<',cutoffTimestamp),
+      orderBy('updatedAt','asc'),
+      limit(100)
+    );
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+    await AsyncStorage.setItem(LOCATION_HISTORY_LAST_CLEANUP_KEY,String(now));
+  } catch(e) {
+    console.log('LOCATION_HISTORY_CLEANUP_ERROR',e);
+  }
+}
+
 async function saveLocationInternal(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
   const cfg=await getConfig();
@@ -157,8 +183,9 @@ async function saveLocationInternal(location) {
   }
 
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
-  // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
-  // zapytań i deleteDoc przy każdym punkcie GPS.
+  // Retencja 7 dni jest sprzątana najwyżej raz na 6 godzin na aktywnym nadajniku.
+  // Limit 100 rekordów na przebieg ogranicza koszt pojedynczego sprzątania.
+  await cleanupExpiredLocationHistory(vehicleId);
 }
 
 // Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
