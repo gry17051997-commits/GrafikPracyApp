@@ -323,6 +323,15 @@ test('active employee can read the main schedule and disabled employee cannot', 
   });
 });
 
+test('disabled employee cannot create a proposal', {skip: !enabled}, async () => {
+  const db = testEnv.authenticatedContext(disabledEmployeeUid).firestore();
+  await assertFails(setDoc(doc(db, 'proposals', 'disabled-create-proposal'), {
+    fromUid: disabledEmployeeUid,
+    fromPerson: 'P',
+    status: 'pending'
+  }));
+});
+
 test('active user can read own proposal and disabled user cannot', {skip: !enabled}, async t => {
   await t.test('active employee', async () => {
     const db = testEnv.authenticatedContext(employeeUid).firestore();
