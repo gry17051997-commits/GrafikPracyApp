@@ -1100,3 +1100,12 @@ test('admin recovery settings are not written back into shared settings after mi
   assert.doesNotMatch(block, /recoveryLedger:/);
 });
 
+test('assigned locator may delete only history under its central vehicle', () => {
+  const rules = read('firestore.rules');
+  const start = rules.indexOf("match /locations/{locationId}");
+  const end = rules.indexOf("match /audit/{entryId}");
+  const block = rules.slice(start,end);
+  assert.match(block, /allow delete: if isAdmin\(\)/);
+  assert.match(block, /data\.get\('role', ''\) == 'locator'/);
+  assert.match(block, /locationConfig\/main\)\.data\.get\('vehicleId', ''\) == vehicleId/);
+});
