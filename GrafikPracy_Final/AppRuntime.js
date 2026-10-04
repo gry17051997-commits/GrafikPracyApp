@@ -2489,7 +2489,7 @@ export default function App() {
         if(!reg) return;
         setLocationBusy(true);
         try {
-          await saveVehicleLocationAssignment(reg);
+          await saveVehicleLocationAssignment(reg,{allowCentralChange:cloudRole === 'admin'});
           if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
             await setDoc(doc(db,'locationConfig','main'),{
               vehicleId:normalizeVehicleId(reg),
