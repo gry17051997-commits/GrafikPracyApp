@@ -52,13 +52,13 @@ export default function AdminUsersPanel({cloudUser}) {
 
   const remove=async u=>{
     if(!u?.uid||u.uid===cloudUser?.uid)return;
-    Alert.alert('Usuń konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie trwale usunięte z Firebase Authentication oraz profilu Firestore. Tej operacji nie można cofnąć.',[
+    Alert.alert('Usuń konto','Konto '+(u.displayName||u.email||u.uid)+' zostanie usunięte z aplikacji, a jego profil zostanie skasowany z Firestore. Dostęp do aplikacji zostanie zablokowany. Tej operacji nie można cofnąć.',[
       {text:'Anuluj',style:'cancel'},
-      {text:'USUŃ TRWALE',style:'destructive',onPress:async()=>{
+      {text:'USUŃ KONTO',style:'destructive',onPress:async()=>{
         setBusy(u.uid);setError('');
         try{
           await deleteUserAccountWithoutFunctions(u.uid);
-          Alert.alert('Gotowe','Konto zostało trwale usunięte.');
+          Alert.alert('Gotowe','Konto zostało usunięte z aplikacji.');
         }catch(e){
           setError((e?.message||'Nie udało się usunąć konta.')+' ('+(e?.code||'unknown')+')');
         }finally{setBusy('');}

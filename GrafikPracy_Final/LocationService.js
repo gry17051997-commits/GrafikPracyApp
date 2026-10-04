@@ -175,13 +175,13 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
   });
 }
 
-export async function saveVehicleLocationAssignment(registration) {
+export async function saveVehicleLocationAssignment(registration,{allowCentralChange=false}={}) {
   const reg=String(registration||'').trim().toUpperCase();
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
   const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
   const central=await getCentralVehicleAssignment();
-  if (central.exists && central.vehicleId && central.vehicleId !== vehicle) {
+  if (!allowCentralChange && central.exists && central.vehicleId && central.vehicleId !== vehicle) {
     throw new Error(`Pojazd nie zgadza się z centralnym przypisaniem: ${central.vehicleId}`);
   }
   if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
@@ -210,7 +210,8 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
   }
 
-  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
+  const requestedRaw=vehicleId||registration||'';
+  const requestedVehicle=requestedRaw ? normalizeVehicleId(requestedRaw) : '';
   const vehicle=centralVehicleId||requestedVehicle;
   if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
   if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {

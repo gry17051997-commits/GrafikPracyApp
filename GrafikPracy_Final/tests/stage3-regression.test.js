@@ -32,10 +32,10 @@ test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', (
   assert.match(rules, /locationConfig\/main\).*vehicleId == vehicleId/);
 });
 
-test('Firestore rules keep role escalation and self-delete blocked', () => {
+test('Firestore rules keep role escalation and admin-only profile deletion', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /uid != request\.auth\.uid/);
-  assert.match(rules, /allow delete: if false;/);
+  assert.match(rules, /allow delete: if isAdmin\(\) && uid != request\.auth\.uid;/);
   assert.match(rules, /request\.resource\.data\.role == 'employee'/);
 });
 
@@ -562,14 +562,14 @@ test('default Sunday Łukasz MUST conditions survive backup restore and full res
 });
 
 
-test('locator role is available for account creation and accepted by backend/rules', () => {
+test('locator role is available for account creation and accepted by client/rules', () => {
   const panel = read('AdminUsersPanel.js');
-  const fn = read('functions/index.js');
+  const service = read('AdminUserService.js');
   const rules = read('firestore.rules');
   const app = read('App.js');
   assert.match(panel, /const ROLES=\['employee','locator','admin'\]/);
   assert.match(panel, /📍 LOKALIZATOR/);
-  assert.match(fn, /new Set\(\['admin','employee','locator'\]\)/);
+  assert.match(service, /createUserWithEmailAndPassword/);
   assert.match(rules, /value == 'admin' \|\| value == 'employee' \|\| value == 'locator'/);
   assert.match(app, /role === 'locator' \? 'locator' : 'employee'/);
 });
@@ -669,15 +669,35 @@ test('Now dashboard reacts to central vehicle assignment changes', () => {
 });
 
 
-test('locator resumes GPS from the central vehicle assignment', () => {
+test('locator only resumes GPS when local tracking is already enabled', () => {
   const app = read('AppRuntime.js');
   const start = app.indexOf('const refreshLocationState=async()=>');
   const end = app.indexOf('    };', start) + '    };'.length;
   const block = app.slice(start, end);
   assert.match(block, /if \(cloudRole === 'locator'\)/);
+  assert.match(block, /c\.enabled === true/);
   assert.match(block, /ensureVehicleLocationTracking\(\)/);
-  assert.match(block, /startVehicleLocationTracking\(/);
+  assert.match(block, /\{ok:false,reason:'disabled'\}/);
   assert.match(block, /setLocationTracking\(result\.ok === true\)/);
+  assert.doesNotMatch(block, /: await startVehicleLocationTracking\(/);
+});
+
+test('locator activation does not trust a stale local vehicle registration', () => {
+  const app = read('AppRuntime.js');
+  const start = app.indexOf('const toggleVehicleTracking = async () =>');
+  const end = app.indexOf('  };', start) + '  };'.length;
+  const block = app.slice(start, end);
+  assert.match(block, /cloudRole === 'locator'/);
+  assert.match(block, /\? \{\}/);
+});
+
+test('locator activation with no local vehicle input uses central assignment', () => {
+  const service = read('LocationService.js');
+  const start = service.indexOf('export async function startVehicleLocationTracking');
+  const block = service.slice(start);
+  assert.match(block, /const requestedRaw=vehicleId\\|\\|registration\\|\\|''/);
+  assert.match(block, /const requestedVehicle=requestedRaw \? normalizeVehicleId\(requestedRaw\) : ''/);
+  assert.match(block, /const vehicle=centralVehicleId\\|\\|requestedVehicle/);
 });
 
 test('removing central vehicle assignment stops an active locator GPS transmitter', () => {
@@ -943,19 +963,20 @@ test('live GPS cache is not blocked by history write failure', () => {
 });
 
 
-test('admin user removal invokes the backend account deletion function, not soft-disable', () => {
+test('admin account removal uses Firestore profile deletion without Functions', () => {
   const panel = read('AdminUsersPanel.js');
   const service = read('AdminUserService.js');
+  const rules = read('firestore.rules');
   assert.match(panel, /deleteUserAccountWithoutFunctions/);
-  assert.match(panel, /USUŃ TRWALE/);
-  assert.match(service, /callable\('deleteUserAccount'\)/);
-  assert.doesNotMatch(panel, /remove=async u=>[\\s\\S]*DEZAKTYWUJ/);
+  assert.match(panel, /USUŃ KONTO/);
+  assert.match(service, /deleteDoc\(doc\(db,'users',uid\)\)/);
+  assert.doesNotMatch(service, /httpsCallable|firebase\/functions/);
+  assert.match(rules, /allow delete: if isAdmin\(\) && uid != request\.auth\.uid;/);
 });
 
-test('backend user creation enforces role and person assignment as one contract', () => {
-  const fn = read('functions/index.js');
-  const start = fn.indexOf('exports.createUserAccount');
-  const end = fn.indexOf('exports.updateUserProfile', start);
-  const block = fn.slice(start, end);
-  assert.match(block, /validateRolePerson\(role,personKey\)/);
+test('client account creation validates role/person contract before writing profile', () => {
+  const service = read('AdminUserService.js');
+  assert.match(service, /role==='employee' && !\['P','M','L'\]\.includes\(personKey\)/);
+  assert.match(service, /role!=='employee' && personKey!==''/);
+  assert.match(service, /createdBy:auth\.currentUser\.uid/);
 });
