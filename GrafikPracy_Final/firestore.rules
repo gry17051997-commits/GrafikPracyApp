@@ -77,7 +77,7 @@ service cloud.firestore {
           && request.resource.data.get('uid', uid) == uid
         );
 
-      allow delete: if false;
+      allow delete: if isAdmin() && uid != request.auth.uid;
     }
 
     // Legacy monolithic schedule is retained read-only for administrators during migration.
