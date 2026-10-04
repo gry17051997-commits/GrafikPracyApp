@@ -669,15 +669,26 @@ test('Now dashboard reacts to central vehicle assignment changes', () => {
 });
 
 
-test('locator resumes GPS from the central vehicle assignment', () => {
+test('locator only resumes GPS when local tracking is already enabled', () => {
   const app = read('AppRuntime.js');
   const start = app.indexOf('const refreshLocationState=async()=>');
   const end = app.indexOf('    };', start) + '    };'.length;
   const block = app.slice(start, end);
   assert.match(block, /if \(cloudRole === 'locator'\)/);
+  assert.match(block, /c\.enabled === true/);
   assert.match(block, /ensureVehicleLocationTracking\(\)/);
-  assert.match(block, /startVehicleLocationTracking\(/);
+  assert.match(block, /\{ok:false,reason:'disabled'\}/);
   assert.match(block, /setLocationTracking\(result\.ok === true\)/);
+  assert.doesNotMatch(block, /: await startVehicleLocationTracking\(/);
+});
+
+test('locator activation does not trust a stale local vehicle registration', () => {
+  const app = read('AppRuntime.js');
+  const start = app.indexOf('const toggleVehicleTracking = async () =>');
+  const end = app.indexOf('  };', start) + '  };'.length;
+  const block = app.slice(start, end);
+  assert.match(block, /cloudRole === 'locator'/);
+  assert.match(block, /\? \{\}/);
 });
 
 test('removing central vehicle assignment stops an active locator GPS transmitter', () => {
