@@ -78,7 +78,7 @@ jobs:
 
       - name: Verify production architecture
         run: |
-          ! grep -R -nE 'httpsCallable|firebase/functions|firebase deploy --only functions|postinstall.*fix-(app|chat|rotation)'             App.js AppRuntime.js AdminUserService.js firebaseConfig.js package.json .github 2>/dev/null
+          ! grep -R -nE 'httpsCallable|firebase/functions|firebase deploy --only functions|postinstall.*fix-(app|chat|rotation)' App.js AppRuntime.js AdminUserService.js firebaseConfig.js package.json .github 2>/dev/null
           test ! -d functions
           test ! -f scripts/fix-app-build.js
           test ! -f scripts/fix-chat-build.js
