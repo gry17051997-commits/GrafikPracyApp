@@ -4,6 +4,11 @@ name: Full Project Audit
 on:
   push:
     branches: ['main']
+  pull_request:
+    branches: ['main']
+    paths:
+      - 'GrafikPracy_Final/**'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
