@@ -145,7 +145,6 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (activeUser()
           && (locationConfig().get('vehicleId', '') == vehicleId
-            || locationConfig().get('registration', '') == resource.data.get('registration', '')
             || resource.data.get('ownerUid', '') == request.auth.uid));
 
       // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
@@ -185,7 +184,6 @@ service cloud.firestore {
         allow read: if isAdmin()
           || (activeUser()
             && (locationConfig().get('vehicleId', '') == vehicleId
-              || locationConfig().get('registration', '') == resource.data.get('registration', '')
               || resource.data.get('ownerUid', '') == request.auth.uid));
 
         allow create: if isAdmin()
