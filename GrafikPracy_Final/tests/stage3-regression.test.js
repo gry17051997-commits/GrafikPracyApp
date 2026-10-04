@@ -980,3 +980,11 @@ test('client account creation validates role/person contract before writing prof
   assert.match(service, /role!=='employee' && personKey!==''/);
   assert.match(service, /createdBy:auth\.currentUser\.uid/);
 });
+
+
+test('empty central vehicle fields do not become a fake default vehicle', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /const rawVehicleId=data\.vehicleId \|\| data\.registration \|\| ''/);
+  assert.match(service, /const vehicleId=rawVehicleId \? normalizeVehicleId\(rawVehicleId\) : ''/);
+  assert.match(service, /centralVehicleId=rawVehicleId \? normalizeVehicleId\(rawVehicleId\) : ''/);
+});
