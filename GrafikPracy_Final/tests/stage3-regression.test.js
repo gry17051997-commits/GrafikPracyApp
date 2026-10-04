@@ -988,3 +988,36 @@ test('empty central vehicle fields do not become a fake default vehicle', () => 
   assert.match(service, /const vehicleId=rawVehicleId \? normalizeVehicleId\(rawVehicleId\) : ''/);
   assert.match(service, /centralVehicleId=rawVehicleId \? normalizeVehicleId\(rawVehicleId\) : ''/);
 });
+
+
+test('schedule persistence covers every dirty week, not only the active week', () => {
+  const source = read('AppRuntime.js');
+  assert.match(source, /const dirtyWeekKeys = Array\.from\(new Set\(\[/);
+  assert.match(source, /Object\.keys\(localDirtyShiftKeysRef\.current\)/);
+  assert.match(source, /Object\.keys\(localDirtyWeekConfigRef\.current\)/);
+  assert.match(source, /for \(const weekKeyAtSave of dirtyWeekKeys\)/);
+});
+
+test('shared schedule settings are synchronized for administrators', () => {
+  const source = read('AppRuntime.js');
+  assert.match(source, /settingsRemoteRef/);
+  assert.match(source, /settingsRemoteLoadedRef/);
+  assert.match(source, /setDoc\(doc\(db,'settings','main'\)/);
+  assert.match(source, /updatedBy: cloudUser\.uid/);
+});
+
+test('admin profile updates keep identity fields immutable and restrict mutable fields', () => {
+  const rules = read('firestore.rules');
+  assert.match(rules, /request\.resource\.data\.email == resource\.data\.email/);
+  assert.match(rules, /request\.resource\.data\.createdBy == resource\.data\.createdBy/);
+  assert.match(rules, /request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(/);
+  assert.match(rules, /'displayName','personKey','role','disabled','disabledAt','updatedAt','updatedBy'/);
+});
+
+test('runtime smoke test validates a live production process and UI marker', () => {
+  const workflow = read('../../.github/workflows/android-apk.yml');
+  assert.match(workflow, /test -s "\$GITHUB_WORKSPACE\/runtime-pid\.txt"/);
+  assert.match(workflow, /grep -Eq "ZALOGUJ SIĘ\|Grafik Pracy"/);
+  assert.match(workflow, /PRODUCTION APP STARTED/);
+});
+
