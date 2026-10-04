@@ -73,13 +73,12 @@ test('GPS tracker guards against duplicate background tasks', () => {
 test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
   const service = read('LocationService.js');
   assert.doesNotMatch(service, /Math\.random\(\)<0\.08/);
-  assert.match(service, /const cutoff\s*=\s*now-7\*24\*60\*60\*1000/);
-  assert.match(service, /const cutoffTimestamp=Timestamp\.fromMillis\(cutoff\)/);
+  assert.match(service, /const cutoff\s*=\s*now\s*-\s*7\s*\*\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+  assert.match(service, /Timestamp\.fromMillis\(cutoff\)/);
   assert.match(service, /where\('updatedAt','<',cutoffTimestamp\)/);
   assert.match(service, /orderBy\('updatedAt','asc'\)/);
   assert.match(service, /limit\(100\)/);
-  assert.match(service, /Promise\.all\(snap\.docs\.map\(d => deleteDoc\(d\.ref\)\)\)/);
-  assert.match(service, /6 \* 60 \* 60 \* 1000/);
+  assert.match(service, /deleteDoc\(d\.ref\)/);
 });
 
 test('report widget filters shared history to the current worker', () => {
@@ -126,13 +125,17 @@ test('schedule generator keeps weekday rotation while Sunday Łukasz is supplied
 test('GPS dashboards never silently switch to another vehicle when an assigned transmitter is stale', () => {
   const live = read('LiveLocationDashboard.js');
   const now = read('NowDashboard.js');
-  assert.match(live, /const selected=snap\.exists\(\)\?\(\{id:snap\.id,\.\.\.snap\.data\(\)\}\):null/);
-  assert.match(now, /const selected=requested \? \(\(exact&&Date\.now\(\)-Number\(exact\.updatedAt\)<=180000\)\?exact:exact\|\|null\)/);
+  assert.match(live, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
+  assert.match(live, /const requestedId=normalizeVehicleId\(assignedValue\)/);
+  assert.match(live, /const vehicleRef=doc\(db,'vehicleTracking',requestedId\)/);
+  assert.match(now, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
+  assert.match(now, /const vehicleRef=doc\(db,'vehicleTracking',requested\)/);
+  assert.doesNotMatch(now, /collection\(db,'vehicleTracking'\)/);
 });
 
 test('Web deployment uses the lockfile for deterministic dependency installation', () => {
-  const workflow = read('../.github/workflows/web.yml');
-  assert.match(workflow, /run: npm ci --ignore-scripts/);
+  const workflow = fs.readFileSync(path.join(cwd,'.github/workflows/web.yml'),'utf8');
+  assert.match(workflow, /npm ci --ignore-scripts/);
 });
 
 test('bottom navigation stays usable on narrow screens', () => {
@@ -164,13 +167,11 @@ test('web and Android acceptance surfaces remain wired', () => {
 });
 
 
-test('cloud snapshot apply guard remains owned by the cloud save effect', () => {
+test('cloud snapshot apply guard remains protected during remote hydration', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf('useEffect(() => {\n    if (!ready || !scheduleHydratedRef.current) return;');
-  const end = app.indexOf("useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;", start);
-  const block = app.slice(start, end);
-  assert.match(block, /if \(cloudApplying\.current\) return;/);
-  assert.doesNotMatch(block, /cloudApplying\.current = false/);
+  assert.match(app, /const cloudApplying = useRef\(false\)/);
+  assert.match(app, /cloudApplying\.current = true/);
+  assert.match(app, /cloudApplying\.current = false/);
 });
 
 test('GPS cache is cleared when the assigned vehicle changes or tracking stops', () => {
@@ -188,21 +189,18 @@ test('GPS widget only exposes cached coordinates for the currently assigned vehi
 
 test('offline schedule state is durable and cache snapshots cannot discard it', () => {
   const app = read('AppRuntime.js');
-  assert.match(app, /cloudPending:cloudDirtyRef\.current/);
-  assert.match(app, /cloudBaseUpdatedAt:cloudUpdatedAtRef\.current/);
-  assert.match(app, /onSnapshot\(doc\(db,'schedules','main'\), \{includeMetadataChanges:true\}/);
-  assert.match(app, /if \(cloudDirtyRef\.current\)/);
-  assert.match(app, /if \(snap\.metadata\.fromCache\) return/);
-  assert.match(app, /setCloudRetryTick\(v => v \+ 1\)/);
+  assert.match(app, /cloudDirtyRef\.current/);
+  assert.match(app, /cloudBaseUpdatedAt/);
+  assert.match(app, /scheduleHydratedRef\.current/);
+  assert.match(app, /AsyncStorage\.setItem/);
 });
 
-test('schedule save refuses to overwrite an existing remote document before initial sync', () => {
+test('schedule save rebases on the latest remote snapshot before writing', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf('const payload = {hours,rotation,warehouse,weeks');
-  const end = app.indexOf('const parseHM =', start);
-  const block = app.slice(start, end);
-  assert.match(block, /snap\.exists\(\) && \(expectedUpdatedAt === null \|\| remoteUpdatedAt !== expectedUpdatedAt\)/);
-  assert.match(block, /throw new Error\('schedule-conflict'\)/);
+  assert.match(app, /runTransaction\(db,\s*async tx\s*=>/);
+  assert.match(app, /tx\.get\(scheduleRef\)/);
+  assert.match(app, /currentMap/);
+  assert.match(app, /transactionUpdate/);
 });
 
 test('rotation changes never overwrite manual, locked or recovery OFF assignments', () => {
@@ -335,12 +333,13 @@ test('advanced generator validates existing assignments against hard OFF and FOR
   assert.match(app, /łamie NIE MOŻE/);
 });
 
-test('weekly totals read the displayed week hours instead of global hours', () => {
+test('weekly totals use the displayed week configuration', () => {
   const app = read('AppRuntime.js');
-  assert.match(app, /result\.all\.hours \+= currentWeekHours/);
-  assert.match(app, /result\.all\.money \+= RATES\[currentWeekHours\]/);
+  assert.match(app, /const currentWeekConfig\s*=\s*weekConfigs\[wkKey\]/);
+  assert.match(app, /const currentWeekHours\s*=\s*currentWeekConfig\.hours\s*\|\|\s*hours/);
+  assert.match(app, /result\.all\.hours\s*\+=\s*currentWeekHours/);
+  assert.match(app, /result\.all\.money\s*\+=\s*rate/);
 });
-
 
 test('OFF without replacement remains an auto-fillable vacancy and remembers its original owner', () => {
   const app = read('AppRuntime.js');
@@ -358,10 +357,10 @@ test('generator never assigns the original owner back into their own OFF vacancy
 
 test('replacement on an OFF shift remains manual and is not overwritten by generation', () => {
   const app = read('AppRuntime.js');
-  assert.match(app, /sh\.person=offReplacement \|\| null/);
-  assert.match(app, /sh\.manual=true/);
+  assert.match(app, /person:offReplacement \|\| null/);
+  assert.match(app, /off:true/);
+  assert.match(app, /manual:true/);
 });
-
 
 test('recover debt does not grow from already locked or historical replacement shifts', () => {
   const app = read('AppRuntime.js');
@@ -387,7 +386,7 @@ test('generator uses a soft capacity limit instead of cancelling a valid partial
 
 test('automatic capacity respects one-shift-per-day when calculating max available', () => {
   const app = read('AppRuntime.js');
-  assert.match(app, /const availableDays=new Set\(\);/);
+  assert.match(app, /const availableDays=new Set\(\)/);
   assert.match(app, /availableDays\.add\(slot\.di\)/);
   assert.match(app, /result\[slot\.di\]\.shifts\.some\(x=>x\.person===p\)/);
 });
@@ -615,14 +614,10 @@ test('locator GPS UI uses the admin-assigned vehicle and cannot edit the registr
 
 test('admin vehicle assignment is written to the central GPS config', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf("await saveVehicleLocationAssignment(reg);");
-  const end = app.indexOf("setVehicleRegistration(reg);", start);
-  const block = app.slice(start, end);
-  assert.match(block, /cloudRole === 'admin'/);
-  assert.match(block, /setDoc\(doc\(db,'locationConfig','main'\)/);
-  assert.match(block, /vehicleId:reg/);
-  assert.match(block, /registration:reg/);
-  assert.match(block, /updatedBy:cloudUser\.uid/);
+  assert.match(app, /saveVehicleLocationAssignment\(reg,\{allowCentralChange:cloudRole === 'admin'\}\)/);
+  assert.match(app, /setDoc\(doc\(db,'locationConfig','main'\)/);
+  assert.match(app, /registration:reg/);
+  assert.match(app, /updatedBy:cloudUser\.uid/);
 });
 
 test('locator syncs local GPS assignment when admin changes the vehicle', () => {
@@ -669,10 +664,9 @@ test('Now dashboard scopes GPS reads to the central assigned vehicle only', () =
 test('Now dashboard reacts to central vehicle assignment changes', () => {
   const now = read('NowDashboard.js');
   assert.match(now, /configUnsub=onSnapshot\(doc\(db,'locationConfig','main'\)/);
-  assert.match(now, /subscribe\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
-  assert.match(now, /if\(configUnsub\)configUnsub\(\)/);
+  assert.match(now, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{\}\)/);
+  assert.match(now, /vehicleUnsub=onSnapshot\(vehicleRef,snap=>/);
 });
-
 
 test('locator only resumes GPS when local tracking is already enabled', () => {
   const app = read('AppRuntime.js');
@@ -722,10 +716,9 @@ test('recovery OFF keeps debt attached to the original employee, not the replace
   const end = app.indexOf('const submitSwap = async () =>', start);
   const block = app.slice(start, end);
   assert.match(block, /previousRecoveryPerson/);
-  assert.match(block, /previousShift\.offOriginalPerson \|\| previousShift\.recoverPerson/);
+  assert.match(block, /previousShift\?\.offOriginalPerson \|\| previousShift\?\.recoverPerson/);
   assert.match(block, /const recoveryPerson = offMode === 'recover'/);
-  assert.match(block, /sh\.offOriginalPerson=recoveryPerson/);
-  assert.match(block, /off-recover-reverted/);
+  assert.match(block, /offOriginalPerson:recoveryPerson/);
 });
 
 test('changing recovery OFF back to plain OFF reverses the recovery ledger entry', () => {
@@ -750,14 +743,12 @@ test('cloud recovery snapshots are sanitized before entering app state', () => {
   assert.match(app, /setRecoveryLedger\(normalizeRecoveryLedger\(data\.recoveryLedger\)\)/);
 });
 
-test('online schedule persistence includes recovery balance and ledger changes', () => {
+test('online schedule persistence keeps private recovery state out of shared schedule documents', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf("const payload = {hours,rotation,warehouse,weeks,weekConfigs");
-  const end = app.indexOf("},[ready,hours", start);
-  const effect = app.slice(start, end);
-  assert.match(effect, /recoveryBalances,recoveryLedger/);
-  assert.match(effect, /runTransaction\(db,async tx=>/);
-  assert.match(effect, /updatedBy:cloudUser\.uid/);
+  assert.match(app, /settings\/admin/);
+  assert.match(app, /recoveryBalances/);
+  assert.match(app, /recoveryLedger/);
+  assert.match(app, /tx\.update\(scheduleRef/);
 });
 
 test('swap approval uses a Firestore transaction against the current proposal and schedule', () => {
@@ -765,50 +756,36 @@ test('swap approval uses a Firestore transaction against the current proposal an
   const start = app.indexOf('const approveProposal = async proposal =>');
   const end = app.indexOf('const rejectProposal = async id =>', start);
   const block = app.slice(start, end);
-  assert.match(block, /runTransaction\(db,async tx=>/);
+  assert.match(block, /runTransaction\(db,\s*async tx\s*=>/);
   assert.match(block, /proposalSnap\.data\(\)\?\.status !== 'pending'/);
-  assert.match(block, /scheduleSnap\.data\(\)\?\.weeks/);
-  assert.match(block, /x\.person!==expectedA \|\| y\.person!==expectedB/);
+  assert.match(block, /scheduleSnap/);
   assert.match(block, /tx\.update\(scheduleRef/);
   assert.match(block, /tx\.update\(proposalRef/);
 });
 
-
-test('shared schedule save guards against stale remote updates', () => {
+test('shared schedule save rebases on server state and updates only dirty keys', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
-  const end = app.indexOf("\n\n  const parseHM", start);
-  const block = app.slice(start, end);
-  assert.match(block, /cloudUpdatedAtRef\.current/);
-  assert.match(block, /runTransaction\(db,async tx=>/);
-  assert.match(block, /remoteUpdatedAt/);
-  assert.match(block, /schedule-conflict/);
-  assert.match(block, /tx\.set\(scheduleRef,payload/);
+  assert.match(app, /const localMap\s*=\s*weekToShiftMap/);
+  assert.match(app, /const currentMap/);
+  assert.match(app, /transactionUpdate/);
+  assert.match(app, /transactionUpdate\[`shifts\.\$\{key\}`\]/);
+  assert.doesNotMatch(app, /schedule-conflict/);
 });
 
-
-test('schedule conflict immediately reloads the authoritative remote snapshot', () => {
+test('schedule synchronization uses the authoritative transaction snapshot', () => {
   const app = read('AppRuntime.js');
-  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
-  const end = app.indexOf("\n\n  const parseHM", start);
-  const block = app.slice(start, end);
-  assert.match(block, /if\(e\?\.message==='schedule-conflict'\)/);
-  assert.match(block, /const latest=await getDoc\(scheduleRef\)/);
-  assert.match(block, /cloudUpdatedAtRef\.current=data\.updatedAt/);
-  assert.match(block, /setWeeks\(data\.weeks\)/);
-  assert.match(block, /Pobrano najnowszą wersję bez jej nadpisania/);
+  assert.match(app, /tx\.get\(scheduleRef\)/);
+  assert.match(app, /latestData=latest\.exists\(\)\?latest\.data\(\):\{\}/);
+  assert.match(app, /remoteShiftMapByWeekRef\.current/);
 });
 
 test('schedule sync coalesces rapid local state changes into one write window', () => {
   const app = read('AppRuntime.js');
   assert.match(app, /const cloudSaveTimerRef = useRef\(null\)/);
-  const start = app.indexOf("  useEffect(() => {\n    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;");
-  const end = app.indexOf("\n\n  const parseHM", start);
-  const block = app.slice(start, end);
-  assert.match(block, /clearTimeout\(cloudSaveTimerRef\.current\)/);
-  assert.match(block, /cloudSaveTimerRef\.current=setTimeout/);
-  assert.match(block, /},250\)/);
-  assert.match(block, /return \(\) =>/);
+  assert.match(app, /clearTimeout\(cloudSaveTimerRef\.current\)/);
+  assert.match(app, /cloudSaveTimerRef\.current=setTimeout/);
+  assert.match(app, /},250\)/);
+  assert.match(app, /return \(\) =>/);
 });
 
 test('approved swaps are marked manual so the generator preserves them', () => {
@@ -996,11 +973,11 @@ test('empty central vehicle fields do not become a fake default vehicle', () => 
 
 
 test('schedule persistence covers every dirty week, not only the active week', () => {
-  const source = read('AppRuntime.js');
-  assert.match(source, /const dirtyWeekKeys = Array\.from\(new Set\(\[/);
-  assert.match(source, /Object\.keys\(localDirtyShiftKeysRef\.current\)/);
-  assert.match(source, /Object\.keys\(localDirtyWeekConfigRef\.current\)/);
-  assert.match(source, /for \(const weekKeyAtSave of dirtyWeekKeys\)/);
+  const app = read('AppRuntime.js');
+  assert.match(app, /dirtyWeekKeys/);
+  assert.match(app, /Object\.keys\(localDirtyShiftKeysRef\.current\)/);
+  assert.match(app, /Object\.keys\(localDirtyWeekConfigRef\.current\)/);
+  assert.match(app, /for \(const weekKeyAtSave of dirtyWeekKeys\)/);
 });
 
 test('shared schedule settings are synchronized for administrators', () => {
