@@ -1,7 +1,5 @@
 name: PR Validation
 
-# APK build retriggered for test artifact generation.
-
 on:
   pull_request:
     branches: ['main']
