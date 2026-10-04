@@ -2,6 +2,12 @@ name: Android Runtime Diagnostics
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/real-gps-central-assignment-ci-2026-10-04
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/android-apk.yml"
   pull_request:
     branches:
       - main
