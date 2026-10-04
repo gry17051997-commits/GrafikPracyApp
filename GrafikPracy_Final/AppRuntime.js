@@ -253,7 +253,6 @@ export default function App() {
   const [swapTargetShift,setSwapTargetShift] = useState(1);
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
-  const [guestMode,setGuestMode] = useState(false);
   const normalizeRecoveryBalances = value => {
     const source = value && typeof value === 'object' ? value : {};
     return Object.fromEntries(PERSON_KEYS.map(key => {
@@ -274,7 +273,7 @@ export default function App() {
     ).slice(0,500);
   };
 
-  const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
+  const readOnly = (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
 
   const wkKey = iso(weekStart);
   const DEFAULT_BUSINESS_CONDITIONS = [
@@ -516,7 +515,6 @@ export default function App() {
       setRememberLogin(remember);
 
       setCloudUser(user || null);
-      if (user) setGuestMode(false);
       setCloudError('');
       setCloudReady(false);
 
@@ -592,7 +590,7 @@ export default function App() {
       setChatMessages(rows);
     }, err => setCloudError('Brak dostępu do czatu. Kod: ' + (err?.code || 'unknown')));
     return unsub;
-  },[cloudUser,guestMode]);
+  },[cloudUser]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
@@ -645,7 +643,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!FIREBASE_ENABLED || !db || (!cloudUser)) return;
 
     const unsub = onSnapshot(
       collection(db,'schedules'),
@@ -751,9 +749,9 @@ export default function App() {
       err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany'))
     );
     return unsub;
-  },[cloudUser,guestMode,cloudRole]);
+  },[cloudUser,cloudRole]);
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!FIREBASE_ENABLED || !db || (!cloudUser)) return;
     const unsub = onSnapshot(doc(db,'settings','main'), snap => {
       if (!snap.exists()) return;
       const data = snap.data() || {};
@@ -785,7 +783,7 @@ export default function App() {
       setTimes(sharedSettings.times[sharedSettings.hours] || DEFAULT_TIMES[sharedSettings.hours] || times);
     }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
     return unsub;
-  },[cloudUser,guestMode]);
+  },[cloudUser]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready || !settingsRemoteLoadedRef.current) return;
@@ -3032,7 +3030,7 @@ export default function App() {
     </Modal>
   );
 
-  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {
+  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady)) {
     return (
       <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
         <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
