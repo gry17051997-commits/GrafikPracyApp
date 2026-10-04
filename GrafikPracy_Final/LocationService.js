@@ -23,7 +23,8 @@ async function getCentralVehicleAssignment() {
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (!snap.exists()) return {vehicleId:'',registration:'',exists:false};
     const data=snap.data() || {};
-    const vehicleId=normalizeVehicleId(data.vehicleId || data.registration || '');
+    const rawVehicleId=data.vehicleId || data.registration || '';
+    const vehicleId=rawVehicleId ? normalizeVehicleId(rawVehicleId) : '';
     const registration=String(data.registration || data.vehicleId || '').trim().toUpperCase();
     return {vehicleId,registration,exists:!!(vehicleId || registration)};
   } catch(error) {
@@ -38,7 +39,8 @@ async function stopIfCentralAssignmentChanged(localConfig=null) {
     if (cfg.enabled===true) await stopVehicleLocationTracking();
     return {ok:false,reason:'central-assignment-missing'};
   }
-  const localVehicle=normalizeVehicleId(cfg.vehicleId || cfg.registration || '');
+  const localVehicleRaw=cfg.vehicleId || cfg.registration || '';
+  const localVehicle=localVehicleRaw ? normalizeVehicleId(localVehicleRaw) : '';
   const localRegistration=String(cfg.registration || cfg.vehicleId || '').trim().toUpperCase();
   if (central.vehicleId && localVehicle && central.vehicleId !== localVehicle) {
     await stopVehicleLocationTracking();
@@ -175,13 +177,13 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
   });
 }
 
-export async function saveVehicleLocationAssignment(registration) {
+export async function saveVehicleLocationAssignment(registration,{allowCentralChange=false}={}) {
   const reg=String(registration||'').trim().toUpperCase();
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
   const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
   const central=await getCentralVehicleAssignment();
-  if (central.exists && central.vehicleId && central.vehicleId !== vehicle) {
+  if (!allowCentralChange && central.exists && central.vehicleId && central.vehicleId !== vehicle) {
     throw new Error(`Pojazd nie zgadza się z centralnym przypisaniem: ${central.vehicleId}`);
   }
   if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
@@ -203,14 +205,16 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (snap.exists()) {
       const data=snap.data()||{};
-      centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
+      const rawVehicleId=data.vehicleId||data.registration||'';
+      centralVehicleId=rawVehicleId ? normalizeVehicleId(rawVehicleId) : '';
       centralRegistration=String(data.registration||data.vehicleId||'').trim().toUpperCase();
     }
   } catch(e) {
     return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
   }
 
-  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
+  const requestedRaw=vehicleId||registration||'';
+  const requestedVehicle=requestedRaw ? normalizeVehicleId(requestedRaw) : '';
   const vehicle=centralVehicleId||requestedVehicle;
   if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
   if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {

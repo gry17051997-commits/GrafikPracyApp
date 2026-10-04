@@ -2,6 +2,12 @@ name: Android Runtime Diagnostics
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/real-gps-central-assignment-ci-2026-10-04
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/android-apk.yml"
   pull_request:
     branches:
       - main
@@ -54,100 +60,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Select controlled App.js test
-        env:
-          TEST_ID: ${{ matrix.test }}
+      - name: Verify production App.js
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import os
-
-          test = os.environ["TEST_ID"]
-
-          common = """import React from 'react';
-          import { View, Text, StyleSheet } from 'react-native';
-
-          const S = StyleSheet.create({
-            root: { flex: 1, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center', padding: 20 },
-            text: { color: '#fff', fontSize: 28, fontWeight: '900', textAlign: 'center' },
-            sub: { color: '#9db9ff', fontSize: 14, marginTop: 8, textAlign: 'center' }
-          });
-          """
-
-          tests = {
-            "1": common + """
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 1: ENTRY POINT</Text>
-              <Text style={S.sub}>Native + JS render OK</Text>
-            </View>;
-          }
-          """,
-            "2": common + """
-          import { FIREBASE_ENABLED, auth, db } from './firebaseConfig';
-
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 2: FIREBASE</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>Auth: {auth ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>Firestore: {db ? 'OK' : 'FAIL'}</Text>
-            </View>;
-          }
-          """,
-            "3": common + """
-          import { FIREBASE_ENABLED } from './firebaseConfig';
-          import './LocationService';
-
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 3: LOCATION</Text>
-              <Text style={S.sub}>LocationService loaded OK</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-            </View>;
-          }
-          """,
-            "4": common + """
-          import AsyncStorage from '@react-native-async-storage/async-storage';
-          import * as Sharing from 'expo-sharing';
-          import * as Print from 'expo-print';
-          import * as Notifications from 'expo-notifications';
-          import * as Clipboard from 'expo-clipboard';
-          import { captureRef } from 'react-native-view-shot';
-          import * as Location from 'expo-location';
-          import { FIREBASE_ENABLED } from './firebaseConfig';
-          import './LocationService';
-          import { onAuthStateChanged } from 'firebase/auth';
-          import { doc, onSnapshot, collection, query } from 'firebase/firestore';
-
-          Notifications.setNotificationHandler({
-            handleNotification: async () => ({
-              shouldShowBanner: true,
-              shouldShowList: true,
-              shouldPlaySound: true,
-              shouldSetBadge: false
-            })
-          });
-
-          export default function App() {
-            return <View style={S.root}>
-              <Text style={S.text}>TEST 4: ALL IMPORTS</Text>
-              <Text style={S.sub}>All imports loaded</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>AsyncStorage: OK</Text>
-              <Text style={S.sub}>Notifications: OK</Text>
-            </View>;
-          }
-          """
-          }
-
-          Path("App.js").write_text(tests[test], encoding="utf-8")
-          PY
-
-      - name: Verify selected source
-        run: |
-          echo "=== TEST ${{ matrix.test }} App.js ==="
-          sed -n '1,220p' App.js
+          test -f App.js
+          grep -q "export default function App" App.js
+          grep -q "AppRuntime" App.js
+          echo "Production App.js is selected; no test stub will replace it."
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
@@ -209,8 +127,12 @@ jobs:
             cat "$GITHUB_WORKSPACE/runtime-pid.txt" 2>/dev/null || true
             echo "=== FATAL/ERROR LOGS ==="
             grep -E "FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Hermes|Unable to load script|Could not connect|Exception" "$GITHUB_WORKSPACE/runtime-logcat.txt" | tail -200 || true
-            grep -q "TEST ${{ matrix.test }}" "$GITHUB_WORKSPACE/runtime-window.xml"
-            echo "TEST ${{ matrix.test }} UI marker FOUND"
+            if grep -Eq "ZALOGUJ SIĘ|Grafik Pracy" "$GITHUB_WORKSPACE/runtime-window.xml"; then
+              echo "PRODUCTION APP UI MARKER FOUND"
+            else
+              echo "PRODUCTION APP UI MARKER NOT FOUND"
+              exit 2
+            fi
 
       - name: Upload runtime diagnostics
         if: always()
