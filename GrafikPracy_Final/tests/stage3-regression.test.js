@@ -1043,3 +1043,38 @@ test('legacy cloud-function and build-mutation paths are absent from the product
   assert.doesNotMatch(firebase, /firebase\/functions|getFunctions/);
   assert.doesNotMatch(pkg, /postinstall/);
 });
+
+test('GPS read rules do not fall back to matching an empty registration', () => {
+  const rules = read('firestore.rules');
+  const vehicleBlock = rules.slice(
+    rules.indexOf('match /vehicleTracking/{vehicleId}'),
+    rules.indexOf('match /audit/{entryId}')
+  );
+  assert.doesNotMatch(vehicleBlock, /locationConfig\(\)\.get\('registration', ''\) == resource\.data\.get\('registration', ''\)/);
+  assert.match(vehicleBlock, /locationConfig\(\)\.get\('vehicleId', ''\) == vehicleId/);
+  assert.match(vehicleBlock, /resource\.data\.get\('ownerUid', ''\) == request\.auth\.uid/);
+});
+
+test('private recovery data is restricted to settings/admin', () => {
+  const rules = read('firestore.rules');
+  assert.match(rules, /match \/settings\/admin/);
+  assert.match(rules, /match \/settings\/admin \{\n      allow read, write: if isAdmin\(\);/);
+  const main = rules.slice(rules.indexOf("match /settings/main"), rules.indexOf("match /settings/admin"));
+  assert.match(main, /!resource\.data\.keys\(\)\.hasAny\(\['recoveryBalances','recoveryLedger'\]\)/);
+});
+
+test('settings sync uses declared React refs and does not depend on undefined runtime symbols', () => {
+  const app = read('AppRuntime.js');
+  assert.match(app, /const settingsRemoteRef = useRef\(null\)/);
+  assert.match(app, /const settingsApplyingRef = useRef\(false\)/);
+  assert.match(app, /const settingsRemoteLoadedRef = useRef\(false\)/);
+  assert.match(app, /const adminSettingsRemoteRef = useRef\(null\)/);
+  assert.match(app, /const adminSettingsLoadedRef = useRef\(false\)/);
+  assert.doesNotMatch(app, /legacyAdminSettingsMigrationRef/);
+});
+
+test('npm test covers both hardening and Stage 3 regression suites', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.match(pkg.scripts.test, /production-hardening\.test\.js/);
+  assert.match(pkg.scripts.test, /stage3-regression\.test\.js/);
+});
