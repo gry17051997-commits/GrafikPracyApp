@@ -89,14 +89,20 @@ const LOCATION_OPTIONS={
 };
 
 let locationSaveQueue = Promise.resolve();
+let lastHistoryCleanupAt = 0;
 
 async function cleanupExpiredLocationHistory(vehicleId) {
   if (!vehicleId || !FIREBASE_ENABLED || !db) return;
 
   const now = Date.now();
+  if (lastHistoryCleanupAt && now - lastHistoryCleanupAt < 6 * 60 * 60 * 1000) return;
+
   const lastRaw = await AsyncStorage.getItem(LOCATION_HISTORY_LAST_CLEANUP_KEY).catch(() => null);
   const lastCleanup = Number(lastRaw || 0);
-  if (Number.isFinite(lastCleanup) && now - lastCleanup < 6 * 60 * 60 * 1000) return;
+  if (Number.isFinite(lastCleanup) && now - lastCleanup < 6 * 60 * 60 * 1000) {
+    lastHistoryCleanupAt = lastCleanup;
+    return;
+  }
 
   const cutoff = now - 7 * 24 * 60 * 60 * 1000;
   const cutoffTimestamp = Timestamp.fromMillis(cutoff);
@@ -109,6 +115,7 @@ async function cleanupExpiredLocationHistory(vehicleId) {
     );
     const snap = await getDocs(q);
     await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+    lastHistoryCleanupAt = now;
     await AsyncStorage.setItem(LOCATION_HISTORY_LAST_CLEANUP_KEY,String(now));
   } catch(e) {
     console.log('LOCATION_HISTORY_CLEANUP_ERROR',e);
@@ -192,6 +199,7 @@ async function saveLocationInternal(location) {
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(cachePayload));
   // Retencja 7 dni jest sprzątana najwyżej raz na 6 godzin na aktywnym nadajniku.
   // Limit 100 rekordów na przebieg ogranicza koszt pojedynczego sprzątania.
+  // Cache jest zapisany wcześniej, więc cleanup nie blokuje bieżącej pozycji.
   await cleanupExpiredLocationHistory(vehicleId);
 }
 
