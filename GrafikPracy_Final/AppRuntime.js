@@ -423,10 +423,7 @@ export default function App() {
         if (cloudRole === 'locator') {
           const result = c.enabled === true
             ? await ensureVehicleLocationTracking()
-            : await startVehicleLocationTracking({
-                vehicleId: c.vehicleId || vehicleRegistration,
-                registration: c.registration || vehicleRegistration
-              });
+            : {ok:false,reason:'disabled'};
           if (mounted) setLocationTracking(result.ok === true);
           return;
         }
@@ -995,7 +992,11 @@ export default function App() {
         setLocationTracking(false);
         Alert.alert('Lokalizacja','Nadajnik GPS został wyłączony.');
       } else {
-        const result = await startVehicleLocationTracking({vehicleId:vehicleRegistration,registration:vehicleRegistration});
+        const result = await startVehicleLocationTracking(
+          cloudRole === 'locator'
+            ? {}
+            : {vehicleId:vehicleRegistration,registration:vehicleRegistration}
+        );
         if (result.ok) {
           setLocationTracking(true);
           Alert.alert('Lokalizacja aktywna','Służbowy telefon będzie wysyłał pozycję w tle.');
