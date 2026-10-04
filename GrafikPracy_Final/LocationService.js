@@ -2,12 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
+import {collection, doc, getDoc, getDocs, limit, orderBy, query, setDoc, serverTimestamp, Timestamp, where, deleteDoc} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
 export const LOCATION_CONFIG_KEY = 'grafik-pracy-location-config-v1';
 export const LOCATION_CURRENT_KEY = 'grafik-pracy-location-current-v1';
+export const LOCATION_HISTORY_LAST_CLEANUP_KEY = 'grafik-pracy-location-history-cleanup-v1';
 
 export const normalizeVehicleId = value => String(value || 'SŁUŻBOWY').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40) || 'SLUZBOWY';
 
@@ -23,7 +24,8 @@ async function getCentralVehicleAssignment() {
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (!snap.exists()) return {vehicleId:'',registration:'',exists:false};
     const data=snap.data() || {};
-    const vehicleId=normalizeVehicleId(data.vehicleId || data.registration || '');
+    const rawVehicleId=data.vehicleId || data.registration || '';
+    const vehicleId=rawVehicleId ? normalizeVehicleId(rawVehicleId) : '';
     const registration=String(data.registration || data.vehicleId || '').trim().toUpperCase();
     return {vehicleId,registration,exists:!!(vehicleId || registration)};
   } catch(error) {
@@ -38,7 +40,8 @@ async function stopIfCentralAssignmentChanged(localConfig=null) {
     if (cfg.enabled===true) await stopVehicleLocationTracking();
     return {ok:false,reason:'central-assignment-missing'};
   }
-  const localVehicle=normalizeVehicleId(cfg.vehicleId || cfg.registration || '');
+  const localVehicleRaw=cfg.vehicleId || cfg.registration || '';
+  const localVehicle=localVehicleRaw ? normalizeVehicleId(localVehicleRaw) : '';
   const localRegistration=String(cfg.registration || cfg.vehicleId || '').trim().toUpperCase();
   if (central.vehicleId && localVehicle && central.vehicleId !== localVehicle) {
     await stopVehicleLocationTracking();
@@ -86,6 +89,38 @@ const LOCATION_OPTIONS={
 };
 
 let locationSaveQueue = Promise.resolve();
+let lastHistoryCleanupAt = 0;
+
+async function cleanupExpiredLocationHistory(vehicleId) {
+  if (!vehicleId || !FIREBASE_ENABLED || !db) return;
+
+  const now = Date.now();
+  if (lastHistoryCleanupAt && now - lastHistoryCleanupAt < 6 * 60 * 60 * 1000) return;
+
+  const lastRaw = await AsyncStorage.getItem(LOCATION_HISTORY_LAST_CLEANUP_KEY).catch(() => null);
+  const lastCleanup = Number(lastRaw || 0);
+  if (Number.isFinite(lastCleanup) && now - lastCleanup < 6 * 60 * 60 * 1000) {
+    lastHistoryCleanupAt = lastCleanup;
+    return;
+  }
+
+  const cutoff = now - 7 * 24 * 60 * 60 * 1000;
+  const cutoffTimestamp = Timestamp.fromMillis(cutoff);
+  try {
+    const q = query(
+      collection(db,'vehicleTracking',vehicleId,'locations'),
+      where('updatedAt','<',cutoffTimestamp),
+      orderBy('updatedAt','asc'),
+      limit(100)
+    );
+    const snap = await getDocs(q);
+    await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+    lastHistoryCleanupAt = now;
+    await AsyncStorage.setItem(LOCATION_HISTORY_LAST_CLEANUP_KEY,String(now));
+  } catch(e) {
+    console.log('LOCATION_HISTORY_CLEANUP_ERROR',e);
+  }
+}
 
 async function saveLocationInternal(location) {
   if (!FIREBASE_ENABLED || !db || !location?.coords) return;
@@ -106,7 +141,7 @@ async function saveLocationInternal(location) {
   if(currentConfig.enabled!==true) return;
   if(expectedUid && ownerUid!==expectedUid) return;
   if(auth?.currentUser?.uid!==ownerUid) return;
-  const payload={
+  const basePayload={
     vehicleId,
     ownerUid,
     registration:cfg.registration||vehicleId,
@@ -116,15 +151,18 @@ async function saveLocationInternal(location) {
     altitude:Number(c.altitude||0),
     speed:Number.isFinite(c.speed)?Number(c.speed):null,
     heading:Number.isFinite(c.heading)?Number(c.heading):null,
-    // Server time is authoritative for freshness; clientObservedAt is only diagnostic/local fallback.
-    updatedAt:serverTimestamp(),
     clientObservedAt:now
+  };
+  const firestorePayload={
+    ...basePayload,
+    // Server time is authoritative for freshness.
+    updatedAt:serverTimestamp()
   };
   let saved=false;
   let lastError=null;
   for(let attempt=0;attempt<3 && !saved;attempt++){
     try {
-      await setDoc(doc(db,'vehicleTracking',vehicleId),payload,{merge:true});
+      await setDoc(doc(db,'vehicleTracking',vehicleId),firestorePayload,{merge:true});
       saved=true;
     } catch(e) {
       lastError=e;
@@ -141,22 +179,28 @@ async function saveLocationInternal(location) {
     last=raw?JSON.parse(raw):null;
   } catch(e) {}
 
-  const moved=last?distanceMeters(last,payload):Infinity;
+  const moved=last?distanceMeters(last,basePayload):Infinity;
   const lastHistoryAt=Number(last?.historyAt||0);
   const shouldStoreHistory=!last || moved>=80 || now-lastHistoryAt>=120000;
-  payload.historyAt=shouldStoreHistory?now:lastHistoryAt;
+  const historyPayload={
+    ...firestorePayload,
+    historyAt:shouldStoreHistory?now:lastHistoryAt
+  };
 
   if (shouldStoreHistory) {
     try {
-      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),payload);
+      await setDoc(doc(collection(db,'vehicleTracking',vehicleId,'locations')),historyPayload);
     } catch(e) {
       console.log('LOCATION_HISTORY_WRITE_ERROR',e);
     }
   }
 
-  await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
-  // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
-  // zapytań i deleteDoc przy każdym punkcie GPS.
+  const cachePayload={...basePayload,updatedAt:now,historyAt:historyPayload.historyAt};
+  await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(cachePayload));
+  // Retencja 7 dni jest sprzątana najwyżej raz na 6 godzin na aktywnym nadajniku.
+  // Limit 100 rekordów na przebieg ogranicza koszt pojedynczego sprzątania.
+  // Cache jest zapisany wcześniej, więc cleanup nie blokuje bieżącej pozycji.
+  await cleanupExpiredLocationHistory(vehicleId);
 }
 
 // Serializujemy zapisy GPS, aby dwa punkty przychodzące jednocześnie nie
@@ -175,13 +219,13 @@ if (!TaskManager.isTaskDefined(LOCATION_TASK_NAME)) {
   });
 }
 
-export async function saveVehicleLocationAssignment(registration) {
+export async function saveVehicleLocationAssignment(registration,{allowCentralChange=false}={}) {
   const reg=String(registration||'').trim().toUpperCase();
   if(!reg) throw new Error('Brak numeru rejestracyjnego.');
   const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
   const central=await getCentralVehicleAssignment();
-  if (central.exists && central.vehicleId && central.vehicleId !== vehicle) {
+  if (!allowCentralChange && central.exists && central.vehicleId && central.vehicleId !== vehicle) {
     throw new Error(`Pojazd nie zgadza się z centralnym przypisaniem: ${central.vehicleId}`);
   }
   if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
@@ -203,14 +247,16 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     const snap=await getDoc(doc(db,'locationConfig','main'));
     if (snap.exists()) {
       const data=snap.data()||{};
-      centralVehicleId=normalizeVehicleId(data.vehicleId||data.registration);
+      const rawVehicleId=data.vehicleId||data.registration||'';
+      centralVehicleId=rawVehicleId ? normalizeVehicleId(rawVehicleId) : '';
       centralRegistration=String(data.registration||data.vehicleId||'').trim().toUpperCase();
     }
   } catch(e) {
     return {ok:false,reason:'central-config',errorCode:e?.code||'unknown'};
   }
 
-  const requestedVehicle=normalizeVehicleId(vehicleId||registration);
+  const requestedRaw=vehicleId||registration||'';
+  const requestedVehicle=requestedRaw ? normalizeVehicleId(requestedRaw) : '';
   const vehicle=centralVehicleId||requestedVehicle;
   if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
   if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {

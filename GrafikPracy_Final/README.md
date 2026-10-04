@@ -45,3 +45,27 @@ Workflow PR uruchamia te testy przed eksportem WWW i budową APK.
 
 ### Ważne ograniczenie testów Firebase
 Testy etapowe w repozytorium są testami regresyjnymi/static security checks. Nie zastępują pełnego testu Firestore Emulator z prawdziwymi kontami testowymi. Przed produkcyjnym wdrożeniem reguł warto wykonać osobny test integracyjny na projekcie testowym Firebase.
+
+## Obecna architektura produkcyjna
+
+Projekt działa bez Firebase Cloud Functions i bez Cloud Build. APK oraz WWW są budowane przez GitHub Actions na podstawie źródeł z GrafikPracy_Final.
+
+### Konta administratora
+
+Administrator tworzy nowe konto przez drugą, tymczasową instancję Firebase Authentication, dzięki czemu jego własna sesja pozostaje zalogowana. Profil użytkownika jest zapisywany w Firestore.
+
+Usunięcie użytkownika z panelu administratora usuwa jego profil users/<UID> z Firestore i blokuje dostęp do aplikacji. Bez uprzywilejowanego backendu aplikacja nie może fizycznie usunąć cudzego rekordu z Firebase Authentication. UI nie deklaruje już fizycznego usunięcia z Auth.
+
+### Synchronizacja
+
+Grafik tygodniowy jest przechowywany w schedules/<weekId> jako mapa zmian. Zapisy administratora są wykonywane transakcyjnie i rebazowane na świeżym stanie serwera. Wszystkie lokalnie zmienione tygodnie są zapisywane, nie tylko aktualnie otwarty tydzień.
+
+Wspólne ustawienia administracyjne są synchronizowane przez settings/main.
+
+### GPS
+
+locationConfig/main jest źródłem prawdy dla centralnego przypisania pojazdu. Nadajnik lokalizatora nie korzysta ze starego lokalnego numeru rejestracyjnego przy aktywacji. Odczyt dashboardu Teraz jest ograniczony do jednego centralnie przypisanego dokumentu pojazdu.
+
+### Build
+
+Źródła produkcyjne nie są już modyfikowane przez postinstall ani przez skrypty patchujące App.js podczas CI. App.js pozostaje prostym, stałym entry pointem.

@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import useSecondTicker from './hooks/useSecondTicker';
 import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
-import {collection, doc, onSnapshot} from 'firebase/firestore';
+import {doc, onSnapshot} from 'firebase/firestore';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {WebView} from 'react-native-webview';
 
@@ -34,35 +34,65 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [locationError,setLocationError]=useState('');
  useSecondTicker(1000);
  useEffect(()=>{
-   let unsub=null,configUnsub=null,cancelled=false;
-   const subscribe=(cfg={})=>{
-     if(unsub) unsub();
+   let vehicleUnsub=null, configUnsub=null, cancelled=false;
+
+   const subscribeVehicle=(cfg={})=>{
+     if(vehicleUnsub){ vehicleUnsub(); vehicleUnsub=null; }
      const requested=idFor(cfg.vehicleId||cfg.registration||vehicleRegistration);
-     const handleSnapshot=(snap,exactMode=false)=>{
-       const rows=exactMode
-         ? (snap.exists() ? [{id:snap.id,...snap.data()}] : [])
-         : snap.docs.map(d=>({id:d.id,...d.data()}));
-       const valid=rows.filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&serverMillis(x.updatedAt)>0);
-       if(!valid.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
-       const exact=exactMode ? valid[0] : requested&&valid.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
-       const fresh=valid.filter(x=>Date.now()-serverMillis(x.updatedAt)<=180000).sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt));
-       const selected=requested ? ((exact&&Date.now()-serverMillis(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt))[0]);
-       setLocation(selected||null);
-       setLocationError(selected&&Date.now()-Number(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
-     };
-     const vehicleSource=requested ? doc(db,'vehicleTracking',requested) : collection(db,'vehicleTracking');
-     unsub=onSnapshot(vehicleSource,snap=>handleSnapshot(snap,Boolean(requested)),()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
+     if(!requested){
+       setLocation(null);
+       setLocationError('Brak centralnego przypisania pojazdu');
+       return;
+     }
+
+     const vehicleRef=doc(db,'vehicleTracking',requested);
+     vehicleUnsub=onSnapshot(vehicleRef,snap=>{
+       if(cancelled)return;
+       if(!snap.exists()){
+         setLocation(null);
+         setLocationError('Brak aktualnej lokalizacji');
+         return;
+       }
+       const row={id:snap.id,...snap.data()};
+       const valid=Number.isFinite(Number(row.latitude))
+         && Number.isFinite(Number(row.longitude))
+         && serverMillis(row.updatedAt)>0;
+       if(!valid){
+         setLocation(null);
+         setLocationError('Brak aktualnej lokalizacji');
+         return;
+       }
+       const age=Date.now()-serverMillis(row.updatedAt);
+       setLocation(row);
+       setLocationError(age>180000?'Lokalizacja nieaktualna':'');
+     },()=>{
+       if(cancelled)return;
+       setLocation(null);
+       setLocationError('Brak dostępu do lokalizacji');
+     });
    };
-   if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){setLocation(null);return;}
+
+   if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){
+     setLocation(null);
+     setLocationError('');
+     return;
+   }
+
    configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
      if(cancelled)return;
-     subscribe(snap.exists()?snap.data()||{}:{});
+     subscribeVehicle(snap.exists()?snap.data()||{}:{});
    },()=>{
      if(cancelled)return;
+     if(vehicleUnsub){ vehicleUnsub(); vehicleUnsub=null; }
+     setLocation(null);
      setLocationError('Brak dostępu do konfiguracji lokalizacji');
-     subscribe({});
    });
-   return()=>{cancelled=true;if(configUnsub)configUnsub();if(unsub)unsub();};
+
+   return()=>{
+     cancelled=true;
+     if(configUnsub)configUnsub();
+     if(vehicleUnsub)vehicleUnsub();
+   };
  },[cloudUser?.uid,vehicleRegistration]);
 
  const info=useMemo(()=>{

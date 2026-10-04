@@ -198,6 +198,12 @@ export default function App() {
   const weeksRef = useRef({});
   weeksRef.current = weeks;
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
+  const settingsRemoteRef = useRef(null);
+  const settingsApplyingRef = useRef(false);
+  const settingsRemoteLoadedRef = useRef(false);
+  const adminSettingsRemoteRef = useRef(null);
+  const adminSettingsApplyingRef = useRef(false);
+  const adminSettingsLoadedRef = useRef(false);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
   const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
@@ -253,7 +259,6 @@ export default function App() {
   const [swapTargetShift,setSwapTargetShift] = useState(1);
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
-  const [guestMode,setGuestMode] = useState(false);
   const normalizeRecoveryBalances = value => {
     const source = value && typeof value === 'object' ? value : {};
     return Object.fromEntries(PERSON_KEYS.map(key => {
@@ -274,7 +279,7 @@ export default function App() {
     ).slice(0,500);
   };
 
-  const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
+  const readOnly = (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
 
   const wkKey = iso(weekStart);
   const DEFAULT_BUSINESS_CONDITIONS = [
@@ -423,10 +428,7 @@ export default function App() {
         if (cloudRole === 'locator') {
           const result = c.enabled === true
             ? await ensureVehicleLocationTracking()
-            : await startVehicleLocationTracking({
-                vehicleId: c.vehicleId || vehicleRegistration,
-                registration: c.registration || vehicleRegistration
-              });
+            : {ok:false,reason:'disabled'};
           if (mounted) setLocationTracking(result.ok === true);
           return;
         }
@@ -519,7 +521,6 @@ export default function App() {
       setRememberLogin(remember);
 
       setCloudUser(user || null);
-      if (user) setGuestMode(false);
       setCloudError('');
       setCloudReady(false);
 
@@ -595,7 +596,7 @@ export default function App() {
       setChatMessages(rows);
     }, err => setCloudError('Brak dostępu do czatu. Kod: ' + (err?.code || 'unknown')));
     return unsub;
-  },[cloudUser,guestMode]);
+  },[cloudUser]);
 
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
@@ -648,7 +649,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!FIREBASE_ENABLED || !db || (!cloudUser)) return;
 
     const unsub = onSnapshot(
       collection(db,'schedules'),
@@ -754,174 +755,175 @@ export default function App() {
       err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany'))
     );
     return unsub;
-  },[cloudUser,guestMode,cloudRole]);
-  useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
-    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
-      if (!snap.exists() || cloudDirtyRef.current) return;
-      const data = snap.data() || {};
-      cloudApplying.current = true;
-      if (data.hours) setHours(data.hours);
-      if (data.rotation) setRotation(data.rotation);
-      if (data.warehouse) setWarehouse(data.warehouse);
-      if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
-      if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
-      if (data.personColors) setPersonColors(data.personColors);
-      if (data.conditions) setConditions(data.conditions);
-      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
-      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
-      if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
-    }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
-    return unsub;
-  },[cloudUser,guestMode]);
+  },[cloudUser,cloudRole]);
   useEffect(() => {
     if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const q = cloudRole === 'admin'
-      ? collection(db,'proposals')
-      : query(collection(db,'proposals'),where('fromUid','==',cloudUser.uid));
-    const unsub = onSnapshot(q, snap => {
-      setProposals(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))));
-    }, err => setCloudError('Brak dostępu do propozycji zamian. Kod: ' + (err?.code || 'unknown')));
+
+    const unsub = onSnapshot(doc(db,'settings','main'), snap => {
+      if (!snap.exists()) return;
+      const data = snap.data() || {};
+
+      const sharedSettings = {
+        hours: data.hours || 10,
+        rotation: data.rotation || 'P',
+        warehouse: data.warehouse || 'PNT B',
+        autoGenerateWeeks: typeof data.autoGenerateWeeks === 'boolean' ? data.autoGenerateWeeks : false,
+        allow24h: typeof data.allow24h === 'boolean' ? data.allow24h : false,
+        times: data.times || DEFAULT_TIMES,
+        personColors: data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
+        conditions: Array.isArray(data.conditions) ? data.conditions : []
+      };
+
+      settingsRemoteRef.current = sharedSettings;
+      settingsApplyingRef.current = true;
+      settingsRemoteLoadedRef.current = true;
+      cloudApplying.current = true;
+
+      setHours(sharedSettings.hours);
+      setRotation(sharedSettings.rotation);
+      setWarehouse(sharedSettings.warehouse);
+      setAutoGenerateWeeks(sharedSettings.autoGenerateWeeks);
+      setAllow24h(sharedSettings.allow24h);
+      setPersonColors(sharedSettings.personColors);
+      setConditions(sharedSettings.conditions);
+      setTimes(sharedSettings.times[sharedSettings.hours] || DEFAULT_TIMES[sharedSettings.hours] || times);
+    }, err => setCloudError('Brak dostępu do ustawień grafiku. Kod: ' + (err?.code || 'nieznany')));
+
     return unsub;
   },[cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const unsub=onSnapshot(doc(db,'users',cloudUser.uid), snap => {
-      const key=snap.exists()?snap.data()?.personKey:null;
-      if(key && PERSON_KEYS.includes(key)) setMyPerson(key);
-    });
-    return unsub;
-  },[cloudUser]);
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
+
+    let cancelled = false;
+    let unsub = null;
+
+    const bootstrapAdminSettings = async () => {
+      const mainRef = doc(db,'settings','main');
+      const adminRef = doc(db,'settings','admin');
+      try {
+        const [adminSnap,mainSnap] = await Promise.all([getDoc(adminRef),getDoc(mainRef)]);
+        if (cancelled) return;
+
+        if (!adminSnap.exists()) {
+          const mainData = mainSnap.exists() ? mainSnap.data() || {} : {};
+          const hasLegacyPrivateData =
+            mainData.recoveryBalances !== undefined
+            || mainData.recoveryLedger !== undefined;
+
+          await setDoc(adminRef,{
+            recoveryBalances: hasLegacyPrivateData
+              ? normalizeRecoveryBalances(mainData.recoveryBalances)
+              : normalizeRecoveryBalances(recoveryBalances),
+            recoveryLedger: hasLegacyPrivateData
+              ? normalizeRecoveryLedger(mainData.recoveryLedger)
+              : normalizeRecoveryLedger(recoveryLedger),
+            createdAt: serverTimestamp(),
+            createdBy: cloudUser.uid,
+            updatedAt: serverTimestamp(),
+            updatedBy: cloudUser.uid
+          },{merge:true});
+
+          if (hasLegacyPrivateData) {
+            await updateDoc(mainRef,{
+              recoveryBalances: deleteField(),
+              recoveryLedger: deleteField()
+            });
+          }
+        }
+
+        if (cancelled) return;
+        adminSettingsLoadedRef.current = true;
+
+        unsub = onSnapshot(adminRef,snap => {
+          const data = snap.exists() ? snap.data() || {} : {};
+          const adminSettings = {
+            recoveryBalances: normalizeRecoveryBalances(data.recoveryBalances),
+            recoveryLedger: normalizeRecoveryLedger(data.recoveryLedger)
+          };
+          adminSettingsRemoteRef.current = adminSettings;
+          adminSettingsApplyingRef.current = true;
+          setRecoveryBalances(adminSettings.recoveryBalances);
+          setRecoveryLedger(adminSettings.recoveryLedger);
+        }, err => setCloudError('Brak dostępu do ustawień administracyjnych. Kod: ' + (err?.code || 'nieznany')));
+      } catch(e) {
+        adminSettingsLoadedRef.current = false;
+        setCloudError('Nie udało się przygotować ustawień administracyjnych. Kod: ' + (e?.code || e?.message || 'unknown'));
+      }
+    };
+
+    bootstrapAdminSettings();
+
+    return () => {
+      cancelled = true;
+      adminSettingsLoadedRef.current = false;
+      if (unsub) unsub();
+    };
+  },[ready,cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!ready || !scheduleHydratedRef.current) return;
-    if (!scheduleDirtyTrackingStartedRef.current) {
-      scheduleDirtyTrackingStartedRef.current = true;
-      return;
-    }
-    if (cloudApplying.current) {
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready || !settingsRemoteLoadedRef.current) return;
+
+    if (settingsApplyingRef.current) {
+      settingsApplyingRef.current = false;
       cloudApplying.current = false;
       return;
     }
 
-    Object.keys(weeks || {}).forEach(key => {
-      const localMap = weekToShiftMap(weeks[key], key);
-      const remoteMap = remoteShiftMapByWeekRef.current[key] || {};
-      const dirty = new Set();
-      Object.keys(localMap).forEach(shiftKey => {
-        if (JSON.stringify(localMap[shiftKey]) !== JSON.stringify(remoteMap[shiftKey])) dirty.add(shiftKey);
-      });
-      Object.keys(remoteMap).forEach(shiftKey => {
-        if (!Object.prototype.hasOwnProperty.call(localMap, shiftKey)) dirty.add(shiftKey);
-      });
-      localDirtyShiftKeysRef.current[key] = Array.from(dirty);
+    const nextSettings = {
+      hours,
+      rotation,
+      warehouse,
+      autoGenerateWeeks: !!autoGenerateWeeks,
+      allow24h: !!allow24h,
+      times: {
+        10: DEFAULT_TIMES[10],
+        12: DEFAULT_TIMES[12],
+        [hours]: times
+      },
+      personColors,
+      conditions: Array.isArray(conditions) ? conditions : []
+    };
 
-      const localConfig = weekConfigs[key] || null;
-      const remoteConfig = remoteWeekConfigByWeekRef.current[key] || null;
-      if (JSON.stringify(localConfig) !== JSON.stringify(remoteConfig)) localDirtyWeekConfigRef.current[key] = true;
-      else delete localDirtyWeekConfigRef.current[key];
+    if (JSON.stringify(settingsRemoteRef.current) === JSON.stringify(nextSettings)) return;
+
+    setDoc(doc(db,'settings','main'),{
+      ...nextSettings,
+      updatedAt: serverTimestamp(),
+      updatedBy: cloudUser.uid
+    },{merge:true}).then(()=>{
+      settingsRemoteRef.current = nextSettings;
+    }).catch(e=>{
+      setCloudError('Nie udało się zsynchronizować ustawień. Kod: ' + (e?.code || e?.message || 'unknown'));
     });
-
-    cloudDirtyRef.current =
-      Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
-      || Object.keys(localDirtyWeekConfigRef.current).length > 0;
-  },[ready,weeks,weekConfigs]);
+  },[hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,ready,cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
-    if (!cloudDirtyRef.current) return;
+    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready || !adminSettingsLoadedRef.current) return;
 
-    if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
-    cloudSaveTimerRef.current=setTimeout(async()=> {
-      const weekKeyAtSave=wkKey;
-      const weeksAtSave=weeks;
-      const configsAtSave=weekConfigs;
-      const scheduleRef=doc(db,'schedules',weekKeyAtSave);
-      const localWeek=weeksAtSave[weekKeyAtSave] || currentWeek;
-      const localMap=weekToShiftMap(localWeek,weekKeyAtSave);
-      const dirtyAtSave=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
+    if (adminSettingsApplyingRef.current) {
+      adminSettingsApplyingRef.current = false;
+      return;
+    }
 
-      const config=configsAtSave[weekKeyAtSave] || {hours,rotation,warehouse,times};
-      const configDirtyAtSave = localDirtyWeekConfigRef.current[weekKeyAtSave] === true;
-      try {
-        if (dirtyAtSave.size === 0 && !configDirtyAtSave) {
-          cloudDirtyRef.current=false;
-          return;
-        }
-
-        await runTransaction(db, async tx => {
-          const snap=await tx.get(scheduleRef);
-          if (!snap.exists()) {
-            tx.set(scheduleRef,{
-              weekId:weekKeyAtSave,
-              shifts:localMap,
-              config,
-              updatedAt:serverTimestamp(),
-              updatedBy:cloudUser.uid
-            });
-            return;
-          }
-
-          const current=snap.data() || {};
-          const currentMap=current.shifts && typeof current.shifts === 'object'
-            ? current.shifts
-            : weekToShiftMap(current.week || [],weekKeyAtSave);
-
-          // Rebase only the locally dirty slots onto the transaction's fresh
-          // server snapshot. Changes made by another device are preserved.
-          const transactionUpdate={
-            updatedAt:serverTimestamp(),
-            updatedBy:cloudUser.uid
-          };
-          dirtyAtSave.forEach(key => {
-            if (Object.prototype.hasOwnProperty.call(localMap,key)) {
-              transactionUpdate[`shifts.${key}`]=localMap[key];
-            } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
-              transactionUpdate[`shifts.${key}`]=deleteField();
-            }
-          });
-          if (configDirtyAtSave) transactionUpdate.config=config;
-
-          if (Object.keys(transactionUpdate).length > 2) {
-            tx.update(scheduleRef,transactionUpdate);
-          }
-        });
-
-        const latest=await getDoc(scheduleRef);
-        const latestData=latest.exists()?latest.data():{};
-        remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
-          ? latestData.shifts
-          : localMap;
-        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
-
-        const currentMap=weekToShiftMap(
-          weeksRef.current[weekKeyAtSave] || currentWeek,
-          weekKeyAtSave
-        );
-        const remaining=new Set(localDirtyShiftKeysRef.current[weekKeyAtSave] || []);
-        dirtyAtSave.forEach(key => {
-          if (JSON.stringify(currentMap[key]) === JSON.stringify(localMap[key])) {
-            remaining.delete(key);
-          }
-        });
-        localDirtyShiftKeysRef.current[weekKeyAtSave]=Array.from(remaining);
-        if (configDirtyAtSave && JSON.stringify(weekConfigs[weekKeyAtSave] || null) === JSON.stringify(config)) delete localDirtyWeekConfigRef.current[weekKeyAtSave];
-        cloudDirtyRef.current=
-          Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
-          || Object.keys(localDirtyWeekConfigRef.current).length > 0;
-      } catch(e) {
-        setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
-      }
-    },250);
-
-    return () => {
-      if (cloudSaveTimerRef.current) {
-        clearTimeout(cloudSaveTimerRef.current);
-        cloudSaveTimerRef.current=null;
-      }
+    const nextAdminSettings = {
+      recoveryBalances: normalizeRecoveryBalances(recoveryBalances),
+      recoveryLedger: normalizeRecoveryLedger(recoveryLedger)
     };
-  },[ready,wkKey,weeks,weekConfigs,hours,rotation,warehouse,times,cloudUser,cloudRole]);
+
+    if (JSON.stringify(adminSettingsRemoteRef.current) === JSON.stringify(nextAdminSettings)) return;
+
+    setDoc(doc(db,'settings','admin'),{
+      ...nextAdminSettings,
+      updatedAt: serverTimestamp(),
+      updatedBy: cloudUser.uid
+    },{merge:true}).then(()=>{
+      adminSettingsRemoteRef.current = nextAdminSettings;
+    }).catch(e=>{
+      setCloudError('Nie udało się zsynchronizować danych administracyjnych. Kod: ' + (e?.code || e?.message || 'unknown'));
+    });
+  },[recoveryBalances,recoveryLedger,ready,cloudUser,cloudRole]);
+
   const parseHM = value => {
     const m = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
     return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
@@ -995,7 +997,11 @@ export default function App() {
         setLocationTracking(false);
         Alert.alert('Lokalizacja','Nadajnik GPS został wyłączony.');
       } else {
-        const result = await startVehicleLocationTracking({vehicleId:vehicleRegistration,registration:vehicleRegistration});
+        const result = await startVehicleLocationTracking(
+          cloudRole === 'locator'
+            ? {}
+            : {vehicleId:vehicleRegistration,registration:vehicleRegistration}
+        );
         if (result.ok) {
           setLocationTracking(true);
           Alert.alert('Lokalizacja aktywna','Służbowy telefon będzie wysyłał pozycję w tle.');
@@ -1064,7 +1070,7 @@ export default function App() {
     setReportBusy(true);
     try {
       await Clipboard.setStringAsync(text);
-      const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,ramp:reportRamp.trim(),loaded:reportLoaded,durationMinutes:parseReportDurationMinutes(reportDuration),createdAt:new Date().toISOString(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
+      const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,ramp:reportRamp.trim(),loaded:reportLoaded,durationMinutes:parseReportDurationMinutes(reportDuration),createdAt:serverTimestamp(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'whatsappReports'),reportEntry);
       else setReportHistory(prev => [reportEntry,...prev].slice(0,100));
       if (reportGroupLink.trim()) await Linking.openURL(reportGroupLink.trim());
@@ -1082,7 +1088,7 @@ export default function App() {
     const normalized=String(body||'').trim();
     if (!normalized || chatBusy) return false;
     setChatBusy(true);
-    const message = {text:normalized,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
+    const message = {text:normalized,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:serverTimestamp()};
     try {
       if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
       else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
@@ -1593,7 +1599,7 @@ export default function App() {
 
   const appendRecoveryLedger = (person, delta, reason, meta={}) => {
     if (!person || !PERSON_KEYS.includes(person) || !Number.isFinite(Number(delta)) || Number(delta) === 0) return;
-    setRecoveryLedger(prev => [{id:`${Date.now()}-${Math.random().toString(36).slice(2,10)}`,person,delta:Number(delta),reason,...meta,createdAt:new Date().toISOString()},...prev].slice(0,500));
+    setRecoveryLedger(prev => [{id:`${Date.now()}-${Math.random().toString(36).slice(2,10)}`,person,delta:Number(delta),reason,...meta,createdAt:serverTimestamp()},...prev].slice(0,500));
   };
 
   const confirmRecovery = person => {
@@ -1633,17 +1639,25 @@ export default function App() {
     const recoveryPerson = offMode === 'recover'
       ? (previousRecoveryPerson || previousShift?.person || null)
       : null;
-    setWeek(w=>{
-      const sh=w[dayIndex].shifts[shiftIndex];
-      sh.person=offReplacement || null;
-      sh.off=true;
-      sh.offMode=offMode;
-      sh.replacement=offReplacement||null;
-      sh.offOriginalPerson=recoveryPerson || null;
-      sh.recoverPerson=recoveryPerson || null;
-      sh.manual=true;
-      return w;
-    });
+    setWeek(w=>w.map((day,di)=>{
+      if(di!==dayIndex)return day;
+      return {
+        ...day,
+        shifts:(day.shifts||[]).map((shift,si)=>{
+          if(si!==shiftIndex)return shift;
+          return {
+            ...shift,
+            person:offReplacement || null,
+            off:true,
+            offMode,
+            replacement:offReplacement||null,
+            offOriginalPerson:recoveryPerson || null,
+            recoverPerson:recoveryPerson || null,
+            manual:true
+          };
+        })
+      };
+    }));
     if (previousRecoveryPerson && previousRecoveryPerson !== recoveryPerson) {
       const currentDebt=Number(recoveryBalances[previousRecoveryPerson])||0;
       if (currentDebt > 0) {
@@ -1700,7 +1714,7 @@ export default function App() {
       toShift:swapTargetShift,
       toExpectedPerson:swapTarget,
       status:'pending',
-      createdAt:new Date().toISOString()
+      createdAt:serverTimestamp()
     };
     try {
       if(FIREBASE_ENABLED && db) await addDoc(collection(db,'proposals'),proposal);
@@ -1766,7 +1780,7 @@ export default function App() {
           const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
           const nextMap=weekToShiftMap(next,proposalWeekKey);
           tx.update(scheduleRef,{shifts:nextMap,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
-          tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
+          tx.update(proposalRef,{status:'approved',approvedAt:serverTimestamp(),approvedBy:cloudUser?.uid||null});
           return next;
         });
         setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
@@ -1794,7 +1808,7 @@ export default function App() {
         await runTransaction(db,async tx=>{
           const snap=await tx.get(proposalRef);
           if(!snap.exists() || snap.data()?.status !== 'pending') throw new Error('proposal-not-pending');
-          tx.update(proposalRef,{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
+          tx.update(proposalRef,{status:'rejected',rejectedAt:serverTimestamp(),rejectedBy:cloudUser?.uid||null});
         });
       } else {
         setProposals(p=>p.map(x=>x.id===id && x.status==='pending'?{...x,status:'rejected'}:x));
@@ -2488,7 +2502,7 @@ export default function App() {
         if(!reg) return;
         setLocationBusy(true);
         try {
-          await saveVehicleLocationAssignment(reg);
+          await saveVehicleLocationAssignment(reg,{allowCentralChange:cloudRole === 'admin'});
           if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
             await setDoc(doc(db,'locationConfig','main'),{
               vehicleId:normalizeVehicleId(reg),
@@ -2947,7 +2961,7 @@ export default function App() {
     </Modal>
   );
 
-  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {
+  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady)) {
     return (
       <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
         <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>

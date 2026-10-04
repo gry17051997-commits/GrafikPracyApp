@@ -64,20 +64,19 @@ service cloud.firestore {
       allow update: if isAdmin()
         && uid != request.auth.uid
         && request.resource.data.uid == uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName','personKey','role','disabled','disabledAt','updatedAt','updatedBy'
+        ])
         && request.resource.data.email is string
         && request.resource.data.displayName is string
         && request.resource.data.role in ['admin','employee','locator']
         && request.resource.data.personKey in ['', 'P', 'M', 'L']
         && validRolePerson(request.resource.data.role, request.resource.data.personKey)
-        && request.resource.data.disabled is bool
-        || (
-          isAdmin()
-          && uid != request.auth.uid
-          && request.resource.data.get('disabled', false) == true
-          && request.resource.data.get('uid', uid) == uid
-        );
+        && request.resource.data.disabled is bool;
 
-      allow delete: if false;
+      allow delete: if isAdmin() && uid != request.auth.uid;
     }
 
     // Legacy monolithic schedule is retained read-only for administrators during migration.
@@ -96,8 +95,14 @@ service cloud.firestore {
     }
 
     match /settings/main {
-      allow read: if activeUser();
+      allow read: if isAdmin()
+        || (activeUser()
+          && !resource.data.keys().hasAny(['recoveryBalances','recoveryLedger']));
       allow write: if isAdmin();
+    }
+
+    match /settings/admin {
+      allow read, write: if isAdmin();
     }
 
     match /proposals/{proposalId} {
@@ -146,7 +151,6 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (activeUser()
           && (locationConfig().get('vehicleId', '') == vehicleId
-            || locationConfig().get('registration', '') == resource.data.get('registration', '')
             || resource.data.get('ownerUid', '') == request.auth.uid));
 
       // W projekcie działa jeden wspólny nadajnik pojazdu. Jego identyfikator
@@ -186,7 +190,6 @@ service cloud.firestore {
         allow read: if isAdmin()
           || (activeUser()
             && (locationConfig().get('vehicleId', '') == vehicleId
-              || locationConfig().get('registration', '') == resource.data.get('registration', '')
               || resource.data.get('ownerUid', '') == request.auth.uid));
 
         allow create: if isAdmin()
@@ -216,7 +219,10 @@ service cloud.firestore {
             && request.resource.data.longitude >= -180
             && request.resource.data.longitude <= 180);
 
-        allow delete: if isAdmin();
+        allow delete: if isAdmin()
+          || (activeUser()
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'locator'
+            && get(/databases/$(database)/documents/locationConfig/main).data.get('vehicleId', '') == vehicleId);
       }
     }
 
