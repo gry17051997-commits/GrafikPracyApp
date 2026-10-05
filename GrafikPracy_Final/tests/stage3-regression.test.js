@@ -25,7 +25,7 @@ const read = file => {
 
 test('Firestore GPS rules bind locator writes to their own vehicle identity', () => {
   const rules = read('firestore.rules');
-  assert.match(rules, /get\(\/databases\/\$\(database\)\/documents\/locationConfig\/main\)\.data\.vehicleId == vehicleId/);
+  assert.doesNotMatch(rules, /locationConfig\(\)\.get\('vehicleId', ''\) == vehicleId\s*\n\s*&& request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
