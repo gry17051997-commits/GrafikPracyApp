@@ -229,13 +229,12 @@ test('GPS dashboards require a central assignment and evaluate Firestore timesta
   assert.doesNotMatch(now, /Date\.now\(\)-Number\(selected\.updatedAt\)/);
 });
 
-test('GPS assignment parsing keeps an empty central assignment empty and requires the central vehicle to start', async () => {
+test('GPS assignment parsing accepts the selected vehicle and keeps an empty selection empty', async () => {
   const fs = await import('node:fs/promises');
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
-  assert.match(service, /function normalizeAssignedVehicleId\(value\)\s*\{\s*const raw = String\(value \|\| ''\)\.trim\(\);\s*return raw \? normalizeVehicleId\(raw\) : '';/);
+  assert.match(service, /function normalizeAssignedVehicleId\(value\)/);
   assert.match(service, /const vehicleId = normalizeAssignedVehicleId\(config\.vehicleId \|\| config\.registration\)/);
-  assert.match(service, /centralVehicleId=normalizeAssignedVehicleId\(data\.vehicleId\|\|data\.registration\)/);
-  assert.match(service, /const vehicle=centralVehicleId;/);
+  assert.match(service, /const vehicle=requestedVehicle \|\| centralVehicleId/);
   assert.match(service, /if \(!vehicle\) return \{ok:false,reason:'vehicle-assignment'\}/);
 });
 
