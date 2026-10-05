@@ -8,6 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "web:build": "expo export --platform web --output-dir dist --base-url /GrafikPracyApp",
     "test": "node --test tests/*.test.js",
     "test:rules": "npx firebase-tools emulators:exec --only firestore --project demo-grafikpracy-user-invites \"node --test tests/firestore-user-invites.rules.test.js\"",
     "check": "npm test",
