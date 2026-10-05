@@ -44,9 +44,13 @@ const geocodeAddress=async(point)=>{
   }catch(e){ return null; }
 };
 
-const mapHtml=(loc,warehouses)=>{
-  const points=JSON.stringify({loc:loc||null,warehouses:warehouses||[]});
-  return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;margin:0;background:#11151c}.leaflet-popup-content{font:14px Arial}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const data='+points+';const p=data.loc||{latitude:51.05,longitude:16.65};const map=L.map("map").setView([p.latitude,p.longitude],13);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if(data.loc){L.marker([p.latitude,p.longitude]).addTo(map).bindPopup("🚚 AUTO").openPopup()}(data.warehouses||[]).filter(x=>x.latitude&&x.longitude).forEach(w=>L.circleMarker([w.latitude,w.longitude],{radius:7}).addTo(map).bindPopup(w.name));</script></body></html>';
+const mapEmbedUrl=(loc)=>{
+  if(!loc||!Number.isFinite(Number(loc.latitude))||!Number.isFinite(Number(loc.longitude))) return '';
+  const lat=Number(loc.latitude),lon=Number(loc.longitude);
+  const delta=0.04;
+  return 'https://www.openstreetmap.org/export/embed.html?bbox='+
+    encodeURIComponent((lon-delta)+','+(lat-delta)+','+(lon+delta)+','+(lat+delta))+
+    '&layer=mapnik&marker='+encodeURIComponent(lat+','+lon);
 };
 
 export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',warehouseGeo={},reportHistory=[],onApplySuggestion,cloudUser=null}) {
@@ -169,8 +173,8 @@ export default function LiveLocationDashboard({vehicleRegistration='SŁUŻBOWY',
     try{await Linking.openURL(url)}catch(e){}
   };
 
-  const nativeMap=location?<WebView originWhitelist={['*']} source={{html:mapHtml(location,warehouses)}} style={{flex:1}}/>:null;
-  const webMap=location?<iframe title="mapa" style={{width:'100%',height:'100%',border:0}} srcDoc={mapHtml(location,warehouses)}/>:null;
+  const nativeMap=location?<WebView originWhitelist={['*']} source={{uri:mapEmbedUrl(location)}} javaScriptEnabled domStorageEnabled mixedContentMode="always" style={{flex:1}}/>:null;
+  const webMap=location?<iframe title="mapa" style={{width:'100%',height:'100%',border:0}} src={mapEmbedUrl(location)} loading="lazy"/>:null;
 
   return <ScrollView style={{flex:1,padding:12}} contentContainerStyle={{paddingBottom:130}}>
         <View style={styles.header}><View style={styles.headerTop}><Text style={styles.title}>📍 LOKALIZACJA LIVE</Text><Text style={styles.sub}>{config.enabled===false?'Nadajnik wyłączony':'Służbowy telefon → Firebase → aplikacja'}</Text></View></View>

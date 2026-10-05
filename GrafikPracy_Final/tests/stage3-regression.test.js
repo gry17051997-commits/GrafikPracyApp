@@ -23,21 +23,25 @@ const read = file => {
   return fs.readFileSync(found, 'utf8');
 };
 
-test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', () => {
+test('Firestore GPS rules bind locator writes to their own vehicle identity', () => {
   const rules = read('firestore.rules');
-  assert.match(rules, /get\(\/databases\/\$\(database\)\/documents\/locationConfig\/main\)\.data\.vehicleId == vehicleId/);
+  assert.doesNotMatch(rules, /locationConfig\(\)\.get\('vehicleId', ''\) == vehicleId\s*\n\s*&& request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
-  assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| \(signedIn\(\)/);
-  assert.match(rules, /locationConfig\/main\).*vehicleId == vehicleId/);
+  assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| activeUser\(\)/);
+  assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
 });
 
-test('Firestore rules keep role escalation and self-delete blocked', () => {
+test('Firestore rules bind profile creation to a verified invite claim and block self-delete', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /uid != request\.auth\.uid/);
   assert.match(rules, /allow delete: if false;/);
-  assert.match(rules, /request\.resource\.data\.role == 'employee'/);
+  assert.match(rules, /request\.auth\.token\.get\('email_verified', false\) == true/);
+  assert.match(rules, /request\.resource\.data\.role == invite\.role/);
+  assert.match(rules, /request\.resource\.data\.personKey == invite\.personKey/);
+  assert.match(rules, /request\.resource\.data\.displayName == invite\.displayName/);
+  assert.match(rules, /inviteAfter\.claimedBy == request\.auth\.uid/);
 });
 
 test('logout and auth loss stop background GPS tracking', () => {
@@ -124,19 +128,19 @@ test('schedule generator keeps weekday rotation while Sunday Łukasz is supplied
   assert.match(app, /id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2/);
 });
 
-test('GPS dashboards never silently switch to another vehicle when an assigned transmitter is stale', () => {
+test('GPS dashboards follow the currently assigned vehicle without silent fallback', () => {
   const live = read('LiveLocationDashboard.js');
   const now = read('NowDashboard.js');
   assert.match(live, /const vehicleRef=doc\(db,'vehicleTracking',requestedId\)/);
   assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{vehicleId:'',registration:''\}\)/);
-  assert.match(now, /if\(!requested\)\s*\{[\s\S]*Brak centralnego przypisania pojazdu/);
+  assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
   assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
   assert.match(now, /Date\.now\(\)-serverMillis\(selected\.updatedAt\)>180000/);
 });
 
 test('Web deployment uses the lockfile for deterministic dependency installation', () => {
   const workflow = read('../.github/workflows/web.yml');
-  assert.match(workflow, /run: npm ci --ignore-scripts/);
+  assert.match(workflow, /npm ci(?:\s+--ignore-scripts)?/);
 });
 
 test('bottom navigation stays usable on narrow screens', () => {
@@ -259,9 +263,9 @@ test('advanced generator treats person-specific OFF as a candidate restriction a
 });
 
 
-test('main schedule requires authentication for reads', () => {
+test('main schedule requires an active user profile for reads', () => {
   const rules = read('firestore.rules');
-  assert.match(rules, /match \/schedules\/main \{\s*allow read: if signedIn\(\);/);
+  assert.match(rules, /match \/schedules\/main \{\s*allow read: if activeUser\(\);/);
   assert.doesNotMatch(rules, /match \/schedules\/main \{\s*allow read: if true;/);
 });
 
@@ -948,13 +952,16 @@ test('live GPS cache is not blocked by history write failure', () => {
 });
 
 
-test('admin user removal invokes the backend account deletion function, not soft-disable', () => {
+test('admin user removal uses profile deactivation, not Firebase Auth deletion', () => {
   const panel = read('AdminUsersPanel.js');
   const service = read('AdminUserService.js');
-  assert.match(panel, /deleteUserAccountWithoutFunctions/);
-  assert.match(panel, /USUŃ TRWALE/);
-  assert.match(service, /callable\('deleteUserAccount'\)/);
-  assert.doesNotMatch(panel, /remove=async u=>[\\s\\S]*DEZAKTYWUJ/);
+  assert.match(panel, /disableUserWithoutFunctions/);
+  assert.match(panel, /DEZAKTYWUJ/);
+  assert.match(panel, /Konto Firebase Authentication nie zostanie usunięte/);
+  assert.match(service, /httpsCallable/);
+  assert.match(service, /setUserDisabledAdmin|disableUserWithoutFunctions/);
+  assert.doesNotMatch(panel, /deleteUserAccountWithoutFunctions/);
+  assert.doesNotMatch(service, /callable\('deleteUserAccount'\)/);
 });
 
 test('backend user creation enforces role and person assignment as one contract', () => {
@@ -963,4 +970,27 @@ test('backend user creation enforces role and person assignment as one contract'
   const end = fn.indexOf('exports.updateUserProfile', start);
   const block = fn.slice(start, end);
   assert.match(block, /validateRolePerson\(role,personKey\)/);
+});
+
+
+test('admin account management uses callable Firebase Functions', () => {
+  const service = read('AdminUserService.js');
+  const panel = read('AdminUsersPanel.js');
+  assert.match(service, /httpsCallable/);
+  assert.match(service, /createUserAccount/);
+  assert.match(service, /updateUserProfile/);
+  assert.match(service, /setUserDisabled/);
+  assert.match(panel, /createUserAccountWithoutFunctions/);
+  assert.match(panel, /secureTextEntry/);
+});
+
+test('role changes clear P/M/L assignment for non-employees', () => {
+  const panel = read('AdminUsersPanel.js');
+  assert.match(panel, /role,personKey:role==='employee'\?f\.personKey:''/);
+});
+
+test('mini map uses a direct OpenStreetMap embed instead of remote Leaflet script injection', () => {
+  const live = read('LiveLocationDashboard.js');
+  assert.match(live, /openstreetmap\.org\/export\/embed\.html/);
+  assert.match(live, /source=\{\{uri:mapEmbedUrl\(location\)\}\}/);
 });

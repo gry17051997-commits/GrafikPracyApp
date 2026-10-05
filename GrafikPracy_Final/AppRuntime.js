@@ -29,7 +29,8 @@ import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLoc
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
-import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
+import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut} from 'firebase/auth';
+import {claimUserInvite} from './UserInviteService';
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, deleteField, orderBy, limit, runTransaction} from 'firebase/firestore';
 import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
 
@@ -213,6 +214,11 @@ export default function App() {
   const [authEmail,setAuthEmail] = useState('');
   const [authPassword,setAuthPassword] = useState('');
   const [authBusy,setAuthBusy] = useState(false);
+  const [pendingInviteToken,setPendingInviteToken] = useState('');
+  const [pendingInviteStatus,setPendingInviteStatus] = useState('idle');
+  const pendingInviteTokenRef = useRef('');
+  const pendingInviteStatusRef = useRef('idle');
+  const claimInviteInFlightRef = useRef(false);
   const [cloudError,setCloudError] = useState('');
   const [localStorageError,setLocalStorageError] = useState('');
   const [cloudSettingsReady,setCloudSettingsReady] = useState(false);
@@ -597,10 +603,54 @@ export default function App() {
         return;
       }
 
+      let currentUser = user;
+      if (
+        pendingInviteTokenRef.current
+        && pendingInviteStatusRef.current === 'awaiting-email-verification'
+      ) {
+        if (claimInviteInFlightRef.current) return;
+        claimInviteInFlightRef.current = true;
+        try {
+          await user.reload();
+          currentUser = auth.currentUser;
+          if (!currentUser?.uid || !currentUser.email) {
+            throw new Error('Brak UID lub adresu e-mail konta dołączającego.');
+          }
+          setCloudUser(currentUser);
+          if (!currentUser.emailVerified) {
+            setPendingInviteStatus('awaiting-email-verification');
+            setCloudError('Zweryfikuj adres e-mail z wiadomości, aby dokończyć rejestrację.');
+            return;
+          }
+
+          await claimUserInvite({
+            token: pendingInviteTokenRef.current,
+            authUser: currentUser
+          });
+          pendingInviteStatusRef.current = 'completed';
+          pendingInviteTokenRef.current = '';
+          setPendingInviteStatus('completed');
+          setPendingInviteToken('');
+          setCloudError('');
+        } catch(error) {
+          setPendingInviteStatus('awaiting-email-verification');
+          setCloudError(error?.message || 'Nie udało się dokończyć claimu zaproszenia.');
+          return;
+        } finally {
+          claimInviteInFlightRef.current = false;
+        }
+      }
+
       roleUnsub = onSnapshot(
-        doc(db, 'users', user.uid),
+        doc(db, 'users', currentUser.uid),
         async snap => {
-          if (!snap.exists() || snap.data()?.disabled === true) {
+          if (!snap.exists()) {
+            pendingInviteStatusRef.current = 'token-required';
+            setPendingInviteStatus('token-required');
+            setCloudError('To konto nie ma jeszcze profilu. Wpisz ponownie token zaproszenia, aby dokończyć rejestrację.');
+            return;
+          }
+          if (snap.data()?.disabled === true) {
             try { await signOut(auth); } catch (e) {}
             setCloudUser(null);
             setCloudRole('employee');
@@ -1401,6 +1451,16 @@ export default function App() {
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
     try {
+      const resumePendingInvite = Boolean(
+        pendingInviteToken.trim()
+        && pendingInviteStatus === 'token-required'
+        && auth.currentUser?.uid
+      );
+      if (resumePendingInvite) {
+        pendingInviteStatusRef.current = 'awaiting-email-verification';
+        setPendingInviteStatus('awaiting-email-verification');
+        await signOut(auth);
+      }
       await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'1');
       setRememberLogin(true);
       await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword);
@@ -1412,14 +1472,31 @@ export default function App() {
 
   const cloudRegister = async () => {
     setAuthBusy(true); setCloudError('');
+    let inviteAccountCreated = false;
     try {
       const email = authEmail.trim();
       if (!email) { setCloudError('Wpisz adres e-mail.'); return; }
       if (authPassword.length < 6) { setCloudError('Hasło musi mieć co najmniej 6 znaków.'); return; }
+      if (pendingInviteToken.trim()) {
+        pendingInviteStatusRef.current = 'awaiting-email-verification';
+        setPendingInviteStatus('awaiting-email-verification');
+      }
       const cred = await createUserWithEmailAndPassword(auth,email,authPassword);
+      inviteAccountCreated = true;
+      if (pendingInviteToken.trim()) {
+        await sendEmailVerification(cred.user);
+        setPendingInviteStatus('awaiting-email-verification');
+        setAuthPassword('');
+        setCloudError('Konto utworzone. Zweryfikuj adres e-mail z wiadomości, aby dokończyć rejestrację.');
+        return;
+      }
       await setDoc(doc(db,'users',cred.user.uid),{email:cred.user.email,role:'employee',createdAt:serverTimestamp()});
       setAuthPassword('');
     } catch(e) {
+      if (pendingInviteToken.trim() && !inviteAccountCreated) {
+        pendingInviteStatusRef.current = 'idle';
+        setPendingInviteStatus('idle');
+      }
       const code = e?.code || '';
       if (code === 'auth/email-already-in-use') setCloudError('Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.');
       else if (code === 'auth/invalid-email') setCloudError('Nieprawidłowy adres e-mail.');
@@ -2654,7 +2731,7 @@ export default function App() {
         setLocationBusy(true);
         try {
           await saveVehicleLocationAssignment(reg);
-          if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
+          if ((cloudRole === 'admin' || cloudRole === 'locator') && FIREBASE_ENABLED && db && cloudUser) {
             await setDoc(doc(db,'locationConfig','main'),{
               vehicleId:normalizeVehicleId(reg),
               registration:reg,
@@ -3121,6 +3198,8 @@ export default function App() {
             <Text style={S.helpLine}>Zaloguj się, aby korzystać ze wspólnego grafiku.</Text>
             <TextInput value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" keyboardType="email-address" placeholder="E-mail" placeholderTextColor="#777" style={S.input}/>
             <TextInput value={authPassword} onChangeText={setAuthPassword} secureTextEntry placeholder="Hasło" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
+            <TextInput value={pendingInviteToken} onChangeText={value=>{pendingInviteTokenRef.current=value;pendingInviteStatusRef.current=cloudUser?.uid?'token-required':'idle';setPendingInviteToken(value);setPendingInviteStatus(cloudUser?.uid?'token-required':'idle');}} autoCapitalize="none" autoCorrect={false} placeholder="Token zaproszenia (opcjonalnie)" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
+            {pendingInviteStatus==='awaiting-email-verification'&&<Text style={[S.helpLine,{color:'#f2c879',marginTop:8}]}>Oczekiwanie na weryfikację adresu e-mail. Po kliknięciu linku wróć do aplikacji i zaloguj się ponownie.</Text>}
             <TouchableOpacity style={S.rememberRow} onPress={()=>setRememberLogin(v=>!v)}>
               <View style={[S.rememberBox,rememberLogin&&S.rememberBoxActive]}>{rememberLogin&&<Text style={S.rememberCheck}>✓</Text>}</View>
               <Text style={S.optionText}>Zapamiętaj mnie na tym urządzeniu</Text>
@@ -3128,7 +3207,7 @@ export default function App() {
             {!!cloudError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{cloudError}</Text>}
             {!!localStorageError && <Text style={[S.helpLine,{color:'#ff8a8a',marginTop:8}]}>{localStorageError}</Text>}
             <TouchableOpacity style={S.closeBtn} disabled={authBusy} onPress={cloudLogin}><Text style={S.btnText}>{authBusy?'LOGOWANIE…':'ZALOGUJ SIĘ'}</Text></TouchableOpacity>
-            <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{setGuestMode(true);setTab('teraz')}}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>
+            <TouchableOpacity style={[S.btn,{marginTop:8}]} disabled={authBusy} onPress={cloudRegister}><Text style={S.btnText}>UTWÓRZ KONTO PRACOWNIKA</Text></TouchableOpacity><TouchableOpacity style={[S.btn,{marginTop:8}]} onPress={()=>{if(pendingInviteTokenRef.current||['awaiting-email-verification','token-required'].includes(pendingInviteStatusRef.current)){setCloudError('Dokończ rejestrację z zaproszeniem przed skorzystaniem z trybu gościa.');return;}setGuestMode(true);setTab('teraz')}}><Text style={S.btnText}>👻 KONTYNUUJ JAKO GOŚĆ</Text></TouchableOpacity>
           </View>
         </View></SafeAreaView></View>
       </ImageBackground>
