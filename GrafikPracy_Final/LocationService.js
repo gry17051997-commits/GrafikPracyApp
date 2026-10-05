@@ -192,9 +192,6 @@ export async function saveVehicleLocationAssignment(registration) {
   const vehicle=normalizeVehicleId(reg);
   const old=await getConfig();
   const central=await getCentralVehicleAssignment();
-  if (central.exists && central.vehicleId && central.vehicleId !== vehicle) {
-    throw new Error(`Pojazd nie zgadza się z centralnym przypisaniem: ${central.vehicleId}`);
-  }
   if (normalizeVehicleId(old.vehicleId||old.registration) !== vehicle) {
     try { await AsyncStorage.removeItem(LOCATION_CURRENT_KEY); } catch(e) {}
   }
@@ -222,14 +219,11 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   }
 
   const requestedVehicle=normalizeAssignedVehicleId(vehicleId||registration);
-  const vehicle=centralVehicleId;
+  const vehicle=requestedVehicle || centralVehicleId;
   if (!vehicle) return {ok:false,reason:'vehicle-assignment'};
-  if (centralVehicleId && requestedVehicle && centralVehicleId!==requestedVehicle) {
-    return {ok:false,reason:'vehicle-assignment-mismatch',expected:centralVehicleId,requested:requestedVehicle};
-  }
 
   const old=await getConfig();
-  const assignedRegistration=centralRegistration||String(registration||vehicle).trim().toUpperCase();
+  const assignedRegistration=String(registration||centralRegistration||vehicle).trim().toUpperCase();
   const fg=await Location.requestForegroundPermissionsAsync();
   if (fg.status!=='granted') return {ok:false,reason:'foreground-permission'};
   const servicesEnabled=await Location.hasServicesEnabledAsync();
@@ -240,7 +234,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
   if (bg.status!=='granted') return {ok:false,reason:'background-permission'};
   await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration}));
   const guard=await stopIfCentralAssignmentChanged({...old,enabled:true,vehicleId:vehicle,registration:assignedRegistration});
-  if (!guard.ok) return {ok:false,reason:guard.reason,expected:guard.expected,actual:guard.actual};
+  if (!guard.ok && guard.reason!=='central-assignment-mismatch' && guard.reason!=='central-registration-mismatch') return {ok:false,reason:guard.reason,expected:guard.expected,actual:guard.actual};
 
   const running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if (!running) {
