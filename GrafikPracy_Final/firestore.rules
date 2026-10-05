@@ -232,7 +232,8 @@ service cloud.firestore {
     match /locationConfig/main {
       allow read: if isAdmin()
         || activeUser();
-      allow write: if isAdmin();
+      allow write: if isAdmin()
+        || (activeUser() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator');
     }
 
     match /vehicleTracking/{vehicleId} {
@@ -254,7 +255,6 @@ service cloud.firestore {
       allow create: if isAdmin()
         || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
-          && locationConfig().get('vehicleId', '') == vehicleId
           && request.resource.data.vehicleId == vehicleId
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.latitude is number
@@ -267,7 +267,6 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (activeUser()
           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
-          && locCfg().get('vehicleId', '') == vehicleId
           && resource.data.ownerUid == request.auth.uid
           && request.resource.data.vehicleId == vehicleId
           && request.resource.data.ownerUid == resource.data.ownerUid
@@ -290,7 +289,6 @@ service cloud.firestore {
         allow create: if isAdmin()
           || (activeUser()
             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'locator'
-            && get(/databases/$(database)/documents/locationConfig/main).data.vehicleId == vehicleId
             && request.resource.data.vehicleId == vehicleId
             && request.resource.data.ownerUid == request.auth.uid
             && request.resource.data.latitude is number
