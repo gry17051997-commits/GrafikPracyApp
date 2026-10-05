@@ -2,7 +2,9 @@ name: Deploy Web
 
 on:
   push:
-    branches: ['main']
+    branches:
+      - main
+      - variant-b-invites-2026-10-04
     paths:
       - 'GrafikPracy_Final/**'
       - '.github/workflows/web.yml'
@@ -34,7 +36,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
-
 
       - name: Run regression tests
         run: npm test
