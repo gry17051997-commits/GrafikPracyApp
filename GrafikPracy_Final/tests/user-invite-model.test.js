@@ -69,20 +69,20 @@ test('invite token helper uses 256-bit CSPRNG material and SHA-256 document ids'
   assert.doesNotMatch(crypto, /Math\.random/);
 });
 
-test('invite panel uses Firestore invitation service and keeps account creation separate from Auth', () => {
+test('admin panel creates real Auth accounts and keeps invite service separate', () => {
   const inviteService = read('UserInviteService.js');
-  const inviteCore = read('userInviteServiceCore.js');
   const panel = read('AdminUsersPanel.js');
+  const adminService = read('AdminUserService.js');
   assert.match(inviteService, /createUserInviteWithFirestore/);
   assert.match(inviteService, /listUserInvites/);
   assert.match(inviteService, /revokeUserInviteWithFirestore/);
-  assert.match(inviteCore, /userInvites/);
-  assert.match(panel, /createUserInvite\(form\)/);
+  assert.match(panel, /createUserAccountWithoutFunctions\(form\)/);
   assert.match(panel, /listUserInvites\(\)/);
   assert.match(panel, /revokeUserInvite\(invite\.inviteId\)/);
+  assert.match(panel, /secureTextEntry/);
+  assert.match(adminService, /httpsCallable/);
+  assert.match(adminService, /createUserAccount/);
   assert.doesNotMatch(panel, /createUserWithoutFunctions/);
   assert.doesNotMatch(panel, /deleteUserAccountWithoutFunctions/);
-  assert.doesNotMatch(panel, /input\('Hasło/);
   assert.doesNotMatch(panel, /AsyncStorage|console\.log/);
-  assert.match(panel, /Konto Firebase Authentication nie powstaje na tym etapie/);
 });
