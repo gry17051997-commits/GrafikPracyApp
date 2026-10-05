@@ -958,7 +958,7 @@ test('admin user removal uses profile deactivation, not Firebase Auth deletion',
   assert.match(panel, /disableUserWithoutFunctions/);
   assert.match(panel, /DEZAKTYWUJ/);
   assert.match(panel, /Konto Firebase Authentication nie zostanie usunięte/);
-  assert.match(service, /updateDoc\(doc\(database,'users',uid\)/);
+  assert.match(service, /updateDoc\(doc\(database,\s*'users',\s*uid\)/);
   assert.match(service, /disabled: true/);
   assert.doesNotMatch(panel, /deleteUserAccountWithoutFunctions/);
   assert.doesNotMatch(service, /callable\('deleteUserAccount'\)/);
