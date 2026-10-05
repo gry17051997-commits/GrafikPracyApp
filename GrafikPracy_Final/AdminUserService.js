@@ -1,11 +1,12 @@
-import {doc, serverTimestamp, updateDoc} from 'firebase/firestore';
-import {db} from './firebaseConfig';
+import {httpsCallable} from 'firebase/functions';
+import {functions} from './firebaseConfig';
 
-function validateInput(form) {
+function validateInput(form, {requirePassword=false}={}) {
   const email = String(form.email || '').trim().toLowerCase();
   const displayName = String(form.displayName || '').trim();
   const personKey = String(form.personKey || '').trim();
   const role = String(form.role || '').trim();
+  const password = String(form.password || '');
 
   if (!/^\S+@\S+\.\S+$/.test(email)) throw new Error('Podaj prawidłowy e-mail.');
   if (displayName.length < 2 || displayName.length > 100) throw new Error('Imię i nazwisko musi mieć od 2 do 100 znaków.');
@@ -13,56 +14,48 @@ function validateInput(form) {
   if (!['employee', 'locator', 'admin'].includes(role)) throw new Error('Nieprawidłowa rola.');
   if (role === 'employee' && !['P', 'M', 'L'].includes(personKey)) throw new Error('Pracownik musi mieć przypisane P/M/L.');
   if (role !== 'employee' && personKey !== '') throw new Error('Lokalizator i administrator nie mogą mieć przypisanego P/M/L.');
+  if (requirePassword && (password.length < 6 || password.length > 128)) throw new Error('Hasło musi mieć od 6 do 128 znaków.');
 
-  return {displayName, personKey, role};
+  return {email, displayName, personKey, role, ...(requirePassword ? {password} : {})};
 }
 
-function requireDatabase() {
-  if (!db) throw new Error('Firebase Firestore jest niedostępny.');
-  return db;
+function requireFunctions() {
+  if (!functions) throw new Error('Firebase Functions jest niedostępne.');
+  return functions;
+}
+
+async function call(name, data) {
+  const callable = httpsCallable(requireFunctions(), name);
+  const result = await callable(data);
+  return result?.data || {};
+}
+
+export async function createUserAccountWithoutFunctions(form) {
+  const input = validateInput(form, {requirePassword:true});
+  return call('createUserAccount', input);
 }
 
 export async function updateUserProfileWithoutFunctions(uid, form) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const database = requireDatabase();
-  const {displayName, personKey, role} = validateInput(form);
-  await updateDoc(doc(database, 'users', uid), {
-    displayName,
-    personKey,
-    role,
-    updatedAt: serverTimestamp()
-  });
+  const input = validateInput(form);
+  return call('updateUserProfile', {uid, ...input});
 }
 
 export async function disableUserWithoutFunctions(uid) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const database = requireDatabase();
-  await updateDoc(doc(database, 'users', uid), {
-    disabled: true,
-    status: 'disabled',
-    updatedAt: serverTimestamp()
-  });
+  return call('setUserDisabled', {uid, disabled:true});
 }
 
 export async function enableUserWithoutFunctions(uid) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const database = requireDatabase();
-  await updateDoc(doc(database, 'users', uid), {
-    disabled: false,
-    status: 'active',
-    updatedAt: serverTimestamp()
-  });
+  return call('setUserDisabled', {uid, disabled:false});
 }
 
 export async function setUserRoleAdmin(uid, role) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const database = requireDatabase();
   const nextRole = String(role || '').trim();
   if (!['employee', 'locator', 'admin'].includes(nextRole)) throw new Error('Nieprawidłowa rola.');
-  await updateDoc(doc(database, 'users', uid), {
-    role: nextRole,
-    updatedAt: serverTimestamp()
-  });
+  return call('setUserRole', {uid, role:nextRole});
 }
 
 export async function setUserDisabledAdmin(uid, disabled) {
