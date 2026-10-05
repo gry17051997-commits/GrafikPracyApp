@@ -1,14 +1,59 @@
-name: Web deployment regression fixture
-# This copy is intentionally kept under the app root because the regression suite
-# executes with GrafikPracy_Final as its working directory and validates the
-# production deployment workflow contract.
+name: Deploy Grafik Pracy Web
 
 on:
+  push:
+    branches:
+      - variant-b-invites-2026-10-04
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: GrafikPracy_Final
+
 jobs:
-  contract:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Lockfile contract
-        run: npm ci --ignore-scripts
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Build web
+        run: npm run web:build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: GrafikPracy_Final/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
