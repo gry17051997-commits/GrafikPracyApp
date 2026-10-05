@@ -23,14 +23,14 @@ const read = file => {
   return fs.readFileSync(found, 'utf8');
 };
 
-test('Firestore GPS rules bind employee writes to the admin-assigned vehicle', () => {
+test('Firestore GPS rules bind locator writes to their own vehicle identity', () => {
   const rules = read('firestore.rules');
   assert.match(rules, /get\(\/databases\/\$\(database\)\/documents\/locationConfig\/main\)\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
   assert.match(rules, /request\.resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
   assert.match(rules, /allow read: if isAdmin\(\)\s*\n\s*\|\| activeUser\(\)/);
-  assert.match(rules, /locationConfig\/main\).*vehicleId == vehicleId/);
+  assert.match(rules, /request\.resource\.data\.vehicleId == vehicleId/);
 });
 
 test('Firestore rules bind profile creation to a verified invite claim and block self-delete', () => {
@@ -128,12 +128,12 @@ test('schedule generator keeps weekday rotation while Sunday Łukasz is supplied
   assert.match(app, /id:'default-sunday-l-2',type:'must',person:'L',dayIndex:6,shift:2/);
 });
 
-test('GPS dashboards never silently switch to another vehicle when an assigned transmitter is stale', () => {
+test('GPS dashboards follow the currently assigned vehicle without silent fallback', () => {
   const live = read('LiveLocationDashboard.js');
   const now = read('NowDashboard.js');
   assert.match(live, /const vehicleRef=doc\(db,'vehicleTracking',requestedId\)/);
   assert.match(live, /subscribeVehicle\(snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{vehicleId:'',registration:''\}\)/);
-  assert.match(now, /if\(!requested\)\s*\{[\s\S]*Brak centralnego przypisania pojazdu/);
+  assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
   assert.match(now, /const vehicleSource=requested \? doc\(db,'vehicleTracking',requested\) : collection\(db,'vehicleTracking'\)/);
   assert.match(now, /Date\.now\(\)-serverMillis\(selected\.updatedAt\)>180000/);
 });
@@ -970,4 +970,27 @@ test('backend user creation enforces role and person assignment as one contract'
   const end = fn.indexOf('exports.updateUserProfile', start);
   const block = fn.slice(start, end);
   assert.match(block, /validateRolePerson\(role,personKey\)/);
+});
+
+
+test('admin account management uses callable Firebase Functions', () => {
+  const service = read('AdminUserService.js');
+  const panel = read('AdminUsersPanel.js');
+  assert.match(service, /httpsCallable/);
+  assert.match(service, /createUserAccount/);
+  assert.match(service, /updateUserProfile/);
+  assert.match(service, /setUserDisabled/);
+  assert.match(panel, /createUserAccountWithoutFunctions/);
+  assert.match(panel, /secureTextEntry/);
+});
+
+test('role changes clear P/M/L assignment for non-employees', () => {
+  const panel = read('AdminUsersPanel.js');
+  assert.match(panel, /role,personKey:role==='employee'\?f\.personKey:''/);
+});
+
+test('mini map uses a direct OpenStreetMap embed instead of remote Leaflet script injection', () => {
+  const live = read('LiveLocationDashboard.js');
+  assert.match(live, /openstreetmap\.org\/export\/embed\.html/);
+  assert.match(live, /source=\{\{uri:mapEmbedUrl\(location\)\}\}/);
 });
