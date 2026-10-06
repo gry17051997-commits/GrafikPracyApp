@@ -1,9 +1,12 @@
-import { httpsCallable } from 'firebase/functions';
-import { functions } from './firebaseConfig';
+import {auth, db} from './firebaseConfig';
+import {doc, getDoc, runTransaction, serverTimestamp, setDoc, updateDoc} from 'firebase/firestore';
 
-function callable(name) {
-  if (!functions) throw new Error('Firebase Functions jest niedostępne.');
-  return httpsCallable(functions, name);
+async function assertAdmin() {
+  if (!auth?.currentUser || !db) throw new Error('Musisz być zalogowany jako administrator.');
+  const snap = await getDoc(doc(db,'users',auth.currentUser.uid));
+  const data = snap.exists() ? snap.data() : null;
+  if (!data || data.role !== 'admin' || data.disabled === true) throw new Error('Tylko aktywny administrator może wykonywać tę operację.');
+  return auth.currentUser.uid;
 }
 
 function validateInput(form, requirePassword = true) {
@@ -56,21 +59,48 @@ export async function enableUserWithoutFunctions(uid) {
 }
 
 export async function setUserRoleAdmin(uid, role) {
-  const res = await callable('setUserRole')({ uid, role });
-  return res.data;
+  const adminUid = await assertAdmin();
+  if (!uid) throw new Error('Brak identyfikatora użytkownika.');
+  if (!['admin','employee','locator'].includes(role)) throw new Error('Nieprawidłowa rola użytkownika.');
+  if (uid === adminUid && role !== 'admin') throw new Error('Nie możesz odebrać sobie roli administratora.');
+  const ref = doc(db,'users',uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Profil użytkownika nie istnieje.');
+  const personKey = String(snap.data()?.personKey || '');
+  if (role === 'employee' && !['P','M','L'].includes(personKey)) throw new Error('Pracownik musi mieć przypisane P/M/L.');
+  if (role !== 'employee' && personKey !== '') throw new Error('Lokalizator i administrator nie mogą mieć przypisanego P/M/L.');
+  await updateDoc(ref,{role,updatedAt:serverTimestamp(),updatedBy:adminUid});
+  return {ok:true,uid,role};
 }
 
 export async function setUserDisabledAdmin(uid, disabled) {
-  const res = await callable('setUserDisabled')({ uid, disabled: !!disabled });
-  return res.data;
+  if (disabled) return disableUserWithoutFunctions(uid);
+  return enableUserWithoutFunctions(uid);
 }
 
 export async function assignVehicleRegistrationAdmin(registration) {
-  const res = await callable('assignVehicleRegistration')({ registration });
-  return res.data;
+  const adminUid = await assertAdmin();
+  const normalized = String(registration || '').trim().toUpperCase();
+  if (!normalized) throw new Error('Brak numeru rejestracyjnego.');
+  const vehicleId = normalized.replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]/gi,'_').slice(0,40);
+  if (!vehicleId) throw new Error('Nieprawidłowy numer rejestracyjny.');
+  await setDoc(doc(db,'locationConfig','main'),{vehicleId,registration:normalized,updatedAt:serverTimestamp(),updatedBy:adminUid},{merge:true});
+  return {ok:true,vehicleId,registration:normalized};
 }
 
 export async function adjustRecoveryBalanceAdmin(person, delta) {
-  const res = await callable('adjustRecoveryBalance')({ person, delta });
-  return res.data;
+  const adminUid = await assertAdmin();
+  if (!['P','M','L'].includes(person)) throw new Error('Nieprawidłowy pracownik.');
+  const amount = Number(delta);
+  if (!Number.isFinite(amount) || amount === 0) throw new Error('Nieprawidłowa korekta salda.');
+  const ref = doc(db,'settings','main');
+  let next=0;
+  await runTransaction(db,async tx=>{
+    const snap=await tx.get(ref);
+    const current=snap.data()?.recoveryBalances || {};
+    next=(Number(current[person])||0)+amount;
+    if(next<0) throw new Error('Saldo nie może spaść poniżej zera.');
+    tx.set(ref,{recoveryBalances:{...current,[person]:next},updatedAt:serverTimestamp(),updatedBy:adminUid},{merge:true});
+  });
+  return {ok:true,person,delta:amount,next};
 }
