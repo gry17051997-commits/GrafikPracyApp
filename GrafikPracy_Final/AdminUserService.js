@@ -1,7 +1,7 @@
 import {auth, db, firebaseConfig} from './firebaseConfig';
 import {getApp, initializeApp} from 'firebase/app';
-import {createUserWithEmailAndPassword, getAuth, initializeAuth, signOut, updateProfile} from 'firebase/auth';
-import {doc, getDoc, runTransaction, serverTimestamp, setDoc, updateDoc} from 'firebase/firestore';
+import {createUserWithEmailAndPassword, deleteUser, getAuth, initializeAuth, signOut, updateProfile} from 'firebase/auth';
+import {collection, doc, getDoc, getDocs, limit, query, runTransaction, serverTimestamp, setDoc, updateDoc, where} from 'firebase/firestore';
 
 
 let adminCreateApp = null;
@@ -47,16 +47,23 @@ function validateInput(form, requirePassword = true) {
 export async function createUserWithoutFunctions(form) {
   const data = validateInput(form, true);
   const adminUid = await assertAdmin();
+  const duplicate = data.personKey
+    ? await getDocs(query(collection(db,'users'),where('personKey','==',data.personKey),limit(1)))
+    : null;
+  if (duplicate && !duplicate.empty) throw new Error('Ten identyfikator pracownika jest już przypisany do innego konta.');
   const secondaryAuth = getAdminCreateAuth();
   let createdUid = '';
+  let createdUser = null;
   try {
     const credential = await createUserWithEmailAndPassword(secondaryAuth,data.email,data.password);
+    createdUser = credential.user;
     createdUid = credential.user.uid;
     await updateProfile(credential.user,{displayName:data.displayName});
     await setDoc(doc(db,'users',createdUid),{uid:createdUid,email:data.email,displayName:data.displayName,personKey:data.personKey,role:data.role,disabled:false,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminUid});
     await signOut(secondaryAuth);
     return {ok:true,uid:createdUid,email:data.email};
   } catch(error) {
+    try { if(createdUser && secondaryAuth.currentUser?.uid===createdUid) await deleteUser(createdUser); } catch {}
     try { await signOut(secondaryAuth); } catch {}
     if(error?.code==='auth/email-already-in-use') throw new Error('Konto z tym adresem e-mail już istnieje.');
     throw error;
