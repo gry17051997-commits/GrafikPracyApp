@@ -81,16 +81,14 @@ test('locator starts GPS after central vehicle assignment changes even when the 
   assert.doesNotMatch(block, /if \(wasTracking\) \{\s*const restarted = await startVehicleLocationTracking/);
 });
 
-test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
+test('GPS history cleanup is client-side and keeps only the last 7 days without Functions', () => {
   const service = read('LocationService.js');
-  const backend = read('functions/index.js');
-  assert.doesNotMatch(service, /cleanupVehicleHistory\(/);
-  assert.match(backend, /exports\.cleanupVehicleLocationHistory = onSchedule/);
-  assert.match(backend, /schedule:'0 3 \* \* \*'/);
-  assert.match(backend, /new Date\(Date\.now\(\) - 7 \* 24 \* 60 \* 60 \* 1000\)/);
-  assert.match(backend, /\.where\('updatedAt','<',cutoff\)/);
-  assert.match(backend, /\.limit\(500\)/);
-  assert.match(backend, /batch\.delete\(doc\.ref\)/);
+  const rules = read('firestore.rules');
+  assert.match(service, /cleanupOldLocationHistory/);
+  assert.match(service, /Timestamp\.fromMillis\(Date\.now\(\) - 7 \* 24 \* 60 \* 60 \* 1000\)/);
+  assert.match(service, /deleteDoc\(point\.ref\)/);
+  assert.match(rules, /resource\.data\.updatedAt < request\.time - duration\.value\(7, 'd'\)/);
+  assert.match(rules, /resource\.data\.ownerUid == request\.auth\.uid/);
 });
 
 test('report widget filters shared history to the current worker', () => {
