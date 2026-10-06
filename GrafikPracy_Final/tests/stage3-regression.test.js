@@ -71,6 +71,16 @@ test('GPS tracker guards against duplicate background tasks', () => {
   assert.match(service, /hasStartedLocationUpdatesAsync\(LOCATION_TASK_NAME\)/);
 });
 
+test('locator starts GPS after central vehicle assignment changes even when the previous local tracker was off', () => {
+  const app = read('AppRuntime.js');
+  const start = app.indexOf('const syncLocatorGpsFromCentralAssignment');
+  const end = app.indexOf('  useEffect(() => {', start);
+  const block = app.slice(start, end);
+  assert.match(block, /await saveVehicleLocationAssignment\(normalizedAssigned\)/);
+  assert.match(block, /const restarted = await startVehicleLocationTracking\(/);
+  assert.doesNotMatch(block, /if \(wasTracking\) \{\s*const restarted = await startVehicleLocationTracking/);
+});
+
 test('GPS history cleanup is deterministic and keeps only the last 7 days', () => {
   const service = read('LocationService.js');
   const backend = read('functions/index.js');
