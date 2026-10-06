@@ -435,6 +435,7 @@ export default function App() {
     try {
       const c = await getVehicleLocationConfig();
       if (cloudRole === 'locator') {
+        if (!locationConfigLoaded.current) return;
         const result = c.enabled === true
           ? await ensureVehicleLocationTracking()
           : await startVehicleLocationTracking({
@@ -473,15 +474,13 @@ export default function App() {
         setLocationTracking(false);
       }
       await saveVehicleLocationAssignment(normalizedAssigned);
-      if (wasTracking) {
-        const restarted = await startVehicleLocationTracking({
-          vehicleId: normalizedAssigned,
-          registration: normalizedAssigned
-        });
-        setLocationTracking(restarted.ok === true);
-        if (!restarted.ok) {
-          setCloudError('Nie udało się wznowić nadajnika GPS po zmianie przypisanego pojazdu.');
-        }
+      const restarted = await startVehicleLocationTracking({
+        vehicleId: normalizedAssigned,
+        registration: normalizedAssigned
+      });
+      setLocationTracking(restarted.ok === true);
+      if (!restarted.ok) {
+        setCloudError('Nie udało się uruchomić nadajnika GPS dla centralnie przypisanego pojazdu. Kod: ' + (restarted.reason || restarted.errorCode || 'unknown'));
       }
       return;
     }
