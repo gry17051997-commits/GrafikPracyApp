@@ -948,13 +948,15 @@ test('live GPS cache is not blocked by history write failure', () => {
 });
 
 
-test('admin user removal invokes the backend account deletion function, not soft-disable', () => {
+test('admin account controls work without Firebase Functions', () => {
   const panel = read('AdminUsersPanel.js');
   const service = read('AdminUserService.js');
   assert.match(panel, /deleteUserAccountWithoutFunctions/);
-  assert.match(panel, /USUŃ TRWALE/);
-  assert.match(service, /callable\('deleteUserAccount'\)/);
-  assert.doesNotMatch(panel, /remove=async u=>[\\s\\S]*DEZAKTYWUJ/);
+  assert.match(panel, /DEZAKTYWUJ/);
+  assert.match(service, /createUserWithEmailAndPassword/);
+  assert.match(service, /setDoc\(doc\(db,'users',createdUid\)/);
+  assert.match(service, /updateDoc\(doc\(db,'users',uid\)/);
+  assert.doesNotMatch(service, /httpsCallable|callable\(/);
 });
 
 test('backend user creation enforces role and person assignment as one contract', () => {
