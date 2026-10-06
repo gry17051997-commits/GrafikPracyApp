@@ -1,5 +1,22 @@
-import {auth, db} from './firebaseConfig';
+import {auth, db, firebaseConfig} from './firebaseConfig';
+import {getApp, initializeApp} from 'firebase/app';
+import {createUserWithEmailAndPassword, getAuth, initializeAuth, signOut, updateProfile} from 'firebase/auth';
 import {doc, getDoc, runTransaction, serverTimestamp, setDoc, updateDoc} from 'firebase/firestore';
+
+
+let adminCreateApp = null;
+let adminCreateAuth = null;
+function getAdminCreateAuth() {
+  if (!adminCreateApp) {
+    try { adminCreateApp = getApp('grafik-pracy-admin-create'); }
+    catch { adminCreateApp = initializeApp(firebaseConfig,'grafik-pracy-admin-create'); }
+  }
+  if (!adminCreateAuth) {
+    try { adminCreateAuth = initializeAuth(adminCreateApp); }
+    catch { adminCreateAuth = getAuth(adminCreateApp); }
+  }
+  return adminCreateAuth;
+}
 
 async function assertAdmin() {
   if (!auth?.currentUser || !db) throw new Error('Musisz być zalogowany jako administrator.');
@@ -29,8 +46,21 @@ function validateInput(form, requirePassword = true) {
 
 export async function createUserWithoutFunctions(form) {
   const data = validateInput(form, true);
-  const res = await callable('createUserAccount')(data);
-  return res.data;
+  const adminUid = await assertAdmin();
+  const secondaryAuth = getAdminCreateAuth();
+  let createdUid = '';
+  try {
+    const credential = await createUserWithEmailAndPassword(secondaryAuth,data.email,data.password);
+    createdUid = credential.user.uid;
+    await updateProfile(credential.user,{displayName:data.displayName});
+    await setDoc(doc(db,'users',createdUid),{uid:createdUid,email:data.email,displayName:data.displayName,personKey:data.personKey,role:data.role,disabled:false,createdAt:serverTimestamp(),updatedAt:serverTimestamp(),createdBy:adminUid});
+    await signOut(secondaryAuth);
+    return {ok:true,uid:createdUid,email:data.email};
+  } catch(error) {
+    try { await signOut(secondaryAuth); } catch {}
+    if(error?.code==='auth/email-already-in-use') throw new Error('Konto z tym adresem e-mail już istnieje.');
+    throw error;
+  }
 }
 
 export async function updateUserProfileWithoutFunctions(uid, form) {
