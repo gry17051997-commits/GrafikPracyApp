@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
 import {Platform} from 'react-native';
-import {collection, doc, getDoc, setDoc, serverTimestamp} from 'firebase/firestore';
+import {collection, deleteDoc, doc, getDocs, getDoc, query, setDoc, serverTimestamp, Timestamp, where} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
 export const LOCATION_TASK_NAME = 'grafik-pracy-vehicle-location-v1';
@@ -96,6 +96,18 @@ const LOCATION_OPTIONS={
   }
 };
 
+
+async function cleanupOldLocationHistory(vehicleId) {
+  if (!db || !vehicleId || !auth?.currentUser?.uid) return;
+  const cutoff = Timestamp.fromMillis(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  try {
+    const old = await getDocs(query(collection(db,'vehicleTracking',vehicleId,'locations'),where('updatedAt','<',cutoff)));
+    for (const point of old.docs.slice(0,100)) await deleteDoc(point.ref);
+  } catch(error) {
+    console.log('LOCATION_HISTORY_CLEANUP_ERROR',error);
+  }
+}
+
 let locationSaveQueue = Promise.resolve();
 
 async function saveLocationInternal(location) {
@@ -166,6 +178,7 @@ async function saveLocationInternal(location) {
   }
 
   await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(payload));
+  if (shouldStoreHistory) await cleanupOldLocationHistory(vehicleId);
   // Retencją 7 dni zarządza backendowy cron. Klient nie wykonuje kosztownych
   // zapytań i deleteDoc przy każdym punkcie GPS.
 }
