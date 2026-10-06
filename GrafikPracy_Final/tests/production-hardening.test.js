@@ -262,4 +262,4 @@ test('admin role switching clears incompatible employee assignment in the UI', a
   assert.match(panel, /u\.role==='employee'\?\(u\.personKey\|\|'\'\)':''/);
   assert.match(panel, /DEZAKTYWUJ/);
 });
-\n
+
