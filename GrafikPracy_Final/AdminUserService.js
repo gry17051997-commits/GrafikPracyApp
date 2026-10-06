@@ -66,14 +66,18 @@ export async function createUserWithoutFunctions(form) {
 export async function updateUserProfileWithoutFunctions(uid, form) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
   const data = validateInput(form, false);
-  const res = await callable('updateUserProfile')({ uid, ...data });
-  return res.data;
+  const adminUid = await assertAdmin();
+  if (uid === adminUid) throw new Error('Nie możesz edytować własnego profilu administratora w tym miejscu.');
+  await updateDoc(doc(db,'users',uid),{uid,email:data.email,displayName:data.displayName,personKey:data.personKey,role:data.role,updatedAt:serverTimestamp(),updatedBy:adminUid});
+  return {ok:true,uid};
 }
 
 export async function disableUserWithoutFunctions(uid) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const res = await callable('setUserDisabled')({ uid, disabled: true });
-  return res.data;
+  const adminUid = await assertAdmin();
+  if (uid === adminUid) throw new Error('Administrator nie może wyłączyć własnego konta.');
+  await updateDoc(doc(db,'users',uid),{disabled:true,disabledAt:serverTimestamp(),updatedAt:serverTimestamp(),updatedBy:adminUid});
+  return {ok:true,uid,disabled:true};
 }
 
 export async function deleteUserAccountWithoutFunctions(uid) {
@@ -84,8 +88,9 @@ export async function deleteUserAccountWithoutFunctions(uid) {
 
 export async function enableUserWithoutFunctions(uid) {
   if (!uid) throw new Error('Brak identyfikatora użytkownika.');
-  const res = await callable('setUserDisabled')({ uid, disabled: false });
-  return res.data;
+  const adminUid = await assertAdmin();
+  await updateDoc(doc(db,'users',uid),{disabled:false,disabledAt:null,updatedAt:serverTimestamp(),updatedBy:adminUid});
+  return {ok:true,uid,disabled:false};
 }
 
 export async function setUserRoleAdmin(uid, role) {
