@@ -27,9 +27,9 @@ import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
 import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, LOCATION_CONFIG_KEY} from './LocationService';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
+import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
-import {onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut} from 'firebase/auth';
 import {doc, setDoc, getDoc, onSnapshot, serverTimestamp, collection, addDoc, query, where, updateDoc, deleteField, orderBy, limit, runTransaction} from 'firebase/firestore';
 import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
 
@@ -447,7 +447,7 @@ export default function App() {
       }
       const active = c.enabled === true && !!c.vehicleId;
       setLocationTracking(active);
-      if (active && auth?.currentUser?.uid) {
+      if (active && cloudUser) {
         const result = await ensureVehicleLocationTracking();
         if (result.ok && result.restarted) setLocationTracking(true);
       }
@@ -564,71 +564,25 @@ export default function App() {
   },[warehouseGeo,ready,cloudUser]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !auth || !db) return;
-
-    let roleUnsub = null;
-
-    const authUnsub = onAuthStateChanged(auth, async user => {
-      const storedRemember = await AsyncStorage.getItem(REMEMBER_LOGIN_KEY);
-      const remember = storedRemember === null ? true : storedRemember !== '0';
-      setRememberLogin(remember);
-
-      setCloudUser(user || null);
-      if (user) setGuestMode(false);
-      setCloudError('');
-      setCloudReady(false);
-
-      if (roleUnsub) {
-        roleUnsub();
-        roleUnsub = null;
-      }
-
-      if (!user) {
-        try {
-          await stopVehicleLocationTracking();
-          setVehicleRegistration('');
-          await AsyncStorage.removeItem(LOCATION_CONFIG_KEY);
-          await AsyncStorage.removeItem('grafik-pracy-location-current-v1');
-          setLocationTracking(false);
-        } catch(error) {
-          console.error('Nie udało się zatrzymać nadajnika GPS po utracie logowania:', error);
-          setCloudError('Nie udało się zatrzymać nadajnika GPS. Sprawdź stan lokalizacji urządzenia.');
-        }
+    let mounted=true;
+    (async()=>{
+      try{
+        const user=await apiMe();
+        if(!mounted)return;
+        setCloudUser(user||null);
+        setCloudRole(user?.role==='admin'?'admin':user?.role==='locator'?'locator':'employee');
+        setGuestMode(false);
+        setCloudError('');
+      }catch{
+        if(!mounted)return;
+        setCloudUser(null);
         setCloudRole('employee');
-        setCloudReady(true);
-        return;
+      }finally{
+        if(mounted)setCloudReady(true);
       }
-
-      roleUnsub = onSnapshot(
-        doc(db, 'users', user.uid),
-        async snap => {
-          if (!snap.exists() || snap.data()?.disabled === true) {
-            try { await signOut(auth); } catch (e) {}
-            setCloudUser(null);
-            setCloudRole('employee');
-            setCloudReady(true);
-            setCloudError('To konto zostało wyłączone przez administratora.');
-            return;
-          }
-          const role = snap.data()?.role || null;
-          setCloudRole(role === 'admin' ? 'admin' : role === 'locator' ? 'locator' : 'employee');
-          setCloudReady(true);
-        },
-        error => {
-          console.error('Błąd odczytu roli:', error);
-          setCloudRole('employee');
-          setCloudError('Nie udało się odczytać uprawnień użytkownika. Kod: ' + (error?.code || 'nieznany'));
-          setCloudReady(true);
-        }
-      );
-    });
-
-    return () => {
-      authUnsub();
-      if (roleUnsub) roleUnsub();
-    };
+    })();
+    return()=>{mounted=false;};
   },[]);
-
   useEffect(() => {
     if (!ready) return;
     AsyncStorage.getItem(REPORT_HISTORY_KEY).then(raw => { if (raw) setReportHistory(JSON.parse(raw)); }).catch(()=>{});
@@ -1402,45 +1356,48 @@ export default function App() {
 
   const cloudLogin = async () => {
     setAuthBusy(true); setCloudError('');
-    try {
+    try{
       await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'1');
       setRememberLogin(true);
-      await signInWithEmailAndPassword(auth,authEmail.trim(),authPassword);
+      const user=await apiLogin(authEmail.trim(),authPassword);
+      setCloudUser(user);
+      setCloudRole(user?.role==='admin'?'admin':user?.role==='locator'?'locator':'employee');
+      setGuestMode(false);
       setAuthPassword('');
-    }
-    catch(e) { setCloudError(e?.code === 'auth/invalid-credential' ? 'Nieprawidłowy e-mail lub hasło.' : 'Nie udało się zalogować.'); }
-    finally { setAuthBusy(false); }
+      setCloudReady(true);
+    }catch(e){
+      setCloudError(e?.code==='INVALID_CREDENTIALS'?'Nieprawidłowy e-mail lub hasło.':'Nie udało się zalogować do centralnego serwera.');
+    }finally{setAuthBusy(false);}
   };
 
   const cloudRegister = async () => {
     setAuthBusy(true); setCloudError('');
-    try {
-      const email = authEmail.trim();
-      if (!email) { setCloudError('Wpisz adres e-mail.'); return; }
-      if (authPassword.length < 6) { setCloudError('Hasło musi mieć co najmniej 6 znaków.'); return; }
-      const cred = await createUserWithEmailAndPassword(auth,email,authPassword);
-      await setDoc(doc(db,'users',cred.user.uid),{email:cred.user.email,role:'employee',createdAt:serverTimestamp()});
+    try{
+      const email=authEmail.trim();
+      if(!email){setCloudError('Wpisz adres e-mail.');return;}
+      if(authPassword.length<6){setCloudError('Hasło musi mieć co najmniej 6 znaków.');return;}
+      const data=await api('/auth/register',{method:'POST',body:{email,password:authPassword,displayName:email.split('@')[0]}});
+      await AsyncStorage.setItem('grafik-pracy-api-token-v1',data.token);
+      setCloudUser(data.user);
+      setCloudRole(data.user?.role==='admin'?'admin':data.user?.role==='locator'?'locator':'employee');
+      setGuestMode(false);
       setAuthPassword('');
-    } catch(e) {
-      const code = e?.code || '';
-      if (code === 'auth/email-already-in-use') setCloudError('Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.');
-      else if (code === 'auth/invalid-email') setCloudError('Nieprawidłowy adres e-mail.');
-      else if (code === 'auth/weak-password') setCloudError('Hasło jest za słabe. Użyj co najmniej 6 znaków.');
-      else if (code === 'auth/operation-not-allowed') setCloudError('Logowanie e-mailem jest wyłączone w Firebase. Trzeba włączyć dostawcę E-mail/hasło w Authentication.');
-      else if (code === 'auth/network-request-failed') setCloudError('Brak połączenia z internetem.');
-      else setCloudError('Nie udało się utworzyć konta. Kod: ' + (code || 'nieznany błąd'));
-    } finally { setAuthBusy(false); }
+      setCloudReady(true);
+    }catch(e){
+      setCloudError(e?.code==='USER_ALREADY_EXISTS'?'Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.':'Nie udało się utworzyć konta.');
+    }finally{setAuthBusy(false);}
   };
 
   const cloudLogout = async () => {
-    try {
+    try{
       await stopVehicleLocationTracking();
       await AsyncStorage.setItem(REMEMBER_LOGIN_KEY,'0');
       setRememberLogin(false);
-      await signOut(auth);
-    } catch(e) {
-      setCloudError('Nie udało się bezpiecznie wylogować. Spróbuj ponownie.');
-    }
+      await apiLogout();
+      setCloudUser(null);
+      setCloudRole('employee');
+      setCloudReady(true);
+    }catch(e){setCloudError('Nie udało się bezpiecznie wylogować. Spróbuj ponownie.');}
   };
 
   useEffect(() => {
