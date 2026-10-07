@@ -1,5 +1,6 @@
 import React from 'react';
-import {Clipboard, ScrollView, Text, TouchableOpacity, View} from 'react-native';
+import {ScrollView, Text, TouchableOpacity, View} from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppRuntime from './AppRuntime';
 
@@ -47,24 +48,18 @@ class CrashBoundary extends React.Component {
 
   copyDiagnostic = async () => {
     const value = this.state.error || this.state.storedError || '';
-    try {
-      await Clipboard.setStringAsync(value);
-    } catch {}
+    try { await Clipboard.setStringAsync(value); } catch {}
   };
 
   renderDiagnostic(text, live) {
     return (
       <View style={{flex:1,backgroundColor:'#080b11',padding:18,paddingTop:54}}>
-        <Text style={{color:'#ff6b6b',fontSize:25,fontWeight:'900'}}>
-          ⚠️ BŁĄD APLIKACJI
-        </Text>
+        <Text style={{color:'#ff6b6b',fontSize:25,fontWeight:'900'}}>⚠️ BŁĄD APLIKACJI</Text>
         <Text style={{color:'#cbd5e1',fontSize:14,lineHeight:21,marginTop:8}}>
-          {live ? 'Aplikacja wykryła błąd podczas uruchamiania ekranu. Zapisaliśmy pełną diagnostykę.' : 'Znaleziono błąd zapisany przy poprzednim uruchomieniu.'}
+          {live ? 'Aplikacja wykryła błąd. Zapisaliśmy pełną diagnostykę.' : 'Znaleziono błąd zapisany przy poprzednim uruchomieniu.'}
         </Text>
         <View style={{flex:1,backgroundColor:'#111722',borderRadius:12,marginTop:14,padding:12}}>
-          <ScrollView>
-            <Text selectable style={{color:'#f8fafc',fontSize:12,lineHeight:18}}>{text}</Text>
-          </ScrollView>
+          <ScrollView><Text selectable style={{color:'#f8fafc',fontSize:12,lineHeight:18}}>{text}</Text></ScrollView>
         </View>
         <View style={{flexDirection:'row',gap:8,marginTop:12}}>
           <TouchableOpacity onPress={this.copyDiagnostic} style={{flex:1,backgroundColor:'#3f78ed',borderRadius:12,padding:14,alignItems:'center'}}>
@@ -86,9 +81,5 @@ class CrashBoundary extends React.Component {
 }
 
 export default function App() {
-  return (
-    <CrashBoundary>
-      <AppRuntime />
-    </CrashBoundary>
-  );
+  return <CrashBoundary><AppRuntime /></CrashBoundary>;
 }
