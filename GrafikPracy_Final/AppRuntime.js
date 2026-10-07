@@ -872,13 +872,9 @@ export default function App() {
   },[cloudUser,cloudRole]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const unsub=onSnapshot(doc(db,'users',cloudUser.uid), snap => {
-      const key=snap.exists()?snap.data()?.personKey:null;
-      if(key && PERSON_KEYS.includes(key)) setMyPerson(key);
-    });
-    return unsub;
-  },[cloudUser]);
+    const key=cloudUser?.personKey;
+    if(key && PERSON_KEYS.includes(key)) setMyPerson(key);
+  },[cloudUser?.personKey]);
 
   useEffect(() => {
     if (!ready || !scheduleHydratedRef.current) return;
