@@ -85,13 +85,13 @@ jobs:
           """,
             "2": common + """
           import { FIREBASE_ENABLED, auth, db } from './firebaseConfig';
+          import { API_BASE_URL } from './apiClient';
 
           export default function App() {
             return <View style={S.root}>
-              <Text style={S.text}>TEST 2: FIREBASE</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>Auth: {auth ? 'OK' : 'FAIL'}</Text>
-              <Text style={S.sub}>Firestore: {db ? 'OK' : 'FAIL'}</Text>
+              <Text style={S.text}>TEST 2: CENTRAL API</Text>
+              <Text style={S.sub}>Central API module: OK</Text>
+              <Text style={S.sub}>API URL: {API_BASE_URL ? 'SET' : 'NOT SET IN CI'}</Text>
             </View>;
           }
           """,
@@ -103,7 +103,8 @@ jobs:
             return <View style={S.root}>
               <Text style={S.text}>TEST 3: LOCATION</Text>
               <Text style={S.sub}>LocationService loaded OK</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
+              <Text style={S.sub}>Central API module: OK</Text>
+              <Text style={S.sub}>API URL: {API_BASE_URL ? 'SET' : 'NOT SET IN CI'}</Text>
             </View>;
           }
           """,
@@ -117,8 +118,7 @@ jobs:
           import * as Location from 'expo-location';
           import { FIREBASE_ENABLED } from './firebaseConfig';
           import './LocationService';
-          import { onAuthStateChanged } from 'firebase/auth';
-          import { doc, onSnapshot, collection, query } from 'firebase/firestore';
+          import { API_BASE_URL } from './apiClient';
 
           Notifications.setNotificationHandler({
             handleNotification: async () => ({
