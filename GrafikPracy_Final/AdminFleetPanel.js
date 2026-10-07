@@ -44,12 +44,12 @@ export default function AdminFleetPanel(){
  };
 
  const assign=async(v,p,u)=>{
-   if(!v?.id||!p?.id||!u?.id){setError('Wybierz telefon oraz konto lokalizatora.');return;}
+   if(!v?.id||!p?.id||!u?.uid){setError('Wybierz telefon oraz konto lokalizatora.');return;}
    setBusy(true);setError('');setSuccess('');
    try{
-     await api('/assignments',{method:'POST',body:{vehicleId:v.id,phoneId:p.id,userId:u.id}});
+     await api('/assignments',{method:'POST',body:{vehicleId:v.id,phoneId:p.id,userId:u.uid}});
      const fresh=await load({preserveSuccess:true});
-     const confirmed=(fresh||[]).find(a=>a.vehicle_id===v.id && a.phone_id===p.id && a.user_id===u.id && a.active===true);
+     const confirmed=(fresh||[]).find(a=>a.vehicle_id===v.id && a.phone_id===p.id && a.user_id===u.uid && a.active===true);
      if(!confirmed)throw Object.assign(new Error('ASSIGNMENT_NOT_CONFIRMED'),{code:'ASSIGNMENT_NOT_CONFIRMED'});
      setSuccess('✅ Przypisanie zapisane: '+v.registration+' → '+p.name+' → '+(u.displayName||u.email)+'.');
    }catch(e){
