@@ -38,6 +38,13 @@ jobs:
       - name: Install EAS CLI
         run: npm install --global eas-cli
 
+      - name: Verify central API URL
+        env:
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+        run: |
+          test -n "$EXPO_PUBLIC_API_URL"
+          echo "Central API URL configured."
+
       - name: Build APK with EAS
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
