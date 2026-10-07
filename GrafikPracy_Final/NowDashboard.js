@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import useSecondTicker from './hooks/useSecondTicker';
 import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
-import {collection, doc, onSnapshot} from 'firebase/firestore';
+import {collection, doc, onSnapshot} from './apiClient';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {WebView} from 'react-native-webview';
 
