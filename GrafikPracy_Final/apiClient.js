@@ -9,6 +9,7 @@ export async function apiLogin(email,password){const data=await api('/auth/login
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
+export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
 export async function apiPostGps(payload,deviceToken){if(!API_BASE_URL)throw new Error('Brak centralnego API.');const r=await fetch(API_BASE_URL+'/gps',{method:'POST',headers:{'Content-Type':'application/json','X-Device-Token':deviceToken},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw new Error(data?.error||'GPS_API_ERROR');return data;}
 
 export const serverTimestamp=()=>new Date().toISOString();
