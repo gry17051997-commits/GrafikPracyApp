@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {collection, onSnapshot} from './apiClient';
 import {db, FIREBASE_ENABLED} from './firebaseConfig';
+import AdminFleetPanel from './AdminFleetPanel';
 import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions, deleteUserAccountWithoutFunctions} from './AdminUserService';
 
 const KEYS=['P','M','L'];
@@ -134,5 +135,6 @@ export default function AdminUsersPanel({cloudUser}) {
         </View>
       </View>
     </Modal>
+    <AdminFleetPanel />
   </View>;
 }
