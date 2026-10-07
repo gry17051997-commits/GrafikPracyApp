@@ -244,6 +244,10 @@ app.post('/api/gps',async(req,res)=>{
   await q('UPDATE phones p SET last_seen_at=NOW(),updated_at=NOW() FROM assignments a WHERE a.phone_id=p.id AND a.vehicle_id=$1 AND a.active=true',[v.id]);
   res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString()});
 });
+app.get('/api/gps/mine',auth,async(req,res)=>{
+  const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY a.updated_at DESC LIMIT 1',[req.user.id]);
+  res.json({vehicle:r.rows[0]||null});
+});
 app.get('/api/gps/vehicles',auth,async(_req,res)=>{
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
   res.json({vehicles:r.rows});
