@@ -134,6 +134,6 @@ export async function ensureVehicleLocationTracking(){
 export async function getVehicleLocationConfig(){
   const cfg=await getConfig();
   const token=await getLocationDeviceToken();
-  if(token&&API_BASE_URL){try{const assignment=await getDeviceAssignment(token);if(assignment)return {...cfg,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||'',enabled:true};}catch{}}
+  if(token&&API_BASE_URL){try{const assignment=await getDeviceAssignment(token);if(assignment)return {...cfg,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||'',enabled:cfg.enabled===true};}catch{}}
   return cfg;
 }
