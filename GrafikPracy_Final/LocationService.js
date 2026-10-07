@@ -92,8 +92,9 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}){
   if(!token)return {ok:false,reason:'device-token-missing'};
   const assignment=await getDeviceAssignment(token);
   if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};
-  const requested=normalizeVehicleId(vehicleId||registration);
-  if(requested&&requested!==normalizeVehicleId(assignment.vehicleId||assignment.registration))return {ok:false,reason:'vehicle-assignment-mismatch',expected:assignment.registration||assignment.vehicleId,requested};
+  // Centralne przypisanie z API jest jedynym źródłem prawdy.
+  // Lokalnie zapisany numer auta może być nieaktualny po zmianie przypisania
+  // przez administratora, dlatego nie blokujemy startu GPS porównaniem z cache.
   const fg=await Location.requestForegroundPermissionsAsync();
   if(fg.status!=='granted')return {ok:false,reason:'foreground-permission'};
   if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
