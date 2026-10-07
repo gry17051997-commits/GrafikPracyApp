@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const API_BASE_URL=String(process.env.EXPO_PUBLIC_API_URL||'').replace(/\\/$/,'');
+export const API_BASE_URL=String(process.env.EXPO_PUBLIC_API_URL||'').replace(/\/$/,'');
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
