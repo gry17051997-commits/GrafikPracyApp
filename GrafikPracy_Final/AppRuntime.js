@@ -479,7 +479,7 @@ export default function App() {
         registration: normalizedAssigned
       });
       setLocationTracking(restarted.ok === true);
-      if (!restarted.ok) {
+      if (!restarted.ok && restarted.reason !== 'app-not-active') {
         setCloudError('Nie udało się uruchomić nadajnika GPS dla centralnie przypisanego pojazdu. Kod: ' + (restarted.reason || restarted.errorCode || 'unknown'));
       }
       return;
@@ -499,6 +499,9 @@ export default function App() {
         const c = await getVehicleLocationConfig();
         if (!mounted) return;
         if (cloudRole === 'locator') {
+          // Nie uruchamiamy foreground service z callbacku działającego w tle.
+          // AppState 'active' poniżej wywoła refresh ponownie po powrocie do UI.
+          if (AppState.currentState !== 'active') return;
           const result = c.enabled === true
             ? await ensureVehicleLocationTracking()
             : await startVehicleLocationTracking({
