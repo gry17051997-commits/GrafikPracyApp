@@ -41,6 +41,7 @@ jobs:
       - name: Build APK with EAS
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
         run: eas build --platform android --profile production-apk --non-interactive --wait
 
       - name: Get latest EAS build URL
