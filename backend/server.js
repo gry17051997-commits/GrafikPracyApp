@@ -318,11 +318,18 @@ app.use((err,_req,res,_next)=>{
   res.status(500).json({error:'INTERNAL_SERVER_ERROR'});
 });
 
+async function cleanupGpsHistory(){
+  try{const result=await q("DELETE FROM gps_history WHERE observed_at < NOW()-INTERVAL '7 days'");console.log('GPS history cleanup',result.rowCount);}
+  catch(error){console.error('GPS history cleanup failed',error);}
+}
+setInterval(cleanupGpsHistory,6*60*60*1000);
+
 async function bootstrap(){
   if(!process.env.DATABASE_URL)console.warn('DATABASE_URL is not set.');
   if(process.env.DATABASE_URL){
     const schema=await readFile(new URL('./schema.sql',import.meta.url),'utf8');
     for(const statement of schema.split(';').map(x=>x.trim()).filter(Boolean))await q(statement);
+    await cleanupGpsHistory();
   }
   app.listen(PORT,()=>console.log('Grafik Pracy central API listening on '+PORT));
 }
