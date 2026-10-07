@@ -80,3 +80,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS documents (
+  collection_name TEXT NOT NULL,
+  doc_id TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  revision BIGINT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  PRIMARY KEY(collection_name,doc_id)
+);
+CREATE INDEX IF NOT EXISTS documents_collection_idx ON documents(collection_name);
