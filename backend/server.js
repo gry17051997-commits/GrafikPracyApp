@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import crypto from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 import pg from 'pg';
 
 const {Pool}=pg;
@@ -60,7 +61,15 @@ app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{const r=await q('SEL
 app.get('/api/schedules/:weekId',auth,async(req,res)=>{const r=await q('SELECT week_id,payload,revision,updated_at,updated_by FROM schedules WHERE week_id=$1',[req.params.weekId]);res.json({schedule:r.rows[0]||null});});
 app.put('/api/schedules/:weekId',auth,async(req,res)=>{if(req.user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});const r=await q('INSERT INTO schedules(week_id,payload,revision,updated_by) VALUES($1,$2,1,$3) ON CONFLICT(week_id) DO UPDATE SET payload=EXCLUDED.payload,revision=schedules.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *',[req.params.weekId,JSON.stringify(req.body?.payload||{}),req.user.id]);res.json({schedule:r.rows[0]});});
 
-app.listen(PORT,()=>console.log('Grafik Pracy central API listening on '+PORT));
+async function bootstrap(){
+  if(!process.env.DATABASE_URL)console.warn('DATABASE_URL is not set. The API will start but database-backed endpoints will be unavailable.');
+  if(process.env.DATABASE_URL){
+    const schema=await readFile(new URL('./schema.sql',import.meta.url),'utf8');
+    for(const statement of schema.split(';').map(x=>x.trim()).filter(Boolean))await q(statement);
+  }
+  app.listen(PORT,()=>console.log('Grafik Pracy central API listening on '+PORT));
+}
+bootstrap().catch(error=>{console.error('API bootstrap failed',error);process.exit(1);});
 +i+'=async(_req,res)=>{try{await q('SELECT 1');res.json({ok:true,backend:'central-api',firestore:false});}catch(e){res.status(503).json({ok:false,error:e.message});}});
 app.post('/api/auth/login',async(req,res)=>{const email=String(req.body?.email||'').trim().toLowerCase(),password=String(req.body?.password||'');const r=await q('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1',[email]);const u=r.rows[0];if(!u||u.disabled||hash(password)!==u.password_hash)return res.status(401).json({error:'INVALID_CREDENTIALS'});const token=randomToken();await q('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+($3||\' days\')::interval)',[hash(token),u.id,SESSION_DAYS]);res.json({token,user:publicUser(u)});});
 app.post('/api/auth/logout',auth,async(req,res)=>{const raw=String(req.headers.authorization||'').slice(7);await q('DELETE FROM sessions WHERE token_hash=$1',[hash(raw)]);res.json({ok:true});});
