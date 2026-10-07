@@ -43,7 +43,7 @@ jobs:
           java-version: "17"
       - name: Install dependencies
         run: npm install --ignore-scripts
-      - name: Stage 3 regression tests
+      - name: Production hardening tests
         run: npm test
       - name: Validate project configuration
         run: npx expo config --type public
