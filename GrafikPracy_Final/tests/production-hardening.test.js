@@ -102,11 +102,11 @@ test('week identifiers and backup week maps reject impossible calendar dates', (
   assert.equal(isValidWeekIdMap({'2026-02-30':{hours:10}}), false);
 });
 
-test('Firestore Timestamp freshness uses server time', () => {
+test('Central API timestamps use server time', () => {
   const timestamp = {toMillis: () => 1234567890};
-  assert.equal(serverTimestampMillis(timestamp), 1234567890);
-  assert.equal(serverTimestampMillis(123), 123);
-  assert.equal(serverTimestampMillis(undefined), 0);
+  assert.equal(serverTimestampMillis(timestamp),1234567890);
+  assert.equal(serverTimestampMillis(123),123);
+  assert.equal(serverTimestampMillis(undefined),0);
 });
 
 test('hourly notification stepping uses absolute epoch time', () => {
@@ -209,25 +209,20 @@ test('local schedule persistence is serialized and surfaces storage failures', a
   assert.match(source, /⚠️ \{localStorageError\}/);
 });
 
-test('shared generator settings and recovery ledger persist to Firestore for admins', async () => {
-  const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  assert.match(source, /cloudSettingsDirtyRef\.current = true/);
-  assert.match(source, /cloudRole !== 'admin'/);
-  assert.match(source, /setDoc\(doc\(db,'settings','main'\),settings,\{merge:true\}\)/);
-  assert.match(source, /recoveryBalances,recoveryLedger/);
-  assert.match(source, /Nie udało się zapisać wspólnych ustawień grafiku/);
-  assert.match(source, /cloudSettingsRetryAttemptRef/);
+test('shared generator settings and recovery ledger persist through the central API store', () => {
+  const app = fs.readFileSync(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(app,/from '\.\/apiClient'/);
+  assert.match(app,/setDoc\(doc\(db,'settings','main')/);
+  assert.doesNotMatch(app,/from ['"]firebase\/firestore/);
 });
 
-test('GPS dashboards require a central assignment and evaluate Firestore timestamps safely', async () => {
-  const fs = await import('node:fs/promises');
-  const live = await fs.readFile(new URL('../LiveLocationDashboard.js', import.meta.url), 'utf8');
-  const now = await fs.readFile(new URL('../NowDashboard.js', import.meta.url), 'utf8');
-  assert.match(live, /snap\.exists\(\)\?snap\.data\(\)\|\|\{\}:\{vehicleId:'',registration:''\}/);
-  assert.match(now, /if\(!requested\)\s*\{[\s\S]*setLocation\(null\)/);
-  assert.match(now, /Date\.now\(\)-serverMillis\(selected\.updatedAt\)>180000/);
-  assert.doesNotMatch(now, /Date\.now\(\)-Number\(selected\.updatedAt\)/);
+test('GPS dashboards use the central API instead of Firestore', () => {
+  const dashboard = fs.readFileSync(new URL('../LiveLocationDashboard.js', import.meta.url), 'utf8');
+  const now = fs.readFileSync(new URL('../NowDashboard.js', import.meta.url), 'utf8');
+  assert.match(dashboard,/from '\.\/apiClient'/);
+  assert.match(now,/from '\.\/apiClient'/);
+  assert.doesNotMatch(dashboard,/firebase\/firestore/);
+  assert.doesNotMatch(now,/firebase\/firestore/);
 });
 
 test('GPS assignment parsing keeps an empty central assignment empty and requires the central vehicle to start', async () => {
@@ -248,13 +243,12 @@ test('App.js stays a thin wrapper and cannot substitute static runtime fixtures'
   assert.doesNotMatch(app, /export const/);
 });
 
-test('admin account creation uses the secondary Auth instance and never calls Firebase Functions', async () => {
+test('admin account controls use the central API and never Firebase Auth or Functions', () => {
   const service = fs.readFileSync(new URL('../AdminUserService.js', import.meta.url), 'utf8');
-  assert.match(service, /getApp\('grafik-pracy-admin-create'\)/);
-  assert.match(service, /createUserWithEmailAndPassword\(secondaryAuth/);
-  assert.match(service, /setDoc\(doc\(db,'users',createdUid\)/);
-  assert.match(service, /await signOut\(secondaryAuth\)/);
-  assert.doesNotMatch(service, /httpsCallable|callable\(/);
+  assert.match(service,/api\('/users'/);
+  assert.match(service,/api\('/users\/'+encodeURIComponent\(uid\)/);
+  assert.doesNotMatch(service,/firebase\/auth/);
+  assert.doesNotMatch(service,/httpsCallable|callable\(/);
 });
 
 test('admin role switching clears incompatible employee assignment in the UI', async () => {
