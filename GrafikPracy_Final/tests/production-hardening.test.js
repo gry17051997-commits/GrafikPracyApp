@@ -258,3 +258,31 @@ test('admin role switching clears incompatible employee assignment in the UI', a
   assert.match(panel, /DEZAKTYWUJ/);
 });
 
+
+
+test('central API configuration is enabled and Firebase packages are absent', () => {
+  const config = fs.readFileSync(new URL('../firebaseConfig.js', import.meta.url), 'utf8');
+  const lock = fs.readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8');
+  assert.match(config, /CENTRAL_API_ENABLED\s*=\s*true/);
+  assert.doesNotMatch(config, /firebase\/firestore|firebase\/auth/);
+  assert.doesNotMatch(lock, /"node_modules\/firebase"/);
+});
+
+test('central backend protects document writes with revision checks', () => {
+  const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(server, /expectedRevision/);
+  assert.match(server, /REVISION_CONFLICT/);
+  assert.match(server, /AND revision=\$5 RETURNING \*/);
+});
+
+test('central backend supports administrator removal of GPS phones', () => {
+  const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(server, /app\.delete\('\/api\/phones\/:id',auth,admin/);
+  assert.match(server, /PHONE_NOT_FOUND/);
+});
+
+test('central document store rejects arbitrary collection names', () => {
+  const server = fs.readFileSync(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(server, /STORE_COLLECTIONS=new Set/);
+  assert.match(server, /!STORE_COLLECTIONS\.has\(name\)/);
+});
