@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as TaskManager from 'expo-task-manager';
 import * as Location from 'expo-location';
-import {Platform} from 'react-native';
+import {Platform, AppState} from 'react-native';
 import {collection, deleteDoc, doc, getDocs, getDoc, query, setDoc, serverTimestamp, Timestamp, where} from 'firebase/firestore';
 import {db, FIREBASE_ENABLED, auth} from './firebaseConfig';
 
@@ -217,6 +217,10 @@ export async function saveVehicleLocationAssignment(registration) {
 
 export async function startVehicleLocationTracking({vehicleId,registration}={}) {
   if (Platform.OS==='web') return {ok:false,reason:'web'};
+  // Android 12+ może odrzucić uruchomienie foreground service, jeśli aplikacja
+  // jest w tle. Start nadajnika wykonujemy wyłącznie z aktywnego UI; po powrocie
+  // na pierwszy plan ensureVehicleLocationTracking ponowi próbę.
+  if (AppState.currentState !== 'active') return {ok:false,reason:'app-not-active'};
   if (!FIREBASE_ENABLED || !db) return {ok:false,reason:'firebase'};
 
   // Centralne przypisanie pojazdu jest źródłem prawdy. Lokalna konfiguracja
@@ -260,7 +264,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}) 
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
   }
   try {
-    const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High});
+    const first=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.Highest,mayShowUserSettingsDialog:true});
     await saveLocation(first);
   } catch(e) {
     console.log('LOCATION_INITIAL_FIX_ERROR',e);
@@ -279,6 +283,7 @@ export async function stopVehicleLocationTracking() {
 
 export async function ensureVehicleLocationTracking() {
   if (Platform.OS==='web' || !FIREBASE_ENABLED || !db) return {ok:false,reason:'unsupported'};
+  if (AppState.currentState !== 'active') return {ok:false,reason:'app-not-active'};
   const cfg=await getConfig();
   if (cfg.enabled!==true || !(cfg.vehicleId||cfg.registration)) return {ok:false,reason:'disabled'};
   const guard=await stopIfCentralAssignmentChanged(cfg);
