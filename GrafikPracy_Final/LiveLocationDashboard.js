@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {Linking, Platform, ScrollView, Text, TouchableOpacity, View} from 'react-native';
-import {collection, doc, limit, onSnapshot, orderBy, query} from 'firebase/firestore';
+import {collection, doc, limit, onSnapshot, orderBy, query} from './apiClient';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {getVehicleLocationConfig, normalizeVehicleId} from './LocationService';
 import {WebView} from 'react-native-webview';
