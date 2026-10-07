@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS assignments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE assignments DROP CONSTRAINT IF EXISTS assignments_vehicle_id_phone_id_key;
 CREATE UNIQUE INDEX IF NOT EXISTS assignments_active_vehicle_idx ON assignments(vehicle_id) WHERE active=TRUE;
 CREATE UNIQUE INDEX IF NOT EXISTS assignments_active_phone_idx ON assignments(phone_id) WHERE active=TRUE;
 
