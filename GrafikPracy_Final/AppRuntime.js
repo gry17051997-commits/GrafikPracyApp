@@ -25,7 +25,7 @@ import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
-import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, LOCATION_CONFIG_KEY} from './LocationService';
+import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, LOCATION_CONFIG_KEY} from './LocationService';
 import {FIREBASE_ENABLED, auth, db} from './firebaseConfig';
 import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
@@ -238,6 +238,7 @@ export default function App() {
   const [warehouseGeo,setWarehouseGeo] = useState({});
   const [locationTracking,setLocationTracking] = useState(false);
   const [locationBusy,setLocationBusy] = useState(false);
+  const [locationDeviceToken,setLocationDeviceTokenState] = useState('');
   const locationConfigLoaded = useRef(false);
   const [chatMessages,setChatMessages] = useState([]);
   const [chatBusy,setChatBusy] = useState(false);
@@ -585,6 +586,7 @@ export default function App() {
   },[]);
   useEffect(() => {
     if (!ready) return;
+    getLocationDeviceToken().then(v=>setLocationDeviceTokenState(v||'')).catch(()=>{});
     AsyncStorage.getItem(REPORT_HISTORY_KEY).then(raw => { if (raw) setReportHistory(JSON.parse(raw)); }).catch(()=>{});
     AsyncStorage.getItem(CHAT_LOCAL_KEY).then(raw => { if (raw && !FIREBASE_ENABLED) setChatMessages(JSON.parse(raw)); }).catch(()=>{});
   },[ready]);
@@ -2533,105 +2535,27 @@ export default function App() {
         <Text style={S.settingsSub}>Ten profil służy wyłącznie do udostępniania lokalizacji telefonu służbowego.</Text>
       </View>
       <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
-      <Text style={S.helpLine}>Auto jest przypisywane centralnie przez administratora. Lokalizator nie może samodzielnie zmienić pojazdu, dzięki czemu GPS zawsze zapisuje pozycję do właściwego nadajnika.</Text>
+      {cloudRole==='admin' ? (
+        <View style={S.option}><View style={{flex:1}}><Text style={S.optionText}>🚗 Samochody, telefony i przypisania</Text><Text style={S.muted}>Zarządzaj nimi w panelu „Flota i telefony GPS” powyżej.</Text></View><Text style={{color:'#75a1ff',fontWeight:'900'}}>API</Text></View>
+      ) : <>
+        <Text style={S.helpLine}>Telefon lokalizatora nie wybiera już auta lokalnie. Administrator przypisuje samochód do telefonu w centralnym panelu.</Text>
+        <Text style={S.helpLine}>Wklej jednorazowy token urządzenia wygenerowany przy dodawaniu telefonu.</Text>
+        <TextInput value={locationDeviceToken} onChangeText={setLocationDeviceTokenState} secureTextEntry autoCapitalize="none" placeholder="TOKEN URZĄDZENIA" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]}/>
+        <TouchableOpacity style={[S.generateFull,{marginTop:0,opacity:locationDeviceToken.trim()?1:0.45}]} disabled={!locationDeviceToken.trim()} onPress={async()=>{await setLocationDeviceToken(locationDeviceToken.trim());Alert.alert('GPS','Token urządzenia zapisany. Teraz można uruchomić nadajnik GPS.');}}>
+          <Text style={S.btnText}>💾 ZAPISZ TOKEN URZĄDZENIA</Text>
+        </TouchableOpacity>
+      </>}
       <View style={S.option}>
         <View style={{flex:1}}>
           <Text style={S.optionText}>🚚 Auto przypisane przez administratora</Text>
-          <Text style={S.muted}>{vehicleRegistration.trim() ? vehicleRegistration.trim() : '⚠️ administrator nie przypisał jeszcze auta'}</Text>
-        </View>
-        <Text style={{color:'#75a1ff',fontWeight:'900'}}>🔒</Text>
-      </View>
-      <View style={S.option}>
-        <View style={{flex:1}}>
-          <Text style={S.optionText}>Telefon służbowy</Text>
-          <Text style={S.muted}>{vehicleRegistration.trim()?'🚚 nadajnik przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text>
+          <Text style={S.muted}>{vehicleRegistration.trim()?'🚗 '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text>
           <Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text>
         </View>
         <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}>
           <Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text>
         </TouchableOpacity>
       </View>
-      {!vehicleRegistration.trim() && <Text style={S.helpLine}>Najpierw administrator musi przypisać pojazd w panelu administracyjnym. Gdy auto zostanie przypisane, pojawi się tutaj automatycznie.</Text>}
       <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję.</Text>
-      <View style={[S.option,{marginTop:12}]}>
-        <View style={{flex:1}}>
-          <Text style={S.optionText}>☁️ Konto lokalizatora</Text>
-          <Text style={S.muted}>{cloudUser?.email||'brak konta'}</Text>
-        </View>
-        <Text style={{color:'#75a1ff',fontWeight:'900'}}>📍 GPS</Text>
-      </View>
-      <TouchableOpacity style={S.option} onPress={cloudLogout}>
-        <Text style={S.optionText}>🚪 Wyloguj</Text>
-        <Text style={S.muted}>{cloudUser?.email||''}</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
-
-  const settings = (
-    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
-      {header}
-
-      <View style={S.settingsHero}>
-        <Text style={S.settingsEyebrow}>USTAWIENIA</Text>
-        <Text style={S.settingsTitle}>Centrum sterowania</Text>
-        <Text style={S.settingsSub}>GPS, raporty, grafik i dane aplikacji w jednym miejscu.</Text>
-      </View>
-      {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' && <AdminUsersPanel cloudUser={cloudUser}/>} 
-      {FIREBASE_ENABLED && cloudUser && cloudRole==='admin' ? (
-        <>
-          <Text style={S.section}>📒 Zarządzanie długiem (Ledger)</Text>
-          <Text style={S.helpLine}>Saldo jest niezależne od tygodnia. Generator tylko je odczytuje. Każda zmiana salda trafia do historii audytowej.</Text>
-          {PERSON_KEYS.map(k=>(
-            <View key={k} style={[S.option,{borderLeftWidth:4,borderLeftColor:personColor(k)}]}>
-              <View style={{flex:1}}>
-                <Text style={S.optionText}>{PEOPLE[k].name}</Text>
-                <Text style={S.muted}>Saldo: <Text style={S.white}>+{Number(recoveryBalances[k])||0}</Text></Text>
-              </View>
-              <TouchableOpacity style={S.btn} onPress={()=>{setRecoveryCorrection(k);setRecoveryCorrectionValue('1');setRecoveryCorrectionReason('');}}>
-                <Text style={S.btnText}>KOREKTA</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-          <Text style={S.section}>Ostatnie operacje</Text>
-          {recoveryLedger.slice(0,15).length ? recoveryLedger.slice(0,15).map((entry,i)=>(
-            <View key={entry.id || i} style={S.option}>
-              <View style={{flex:1}}>
-                <Text style={S.optionText}>{PEOPLE[entry.person]?.name || entry.person} · {Number(entry.delta)>0?'+':''}{entry.delta}</Text>
-                <Text style={S.muted}>{entry.reason === 'off-recover' ? 'OFF - odrobienie zmiany' : entry.reason === 'recovery-confirmed' ? 'Spłata zatwierdzona' : entry.reason === 'manual-correction' ? 'Korekta administracyjna' : entry.reason || 'Operacja'}</Text>
-                <Text style={S.muted}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString('pl-PL') : ''}{entry.reason === 'manual-correction' && entry.metaReason ? ' · '+entry.metaReason : ''}</Text>
-              </View>
-            </View>
-          )) : <View style={S.option}><Text style={S.muted}>Brak operacji w historii.</Text></View>}
-        </>
-      ) : null}
-            <Text style={S.section}>📍 Nadajnik GPS telefonu służbowego</Text>
-      <Text style={S.helpLine}>Najpierw przypisz ten telefon do konkretnego auta. Samo przypisanie nie wymaga jeszcze uruchomienia GPS. Dopiero potem włącz nadajnik lokalizacji.</Text>
-      <TextInput value={vehicleRegistration} onChangeText={v=>setVehicleRegistration(v.toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ -]/gi,''))} autoCapitalize="characters" placeholder="NUMER REJESTRACYJNY, np. PZ387WR" placeholderTextColor="#777" style={[S.input,{marginBottom:8}]} editable={!locationTracking && !locationBusy}/>
-      <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim() || locationTracking} style={[S.generateFull,{marginTop:0,opacity:(!vehicleRegistration.trim()||locationBusy||locationTracking)?0.45:1}]} onPress={async()=>{
-        const reg=vehicleRegistration.trim();
-        if(!reg) return;
-        setLocationBusy(true);
-        try {
-          await saveVehicleLocationAssignment(reg);
-          if (cloudRole === 'admin' && FIREBASE_ENABLED && db && cloudUser) {
-            await setDoc(doc(db,'locationConfig','main'),{
-              vehicleId:normalizeVehicleId(reg),
-              registration:reg,
-              updatedAt:serverTimestamp(),
-              updatedBy:cloudUser.uid
-            },{merge:true});
-          }
-          setVehicleRegistration(reg);
-          Alert.alert('Pojazd przypisany','Auto '+reg+' zostało przypisane centralnie. Lokalizator zobaczy je automatycznie i dopiero wtedy będzie mógł uruchomić GPS.');
-        } catch(e) {
-          Alert.alert('Pojazd','Nie udało się zapisać przypisania auta: '+(e?.message||'nieznany błąd'));
-        } finally { setLocationBusy(false); }
-      }}><Text style={S.btnText}>{locationBusy?'ZAPISUJĘ…':'ZAPISZ POJAZD'}</Text></TouchableOpacity>
-      <View style={S.option}>
-        <View style={{flex:1}}><Text style={S.optionText}>Telefon służbowy</Text><Text style={S.muted}>{vehicleRegistration.trim()?'🚚 przypisany do '+vehicleRegistration.trim():'⚠️ brak przypisanego auta'}</Text><Text style={S.muted}>{locationTracking?'🟢 nadajnik aktywny w tle':'🔴 nadajnik wyłączony'}</Text></View>
-        <TouchableOpacity disabled={locationBusy || !vehicleRegistration.trim()} style={[S.btn,locationTracking&&S.active,(!vehicleRegistration.trim()||locationBusy)&&{opacity:0.45}]} onPress={toggleVehicleTracking}><Text style={S.btnText}>{locationBusy?'…':locationTracking?'WYŁĄCZ':'AKTYWUJ GPS'}</Text></TouchableOpacity>
-      </View>
-      <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję. Jeśli zgoda zostanie odrzucona, przypisanie auta pozostanie zapisane.</Text>
       <Text style={S.section}>🏭 Kalibracja stref magazynów</Text>
       {WAREHOUSES.map(w=><View key={w} style={S.option}>
         <View style={{flex:1}}><Text style={S.optionText}>{w}</Text><Text style={S.muted}>{warehouseGeo[w]?'📍 '+Number(warehouseGeo[w].latitude).toFixed(5)+', '+Number(warehouseGeo[w].longitude).toFixed(5):'brak punktu GPS'}</Text></View>
