@@ -24,7 +24,7 @@ export const query=(base,...constraints)=>({...base,constraints});
 const cleanDeletes=(obj)=>{if(!obj||typeof obj!=='object')return obj;const out={};for(const [k,v] of Object.entries(obj)){if(v&&v.__apiDeleteField)continue;out[k]=v&&typeof v==='object'&&!Array.isArray(v)?cleanDeletes(v):v;}return out;};
 const pathFor=r=>r.kind==='doc'?'/store/'+encodeURIComponent(r.name)+'/'+encodeURIComponent(r.id):'/store/'+encodeURIComponent(r.name);
 export async function getDoc(r){const raw=await api(pathFor(r));if(r.kind==='doc'){if(!raw.exists)return {exists:()=>false,data:()=>({}),id:r.id,metadata:{hasPendingWrites:false}};return {exists:()=>true,data:()=>raw.data||{},id:raw.id||r.id,metadata:{hasPendingWrites:false},updatedAt:raw.updatedAt,revision:raw.revision};}return raw;}
-export async function setDoc(r,data,options={}){return api(pathFor(r)+'?merge='+(options.merge!==false?'true':'false'),{method:'PUT',body:{payload:cleanDeletes(data)}});}
+export async function setDoc(r,data,options={}){const body={payload:cleanDeletes(data)};if(Number.isInteger(options.expectedRevision)&&options.expectedRevision>0)body.expectedRevision=options.expectedRevision;return api(pathFor(r)+'?merge='+(options.merge!==false?'true':'false'),{method:'PUT',body});}
 export async function updateDoc(r,data){
   const current=await getDoc(r);
   const base=current.exists()?current.data():{};
@@ -36,7 +36,7 @@ export async function updateDoc(r,data){
     const leaf=parts[parts.length-1];
     if(value&&value.__apiDeleteField)delete target[leaf];else target[leaf]=cleanDeletes(value);
   }
-  return setDoc(r,next,{merge:false});
+  return setDoc(r,next,{merge:false,expectedRevision:Number(current.revision)||undefined});
 }
 export async function addDoc(r,data){return api(pathFor(r),{method:'POST',body:{payload:cleanDeletes(data)}});}
 export async function deleteDoc(r){return api(pathFor(r),{method:'DELETE'});}
