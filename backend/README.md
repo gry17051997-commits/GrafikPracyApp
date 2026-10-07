@@ -40,4 +40,4 @@ Build Android musi otrzymać zmienną EXPO_PUBLIC_API_URL wskazującą publiczny
 
 ## Bezpieczeństwo
 
-Hasła są obecnie haszowane SHA-256 jako etap migracji. Przed produkcyjnym wdrożeniem należy zastąpić to Argon2id lub scrypt z indywidualną solą. Tokeny sesji i tokeny urządzeń GPS są przechowywane po stronie serwera wyłącznie jako hash.
+Hasła są haszowane scrypt z indywidualną losową solą. Tokeny sesji i tokeny urządzeń GPS są przechowywane po stronie serwera wyłącznie jako SHA-256 hash.
