@@ -249,7 +249,7 @@ test('App.js stays a thin wrapper and cannot substitute static runtime fixtures'
 });
 
 test('admin account creation uses the secondary Auth instance and never calls Firebase Functions', async () => {
-  const service = await fs.readFile(new URL('../AdminUserService.js', import.meta.url), 'utf8');
+  const service = fs.readFileSync(new URL('../AdminUserService.js', import.meta.url), 'utf8');
   assert.match(service, /getApp\('grafik-pracy-admin-create'\)/);
   assert.match(service, /createUserWithEmailAndPassword\(secondaryAuth/);
   assert.match(service, /setDoc\(doc\(db,'users',createdUid\)/);
@@ -258,7 +258,7 @@ test('admin account creation uses the secondary Auth instance and never calls Fi
 });
 
 test('admin role switching clears incompatible employee assignment in the UI', async () => {
-  const panel = await fs.readFile(new URL('../AdminUsersPanel.js', import.meta.url), 'utf8');
+  const panel = fs.readFileSync(new URL('../AdminUsersPanel.js', import.meta.url), 'utf8');
   assert.match(panel, /role==='employee'\?f\.personKey:''/);
   assert.match(panel, /u\.role==='employee'\?\(u\.personKey\|\|'\'\)':''/);
   assert.match(panel, /DEZAKTYWUJ/);
