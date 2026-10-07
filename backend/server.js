@@ -284,14 +284,28 @@ app.put('/api/store/:collection/:id',auth,async(req,res)=>{
     assertCollectionName(req.params.collection);
     const merge=req.query.merge!=='false';
     const payload=req.body?.payload||{};
-    const existingResult=await q('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
+    const expectedRevision=Number(req.body?.expectedRevision);
+    const hasExpectedRevision=Number.isInteger(expectedRevision)&&expectedRevision>0;
+    const existingResult=await q('SELECT payload,revision FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
     const existing=existingResult.rows[0]?.payload||null;
+    const currentRevision=existingResult.rows[0]?.revision||null;
     const effective=merge&&existing?{...existing,...payload}:payload;
     if(!canStoreWrite(req.params.collection,req.user,effective,existing))return res.status(403).json({error:'STORE_WRITE_FORBIDDEN'});
-    const sql=merge
-      ? 'INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=documents.payload || EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *'
-      : 'INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *';
-    const r=await q(sql,[req.params.collection,req.params.id,payload,req.user.id]);
+    if(hasExpectedRevision && currentRevision!==expectedRevision)return res.status(409).json({error:'REVISION_CONFLICT',revision:currentRevision});
+    let r;
+    if(hasExpectedRevision && existing){
+      const sql=merge
+        ? 'UPDATE documents SET payload=documents.payload || $3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2 AND revision=$5 RETURNING *'
+        : 'UPDATE documents SET payload=$3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2 AND revision=$5 RETURNING *';
+      const updated=await q(sql,[req.params.collection,req.params.id,JSON.stringify(payload),req.user.id,expectedRevision]);
+      if(!updated.rows[0])return res.status(409).json({error:'REVISION_CONFLICT'});
+      r=updated;
+    }else{
+      const sql=merge
+        ? 'INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=documents.payload || EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *'
+        : 'INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *';
+      r=await q(sql,[req.params.collection,req.params.id,payload,req.user.id]);
+    }
     res.json({ok:true,id:r.rows[0].doc_id,data:r.rows[0].payload,revision:r.rows[0].revision,updatedAt:r.rows[0].updated_at});
   }catch(e){res.status(400).json({error:e.message});}
 });
