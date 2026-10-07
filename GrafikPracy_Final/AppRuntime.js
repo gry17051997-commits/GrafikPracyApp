@@ -432,138 +432,46 @@ export default function App() {
 
   const normalizeVehicleAssignment = value => String(value || '').trim().toUpperCase();
 
-  const refreshLocationState = async () => {
-    try {
-      const c = await getVehicleLocationConfig();
-      if (cloudRole === 'locator') {
-        if (!locationConfigLoaded.current) return;
-        const result = c.enabled === true
-          ? await ensureVehicleLocationTracking()
-          : await startVehicleLocationTracking({
-              vehicleId: c.vehicleId || vehicleRegistration,
-              registration: c.registration || vehicleRegistration
-            });
-        setLocationTracking(result.ok === true);
-        return;
-      }
-      const active = c.enabled === true && !!c.vehicleId;
-      setLocationTracking(active);
-      if (active && cloudUser) {
-        const result = await ensureVehicleLocationTracking();
-        if (result.ok && result.restarted) setLocationTracking(true);
-      }
-    } catch (e) {}
-  };
-
   const syncLocatorGpsFromCentralAssignment = async assigned => {
     const normalizedAssigned = normalizeVehicleAssignment(assigned);
     const local = await getVehicleLocationConfig();
     const localAssigned = normalizeVehicleAssignment(local.registration || local.vehicleId);
-
     if (!normalizedAssigned) {
-      if (local.enabled === true) {
-        await stopVehicleLocationTracking();
-        setLocationTracking(false);
-      }
+      if (local.enabled === true) await stopVehicleLocationTracking();
+      setVehicleRegistration('');
+      setLocationTracking(false);
       return;
     }
-
-    if (localAssigned !== normalizedAssigned) {
-      const wasTracking = local.enabled === true;
-      if (wasTracking) {
-        await stopVehicleLocationTracking();
-        setLocationTracking(false);
-      }
-      await saveVehicleLocationAssignment(normalizedAssigned);
-      const restarted = await startVehicleLocationTracking({
-        vehicleId: normalizedAssigned,
-        registration: normalizedAssigned
-      });
-      setLocationTracking(restarted.ok === true);
-      if (!restarted.ok && restarted.reason !== 'app-not-active') {
-        setCloudError('Nie udało się uruchomić nadajnika GPS dla centralnie przypisanego pojazdu. Kod: ' + (restarted.reason || restarted.errorCode || 'unknown'));
-      }
+    setVehicleRegistration(normalizedAssigned);
+    if (localAssigned !== normalizedAssigned && local.enabled === true) {
+      await stopVehicleLocationTracking();
+      setLocationTracking(false);
+      const restarted = await startVehicleLocationTracking({vehicleId:normalizedAssigned,registration:normalizedAssigned});
+      setLocationTracking(restarted.ok===true);
+      if (!restarted.ok && restarted.reason!=='app-not-active') setCloudError('Nie udało się przełączyć nadajnika GPS. Kod: '+(restarted.reason||'unknown'));
       return;
     }
-
     if (local.enabled === true) {
-      const result = await ensureVehicleLocationTracking();
-      if (result.ok) setLocationTracking(true);
+      const result=await ensureVehicleLocationTracking();
+      setLocationTracking(result.ok===true);
     }
   };
 
   useEffect(() => {
-    if (!ready || Platform.OS === 'web') return;
-    let mounted = true;
-    const refresh = async () => {
-      try {
-        const c = await getVehicleLocationConfig();
-        if (!mounted) return;
-        if (cloudRole === 'locator') {
-          // Nie uruchamiamy foreground service z callbacku działającego w tle.
-          // AppState 'active' poniżej wywoła refresh ponownie po powrocie do UI.
-          if (AppState.currentState !== 'active') return;
-          const result = c.enabled === true
-            ? await ensureVehicleLocationTracking()
-            : await startVehicleLocationTracking({
-                vehicleId: c.vehicleId || vehicleRegistration,
-                registration: c.registration || vehicleRegistration
-              });
-          setLocationTracking(result.ok === true);
-          return;
-        }
-        const active = c.enabled === true && !!c.vehicleId;
-        setLocationTracking(active);
-        if (active && auth?.currentUser?.uid) {
-          const result = await ensureVehicleLocationTracking();
-          if (mounted && result.restarted) setLocationTracking(true);
-        }
-      } catch (e) {}
+    if (!ready || Platform.OS === 'web' || cloudRole !== 'locator') return;
+    let mounted=true;
+    const refresh=async()=>{
+      try{
+        const c=await getVehicleLocationConfig();
+        if(!mounted)return;
+        await syncLocatorGpsFromCentralAssignment(c.registration||c.vehicleId||'');
+      }catch(e){if(mounted)setLocationTracking(false);}
     };
     refresh();
-    const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') refresh();
-    });
-    return () => { mounted = false; sub?.remove?.(); };
-  },[ready,cloudRole,vehicleRegistration]);
-
-  useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
-    const unsub = onSnapshot(doc(db,'locationConfig','main'), async snap => {
-      locationConfigLoaded.current = true;
-      if (!snap.exists()) {
-        if (cloudRole === 'locator') {
-          setVehicleRegistration('');
-          try {
-            const local = await getVehicleLocationConfig();
-            if (local.enabled === true || !!(local.vehicleId || local.registration)) {
-              await stopVehicleLocationTracking();
-              await AsyncStorage.removeItem('grafik-pracy-location-current-v1');
-              setLocationTracking(false);
-            }
-          } catch (e) {}
-        }
-        return;
-      }
-      const data = snap.data() || {};
-      setWarehouseGeo(data.warehouseGeo || {});
-      if (cloudRole === 'locator') {
-        const assigned = normalizeVehicleAssignment(data.registration || data.vehicleId);
-        setVehicleRegistration(assigned);
-        syncLocatorGpsFromCentralAssignment(assigned).catch(error => {
-          console.error('Nie udało się zsynchronizować przypisania GPS:', error);
-          setCloudError('Nie udało się zsynchronizować przypisania GPS. Kod: ' + (error?.code || 'unknown'));
-        });
-      }
-    });
-    return () => unsub();
-  },[cloudUser,cloudRole]);
-
-  useEffect(() => {
-    if (!ready || !FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !locationConfigLoaded.current) return;
-    setDoc(doc(db,'locationConfig','main'),{warehouseGeo,updatedAt:serverTimestamp(),updatedBy:cloudUser.uid},{merge:true}).catch(() => {});
-  },[warehouseGeo,ready,cloudUser]);
-
+    const timer=setInterval(refresh,5000);
+    const sub=AppState.addEventListener('change',state=>{if(state==='active')refresh();});
+    return()=>{mounted=false;clearInterval(timer);sub?.remove?.();};
+  },[ready,cloudRole]);
   useEffect(() => {
     let mounted=true;
     (async()=>{
