@@ -583,7 +583,6 @@ export default function App() {
         const weekDocs = snap.docs.filter(d => d.id !== 'main');
 
         // Never use a local optimistic snapshot as authoritative remote state.
-        // Firestore exposes hasPendingWrites specifically for this distinction.
         if (cloudRole === 'admin' && !legacyMigrationRef.current && weekDocs.length === 0) {
           legacyMigrationRef.current = true;
           try {
