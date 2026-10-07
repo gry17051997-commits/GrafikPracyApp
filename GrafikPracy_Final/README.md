@@ -1,47 +1,92 @@
-# Grafik Pracy V5 - Firebase / Expo
+# Grafik Pracy V5 - Central API / Expo
 
-Gotowy projekt Expo/React Native z lokalnym zapisem oraz wspólnym grafikiem online przez Firebase Firestore.
+Aplikacja Expo/React Native z lokalnym cache oraz wspólną synchronizacją przez centralne API i PostgreSQL.
 
-## Firebase
-Konfiguracja projektu Firebase jest już wpisana w `firebaseConfig.js`.
+## Architektura
 
-W Firebase włączone powinny być:
-- Authentication -> Email/Password
-- Firestore Database
+- Android/Web: Expo SDK 54 + React Native.
+- Backend: Node.js + Express w katalogu `backend/`.
+- Baza danych: PostgreSQL.
+- Synchronizacja grafiku, kont, ustawień i GPS odbywa się przez centralne API.
+- Firebase Firestore i Firebase Functions nie są używane jako backend aplikacji.
+- Firebase Hosting może nadal służyć wyłącznie do hostowania statycznej wersji WWW.
 
-Reguły bezpieczeństwa są w `firestore.rules`.
+## Konta i role
 
-## Role
-Nowe konta rejestrowane w aplikacji otrzymują rolę `employee`.
-Aby konto administratora mogło edytować grafik, w Firestore należy w dokumencie `users/<UID>` zmienić pole `role` z `employee` na `admin`.
+Backend obsługuje role:
+- `admin`
+- `employee`
+- `locator`
 
-Pracownik ma dostęp tylko do odczytu wspólnego grafiku. Administrator może generować i edytować grafik.
+Pierwsze konto utworzone przez `POST /api/auth/register` otrzymuje rolę administratora. Kolejne konta są pracownikami. Administrator może następnie tworzyć i edytować konta przez panel aplikacji.
 
-## Budowanie APK
-Projekt używa Expo SDK 54. Produkcyjny build APK jest wykonywany przez GitHub Actions w `.github/workflows/android-apk.yml`. Workflow tworzy natywny projekt Android przez Expo Prebuild, osadza bundle JavaScript i publikuje gotowy APK jako artefakt GitHub Actions.
+Hasła są przechowywane jako scrypt z losową solą. Tokeny sesji i tokeny urządzeń GPS są przechowywane po stronie serwera wyłącznie jako SHA-256 hash.
 
-Nie przechowujemy w repozytorium wygenerowanego katalogu `android/`, paczek ZIP ani lokalnych plików EAS. Dzięki temu źródła pozostają jednoznaczne i build jest powtarzalny.
+## GPS
 
-## Etap 3 - regresja i bezpieczeństwo
+Administrator tworzy telefon GPS w panelu, otrzymuje jednorazowy token urządzenia i przypisuje telefon do samochodu.
 
-Automatyczny zestaw regresyjny znajduje się w `tests/stage3-regression.test.js` i uruchamia się przez:
+Telefon wysyła lokalizację do:
+`POST /api/gps`
+
+przez nagłówek:
+`X-Device-Token`
+
+Numer rejestracyjny nie jest źródłem prawdy po stronie telefonu. Serwer rozpoznaje pojazd na podstawie administracyjnego przypisania telefonu.
+
+Historia GPS jest przechowywana przez 7 dni.
+
+## Konfiguracja aplikacji
+
+Build Android musi otrzymać:
+
+`EXPO_PUBLIC_API_URL`
+
+ze wskazaniem publicznego adresu centralnego API.
+
+Bez tej zmiennej aplikacja celowo nie uruchamia synchronizacji sieciowej.
+
+## Backend lokalnie
+
+Wymagania:
+- Node.js 20+
+- PostgreSQL
+- `DATABASE_URL`
+
+Uruchomienie:
 
 ```bash
-npm test
+cd backend
+npm install
+npm start
 ```
 
-Sprawdza m.in.:
-- powiązanie zapisów GPS pracownika z administracyjnie przypisanym `vehicleId`,
-- ochronę `ownerUid` i zakresów współrzędnych,
-- blokadę eskalacji roli i samousuwania,
-- zatrzymanie nadajnika GPS przy wylogowaniu/utracie sesji,
-- ponowną weryfikację właściciela przed zapisem GPS,
-- ochronę przed uruchomieniem drugiego trackera,
-- kluczową logikę powiadomień raportów godzinowych,
-- podstawową logikę generatora grafiku,
-- zgodność wersji Expo/React Native oraz ścieżek web/Android.
+Backend automatycznie wykonuje `schema.sql` przy starcie.
 
-Workflow PR uruchamia te testy przed eksportem WWW i budową APK.
+Health check:
 
-### Ważne ograniczenie testów Firebase
-Testy etapowe w repozytorium są testami regresyjnymi/static security checks. Nie zastępują pełnego testu Firestore Emulator z prawdziwymi kontami testowymi. Przed produkcyjnym wdrożeniem reguł warto wykonać osobny test integracyjny na projekcie testowym Firebase.
+`GET /api/health`
+
+## Wdrożenie
+
+W repozytorium znajduje się `render.yaml`, który definiuje centralne API oraz PostgreSQL na Render. Po wdrożeniu publiczny adres usługi należy ustawić jako `EXPO_PUBLIC_API_URL` w procesie budowania APK.
+
+## Budowanie APK
+
+Produkcyjny build APK jest wykonywany przez GitHub Actions. Workflow tworzy natywny projekt Android przez Expo Prebuild, osadza bundle JavaScript i publikuje zweryfikowany APK jako artefakt.
+
+Nie przechowujemy w repozytorium wygenerowanego katalogu `android/` ani gotowych APK.
+
+## Testy
+
+`npm test` uruchamia zestaw regresyjny projektu.
+
+GitHub Actions dodatkowo wykonuje:
+- kontrolę backendu,
+- walidację Expo,
+- eksport WWW,
+- prebuild Android,
+- kompilację APK,
+- testy uruchomieniowe Androida.
+
+Przed wydaniem APK wymagane jest działające centralne API oraz ustawione `EXPO_PUBLIC_API_URL`.
