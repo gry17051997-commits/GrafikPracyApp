@@ -36,9 +36,10 @@ CREATE TABLE IF NOT EXISTS assignments (
   user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(vehicle_id, phone_id)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS assignments_active_vehicle_idx ON assignments(vehicle_id) WHERE active=TRUE;
+CREATE UNIQUE INDEX IF NOT EXISTS assignments_active_phone_idx ON assignments(phone_id) WHERE active=TRUE;
 
 CREATE TABLE IF NOT EXISTS gps_current (
   vehicle_id UUID PRIMARY KEY REFERENCES vehicles(id) ON DELETE CASCADE,
