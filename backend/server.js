@@ -15,6 +15,7 @@ const pool=new Pool({
 });
 const PORT=Number(process.env.PORT||8787);
 const SESSION_DAYS=30;
+const STORE_COLLECTIONS=new Set(['chatMessages','proposals','schedules','settings','whatsappReports','audit']);
 
 const hashToken=v=>crypto.createHash('sha256').update(String(v)).digest('hex');
 const hashPassword=password=>{
@@ -67,7 +68,8 @@ function canStoreWrite(name,user,payload={},existing=null){
 }
 
 function assertCollectionName(v){
-  if(!/^[A-Za-z0-9_-]{1,64}$/.test(String(v||'')))throw new Error('INVALID_COLLECTION');
+  const name=String(v||'');
+  if(!/^[A-Za-z0-9_-]{1,64}$/.test(name)||!STORE_COLLECTIONS.has(name))throw new Error('INVALID_COLLECTION');
 }
 
 app.get('/api/health',async(_req,res)=>{
