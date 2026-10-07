@@ -50,6 +50,22 @@ async function auth(req,res,next){
 }
 function admin(req,res,next){if(req.user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});next();}
 
+function canStoreRead(name,user,payload={}){
+  if(name==='audit')return user.role==='admin';
+  if(name==='proposals')return user.role==='admin'||payload.fromUid===user.id;
+  if(name==='whatsappReports')return user.role==='admin'||payload.uid===user.id;
+  return true;
+}
+function canStoreWrite(name,user,payload={},existing=null){
+  if(name==='audit')return false;
+  if(name==='settings'||name==='schedules')return user.role==='admin';
+  if(name==='proposals')return user.role==='admin'||(!existing&&payload.fromUid===user.id);
+  if(name==='chatMessages')return user.role==='admin'||(!existing&&payload.uid===user.id);
+  if(name==='whatsappReports')return user.role==='admin'||(!existing&&payload.uid===user.id);
+  if(name==='users')return user.role==='admin';
+  return true;
+}
+
 function assertCollectionName(v){
   if(!/^[A-Za-z0-9_-]{1,64}$/.test(String(v||'')))throw new Error('INVALID_COLLECTION');
 }
@@ -250,7 +266,8 @@ app.get('/api/store/:collection',auth,async(req,res)=>{
     const lim=Math.min(500,Math.max(1,Number(req.query.limit)||100));
     sql+=' LIMIT '+lim;
     const r=await q(sql,params);
-    res.json({docs:r.rows.map(x=>({id:x.doc_id,...x.payload,_revision:x.revision,_updatedAt:x.updated_at,_updatedBy:x.updated_by}))});
+    const docs=r.rows.filter(x=>canStoreRead(req.params.collection,req.user,x.payload||{})).map(x=>({id:x.doc_id,...x.payload,_revision:x.revision,_updatedAt:x.updated_at,_updatedBy:x.updated_by}));
+    res.json({docs});
   }catch(e){res.status(400).json({error:e.message});}
 });
 app.get('/api/store/:collection/:id',auth,async(req,res)=>{
@@ -258,6 +275,7 @@ app.get('/api/store/:collection/:id',auth,async(req,res)=>{
     assertCollectionName(req.params.collection);
     const r=await q('SELECT doc_id,payload,revision,updated_at,updated_by FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
     if(!r.rows[0])return res.json({exists:false});
+    if(!canStoreRead(req.params.collection,req.user,r.rows[0].payload||{}))return res.status(403).json({error:'STORE_READ_FORBIDDEN'});
     res.json({exists:true,id:r.rows[0].doc_id,data:r.rows[0].payload,revision:r.rows[0].revision,updatedAt:r.rows[0].updated_at,updatedBy:r.rows[0].updated_by});
   }catch(e){res.status(400).json({error:e.message});}
 });
@@ -266,6 +284,10 @@ app.put('/api/store/:collection/:id',auth,async(req,res)=>{
     assertCollectionName(req.params.collection);
     const merge=req.query.merge!=='false';
     const payload=req.body?.payload||{};
+    const existingResult=await q('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
+    const existing=existingResult.rows[0]?.payload||null;
+    const effective=merge&&existing?{...existing,...payload}:payload;
+    if(!canStoreWrite(req.params.collection,req.user,effective,existing))return res.status(403).json({error:'STORE_WRITE_FORBIDDEN'});
     const sql=merge
       ? 'INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=documents.payload || EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *'
       : 'INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *';
@@ -277,11 +299,15 @@ app.post('/api/store/:collection',auth,async(req,res)=>{
   try{
     assertCollectionName(req.params.collection);
     const docId=crypto.randomUUID();
-    const r=await q('INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) RETURNING *',[req.params.collection,docId,req.body?.payload||{},req.user.id]);
+    const payload=req.body?.payload||{};
+    if(!canStoreWrite(req.params.collection,req.user,payload,null))return res.status(403).json({error:'STORE_WRITE_FORBIDDEN'});
+    const r=await q('INSERT INTO documents(collection_name,doc_id,payload,updated_by) VALUES($1,$2,$3,$4) RETURNING *',[req.params.collection,docId,payload,req.user.id]);
     res.status(201).json({ok:true,id:docId,data:r.rows[0].payload,revision:1,updatedAt:r.rows[0].updated_at});
   }catch(e){res.status(400).json({error:e.message});}
 });
 app.delete('/api/store/:collection/:id',auth,async(req,res)=>{
+  const existing=await q('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
+  if(existing.rows[0]&&!canStoreWrite(req.params.collection,req.user,existing.rows[0].payload||{},existing.rows[0].payload||{}))return res.status(403).json({error:'STORE_WRITE_FORBIDDEN'});
   await q('DELETE FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
   res.json({ok:true});
 });
