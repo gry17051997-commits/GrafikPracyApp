@@ -899,6 +899,7 @@ export default function App() {
           Object.values(localDirtyShiftKeysRef.current).some(keys => keys.length > 0)
           || Object.keys(localDirtyWeekConfigRef.current).length > 0;
         cloudSaveRetryAttemptRef.current = 0;
+        setCloudError('');
       } catch(e) {
         setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
         const delay = Math.min(30000,1000 * (2 ** Math.min(cloudSaveRetryAttemptRef.current,5)));
