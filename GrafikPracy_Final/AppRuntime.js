@@ -3115,7 +3115,7 @@ const settings = (
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
-            {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
+            {cloudError && (tab==='grafik' || !String(cloudError).includes('REVISION_CONFLICT')) ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
           {Platform.OS==='web' && <View style={S.webNav}>
             {[
