@@ -1,0 +1,64 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "GrafikPracy_Final/**"
+      - ".github/workflows/build-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        working-directory: GrafikPracy_Final
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: GrafikPracy_Final/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install EAS CLI
+        run: npm install --global eas-cli
+
+      - name: Build APK with EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform android --profile production-apk --non-interactive --wait
+
+      - name: Get latest EAS build URL
+        id: build
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          URL="$(eas build:list --platform android --limit 1 --status finished --json --non-interactive | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const a=JSON.parse(s); console.log(a[0]?.artifacts?.buildUrl || '')})")"
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Download APK
+        run: curl -fL "${{ steps.build.outputs.url }}" -o grafik-pracy.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grafik-pracy-apk
+          path: GrafikPracy_Final/grafik-pracy.apk
+          if-no-files-found: error
+          retention-days: 14
