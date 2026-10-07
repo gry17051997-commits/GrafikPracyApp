@@ -16,6 +16,10 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      EXPO_NO_DOCTOR: "1"
+      CI: "1"
+      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
 
     defaults:
       run:
@@ -32,41 +36,43 @@ jobs:
           cache: npm
           cache-dependency-path: GrafikPracy_Final/package-lock.json
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Install EAS CLI
-        run: npm install --global eas-cli
-
       - name: Verify central API URL
-        env:
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
         run: |
           test -n "$EXPO_PUBLIC_API_URL"
           echo "Central API URL configured."
 
-      - name: Build APK with EAS
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
-        run: eas build --platform android --profile production-apk --non-interactive --wait
-
-      - name: Get latest EAS build URL
-        id: build
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: Apply deterministic build fixes
         run: |
-          URL="$(eas build:list --platform android --limit 1 --status finished --json --non-interactive | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const a=JSON.parse(s); console.log(a[0]?.artifacts?.buildUrl || '')})")"
-          test -n "$URL"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          node scripts/fix-app-build.js
+          node scripts/fix-chat-build.js
+          node scripts/fix-rotation-switch.js
 
-      - name: Download APK
-        run: curl -fL "${{ steps.build.outputs.url }}" -o grafik-pracy.apk
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --no-install --non-interactive
+
+      - name: Build release APK
+        working-directory: GrafikPracy_Final/android
+        run: ./gradlew assembleRelease --no-daemon --console=plain --max-workers=2
+
+      - name: Verify APK
+        run: |
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          unzip -t android/app/build/outputs/apk/release/app-release.apk >/dev/null
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: grafik-pracy-apk
-          path: GrafikPracy_Final/grafik-pracy.apk
+          path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
