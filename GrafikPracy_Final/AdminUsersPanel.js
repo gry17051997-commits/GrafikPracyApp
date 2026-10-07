@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
-import {collection, onSnapshot} from 'firebase/firestore';
+import {collection, onSnapshot} from './apiClient';
 import {db, FIREBASE_ENABLED} from './firebaseConfig';
 import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions, deleteUserAccountWithoutFunctions} from './AdminUserService';
 
