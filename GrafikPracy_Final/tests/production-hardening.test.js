@@ -225,16 +225,24 @@ test('GPS dashboards use the central API instead of Firestore', () => {
   assert.doesNotMatch(now,/firebase\/firestore/);
 });
 
-test('GPS assignment parsing keeps an empty central assignment empty and requires the central vehicle to start', async () => {
+test('GPS tracking requires a central device assignment and sends positions through the central API', async () => {
   const fs = await import('node:fs/promises');
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
-  assert.match(service, /function normalizeAssignedVehicleId\(value\)\s*\{\s*const raw = String\(value \|\| ''\)\.trim\(\);\s*return raw \? normalizeVehicleId\(raw\) : '';/);
-  assert.match(service, /const vehicleId = normalizeAssignedVehicleId\(config\.vehicleId \|\| config\.registration\)/);
-  assert.match(service, /centralVehicleId=normalizeAssignedVehicleId\(data\.vehicleId\|\|data\.registration\)/);
-  assert.match(service, /const vehicle=centralVehicleId;/);
-  assert.match(service, /if \(!vehicle\) return \{ok:false,reason:'vehicle-assignment'\}/);
+  assert.match(service, /const getDeviceAssignment=async token=>/);
+  assert.match(service, /fetch\(API_BASE_URL+'\\/gps\\/device'/);
+  assert.match(service, /if\(!assignment\?\.vehicleId\)return\{ok:false,reason:'device-not-assigned'\}/);
+  assert.match(service, /apiPostGps\(payload,deviceToken\)/);
+  assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
 
+test('fleet assignment UI uses locator uid consistently', async () => {
+  const fs = await import('node:fs/promises');
+  const panel = await fs.readFile(new URL('../AdminFleetPanel.js', import.meta.url), 'utf8');
+  assert.match(panel, /if\(!v\?\.id\|\|!p\?\.id\|\|!u\?\.uid\)/);
+  assert.match(panel, /userId:u\.uid/);
+  assert.match(panel, /a\.user_id===u\.uid/);
+  assert.match(panel, /key=\{u\.uid\}/);
+});
 test('App.js stays a thin wrapper and cannot substitute static runtime fixtures', async () => {
   const fs = await import('node:fs/promises');
   const app = await fs.readFile(new URL('../App.js', import.meta.url), 'utf8');
