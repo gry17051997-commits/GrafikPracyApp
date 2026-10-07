@@ -193,6 +193,11 @@ app.patch('/api/phones/:id',auth,admin,async(req,res)=>{
   if(!r.rows[0])return res.status(404).json({error:'PHONE_NOT_FOUND'});
   res.json({phone:r.rows[0]});
 });
+app.delete('/api/phones/:id',auth,admin,async(req,res)=>{
+  const r=await q('DELETE FROM phones WHERE id=$1 RETURNING id',[req.params.id]);
+  if(!r.rows[0])return res.status(404).json({error:'PHONE_NOT_FOUND'});
+  res.json({ok:true});
+});
 
 app.get('/api/assignments',auth,async(_req,res)=>{
   const r=await q('SELECT a.*,v.registration,v.name AS vehicle_name,p.name AS phone_name,u.display_name AS user_name FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id JOIN phones p ON p.id=a.phone_id LEFT JOIN users u ON u.id=a.user_id WHERE a.active=true ORDER BY v.registration');
