@@ -28,7 +28,7 @@ const webMapSrc=loc=>{
  return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;
 };
 
-export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser}) {
+export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
  useSecondTicker(1000);
@@ -101,6 +101,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        <Text style={S.smallShift}>ZM. {x.shift}</Text>
      </View>)}
    </>}
+
    <View style={S.sectionHeader}><Text style={S.sectionTitle}>📍 Lokalizacja auta</Text></View>
    <View style={S.locationCard}>
      <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:'🟢 AUTO ONLINE'):'🔴 BRAK LOKALIZACJI'}</Text>
