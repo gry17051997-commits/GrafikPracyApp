@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import useSecondTicker from './hooks/useSecondTicker';
 import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
-import {collection, doc, onSnapshot} from './apiClient';
+import {apiGetGps} from './apiClient';
 import {FIREBASE_ENABLED, db} from './firebaseConfig';
 import {WebView} from 'react-native-webview';
 
@@ -34,42 +34,22 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [locationError,setLocationError]=useState('');
  useSecondTicker(1000);
  useEffect(()=>{
-   let unsub=null,configUnsub=null,cancelled=false;
-   const subscribe=(cfg={})=>{
-     if(unsub) unsub();
-     const requested=idFor(cfg.vehicleId||cfg.registration);
-     if(!requested) {
-       unsub=null;
-       setLocation(null);
-       setLocationError('Brak centralnego przypisania pojazdu');
-       return;
-     }
-     const handleSnapshot=(snap,exactMode=false)=>{
-       const rows=exactMode
-         ? (snap.exists() ? [{id:snap.id,...snap.data()}] : [])
-         : snap.docs.map(d=>({id:d.id,...d.data()}));
-       const valid=rows.filter(x=>Number.isFinite(Number(x.latitude))&&Number.isFinite(Number(x.longitude))&&serverMillis(x.updatedAt)>0);
-       if(!valid.length){setLocation(null);setLocationError('Brak aktualnej lokalizacji');return;}
-       const exact=exactMode ? valid[0] : requested&&valid.find(x=>idFor(x.vehicleId||x.registration||x.id)===requested);
-       const fresh=valid.filter(x=>Date.now()-serverMillis(x.updatedAt)<=180000).sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt));
-       const selected=requested ? ((exact&&Date.now()-serverMillis(exact.updatedAt)<=180000)?exact:exact||null) : (fresh[0]||valid.sort((a,b)=>serverMillis(b.updatedAt)-serverMillis(a.updatedAt))[0]);
-       setLocation(selected||null);
-       setLocationError(selected&&Date.now()-serverMillis(selected.updatedAt)>180000?'Lokalizacja nieaktualna':'');
-     };
-     const vehicleSource=requested ? doc(db,'vehicleTracking',requested) : collection(db,'vehicleTracking');
-     unsub=onSnapshot(vehicleSource,snap=>handleSnapshot(snap,Boolean(requested)),()=>{setLocation(null);setLocationError('Brak dostępu do lokalizacji');});
+   let cancelled=false;
+   const load=async()=>{
+     try{
+       const rows=await apiGetGps();
+       if(cancelled)return;
+       const requested=idFor(vehicleRegistration);
+       const selected=rows.filter(x=>requested? idFor(x.registration||x.id)===requested:true).sort((x,y)=>serverMillis(y.observed_at)-serverMillis(x.observed_at))[0]||null;
+       if(!selected){setLocation(null);setLocationError('Brak aktualnej lokalizacji z centralnego API.');return;}
+       const point={...selected,updatedAt:selected.observed_at};
+       setLocation(point);
+       setLocationError(Date.now()-serverMillis(point.updatedAt)>180000?'Lokalizacja nieaktualna':'');
+     }catch(e){if(!cancelled){setLocation(null);setLocationError('Nie można pobrać lokalizacji z centralnego API.');}}
    };
-   if(!FIREBASE_ENABLED||!db||!cloudUser?.uid){setLocation(null);return;}
-   configUnsub=onSnapshot(doc(db,'locationConfig','main'),snap=>{
-     if(cancelled)return;
-     subscribe(snap.exists()?snap.data()||{}:{});
-   },()=>{
-     if(cancelled)return;
-     subscribe({});
-     setLocationError('Brak dostępu do konfiguracji lokalizacji');
-   });
-   return()=>{cancelled=true;if(configUnsub)configUnsub();if(unsub)unsub();};
- },[cloudUser?.uid]);
+   load();const timer=setInterval(load,10000);
+   return()=>{cancelled=true;clearInterval(timer);};
+ },[cloudUser?.uid,vehicleRegistration]);
 
  const info=useMemo(()=>{
    const now=new Date(),base=monday(now),all=[];
