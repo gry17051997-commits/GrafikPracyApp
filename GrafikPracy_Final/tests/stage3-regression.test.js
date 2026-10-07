@@ -71,6 +71,12 @@ test('GPS tracker guards against duplicate background tasks', () => {
   assert.match(service, /hasStartedLocationUpdatesAsync\(LOCATION_TASK_NAME\)/);
 });
 
+test('GPS tracker never starts a foreground service while the app is in background', () => {
+  const service = read('LocationService.js');
+  assert.match(service, /AppState\.currentState !== 'active'/);
+  assert.match(service, /reason:'app-not-active'/);
+});
+
 test('locator starts GPS after central vehicle assignment changes even when the previous local tracker was off', () => {
   const app = read('AppRuntime.js');
   const start = app.indexOf('const syncLocatorGpsFromCentralAssignment');
