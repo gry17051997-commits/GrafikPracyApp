@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View} from 'react-native';
-import {collection, onSnapshot} from './apiClient';
+import {api} from './apiClient';
 import {db, FIREBASE_ENABLED} from './firebaseConfig';
 import AdminFleetPanel from './AdminFleetPanel';
 import {createUserWithoutFunctions, updateUserProfileWithoutFunctions, disableUserWithoutFunctions, enableUserWithoutFunctions, deleteUserAccountWithoutFunctions} from './AdminUserService';
@@ -17,14 +17,19 @@ export default function AdminUsersPanel({cloudUser}) {
   const [form,setForm]=useState({email:'',password:'',displayName:'',personKey:'',role:'employee'});
 
   useEffect(()=>{
-    if(!FIREBASE_ENABLED||!db||!cloudUser)return;
-    return onSnapshot(collection(db,'users'),snap=>{
-      setUsers(snap.docs.map(d=>({uid:d.id,...d.data()})).sort((a,b)=>
-        String(a.displayName||a.email||a.uid).localeCompare(String(b.displayName||b.email||b.uid))));
-      setError('');
-    },e=>setError('Nie udało się pobrać użytkowników. Kod: '+(e?.code||'unknown')));
+    let mounted=true;
+    const load=async()=>{
+      try{
+        const data=await api('/users');
+        if(!mounted)return;
+        setUsers((data.users||[]).sort((x,y)=>String(x.displayName||x.email||x.uid).localeCompare(String(y.displayName||y.email||y.uid))));
+        setError('');
+      }catch(e){if(mounted)setError('Nie udało się pobrać użytkowników. Kod: '+(e?.code||e?.message||'unknown'));}
+    };
+    load();
+    const timer=setInterval(load,5000);
+    return()=>{mounted=false;clearInterval(timer);};
   },[cloudUser?.uid]);
-
   const create=()=>{setError('');setForm({email:'',password:'',displayName:'',personKey:'',role:'employee'});setModal({mode:'create'});};
   const edit=u=>{setError('');setForm({email:u.email||'',password:'',displayName:u.displayName||'',personKey:u.role==='employee'?(u.personKey||''):'',role:ROLES.includes(u.role)?u.role:'employee'});setModal({mode:'edit',user:u});};
   const close=()=>{if(!busy)setModal(null);};
