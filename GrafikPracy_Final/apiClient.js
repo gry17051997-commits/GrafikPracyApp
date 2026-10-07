@@ -25,7 +25,19 @@ const cleanDeletes=(obj)=>{if(!obj||typeof obj!=='object')return obj;const out={
 const pathFor=r=>r.kind==='doc'?'/store/'+encodeURIComponent(r.name)+'/'+encodeURIComponent(r.id):'/store/'+encodeURIComponent(r.name);
 export async function getDoc(r){const raw=await api(pathFor(r));if(r.kind==='doc'){if(!raw.exists)return {exists:()=>false,data:()=>({}),id:r.id,metadata:{hasPendingWrites:false}};return {exists:()=>true,data:()=>raw.data||{},id:raw.id||r.id,metadata:{hasPendingWrites:false},updatedAt:raw.updatedAt,revision:raw.revision};}return raw;}
 export async function setDoc(r,data,options={}){return api(pathFor(r)+'?merge='+(options.merge!==false?'true':'false'),{method:'PUT',body:{payload:cleanDeletes(data)}});}
-export async function updateDoc(r,data){return setDoc(r,data,{merge:true});}
+export async function updateDoc(r,data){
+  const current=await getDoc(r);
+  const base=current.exists()?current.data():{};
+  const next={...base};
+  for(const [key,value] of Object.entries(data||{})){
+    const parts=key.split('.');
+    let target=next;
+    for(let i=0;i<parts.length-1;i++){const p=parts[i];if(!target[p]||typeof target[p]!=='object'||Array.isArray(target[p]))target[p]={};target=target[p];}
+    const leaf=parts[parts.length-1];
+    if(value&&value.__apiDeleteField)delete target[leaf];else target[leaf]=cleanDeletes(value);
+  }
+  return setDoc(r,next,{merge:false});
+}
 export async function addDoc(r,data){return api(pathFor(r),{method:'POST',body:{payload:cleanDeletes(data)}});}
 export async function deleteDoc(r){return api(pathFor(r),{method:'DELETE'});}
 export async function getDocs(qr){const constraints=qr.constraints||[],params=new URLSearchParams();const w=constraints.find(x=>x.type==='where');if(w&&w.op==='=='){params.set('whereField',w.field);params.set('whereValue',w.value);}const o=constraints.find(x=>x.type==='orderBy');if(o){params.set('orderField',o.field);params.set('orderDirection',o.direction);}const l=constraints.find(x=>x.type==='limit');if(l)params.set('limit',String(l.value));const suffix=params.toString()?'?'+params.toString():'';const d=await api(pathFor(qr)+suffix);return {docs:(d.docs||[]).map(x=>({id:x.id,data:()=>{const y={...x};delete y.id;delete y._revision;delete y._updatedAt;delete y._updatedBy;return y;},metadata:{hasPendingWrites:false},exists:()=>true}))};}
