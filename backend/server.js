@@ -204,17 +204,30 @@ app.get('/api/assignments',auth,async(_req,res)=>{
   res.json({assignments:r.rows});
 });
 app.post('/api/assignments',auth,admin,async(req,res)=>{
-  const {vehicleId,phoneId,userId=null}=req.body||{};
-  if(!vehicleId||!phoneId)return res.status(400).json({error:'ASSIGNMENT_REQUIRED'});
+  const {vehicleId,phoneId,userId}=req.body||{};
+  if(!vehicleId||!phoneId||!userId)return res.status(400).json({error:'ASSIGNMENT_REQUIRED'});
   const client=await pool.connect();
   try{
     await client.query('BEGIN');
+    const vehicle=await client.query('SELECT id,active FROM vehicles WHERE id=$1 FOR UPDATE',[vehicleId]);
+    if(!vehicle.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'VEHICLE_NOT_FOUND'});}
+    if(!vehicle.rows[0].active){await client.query('ROLLBACK');return res.status(409).json({error:'VEHICLE_INACTIVE'});}
+    const phone=await client.query('SELECT id,active FROM phones WHERE id=$1 FOR UPDATE',[phoneId]);
+    if(!phone.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'PHONE_NOT_FOUND'});}
+    if(!phone.rows[0].active){await client.query('ROLLBACK');return res.status(409).json({error:'PHONE_INACTIVE'});}
+    const user=await client.query('SELECT id,role,disabled FROM users WHERE id=$1 FOR UPDATE',[userId]);
+    if(!user.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'USER_NOT_FOUND'});}
+    if(user.rows[0].disabled||user.rows[0].role!=='locator'){await client.query('ROLLBACK');return res.status(409).json({error:'INVALID_LOCATOR'});}
     await client.query('UPDATE assignments SET active=false,updated_at=NOW() WHERE vehicle_id=$1 OR phone_id=$2',[vehicleId,phoneId]);
-    const r=await client.query('INSERT INTO assignments(id,vehicle_id,phone_id,user_id) VALUES($1,$2,$3,$4) RETURNING *',[id(),vehicleId,phoneId,userId]);
+    const inserted=await client.query('INSERT INTO assignments(id,vehicle_id,phone_id,user_id) VALUES($1,$2,$3,$4) RETURNING *',[id(),vehicleId,phoneId,userId]);
     await client.query('COMMIT');
-    res.status(201).json({assignment:r.rows[0]});
-  }catch(e){await client.query('ROLLBACK');res.status(400).json({error:'ASSIGNMENT_FAILED'});}
-  finally{client.release();}
+    res.status(201).json({assignment:inserted.rows[0]});
+  }catch(e){
+    try{await client.query('ROLLBACK');}catch{}
+    if(e?.code==='23505')return res.status(409).json({error:'ASSIGNMENT_CONFLICT'});
+    console.error('Assignment error',e);
+    res.status(400).json({error:'ASSIGNMENT_FAILED'});
+  }finally{client.release();}
 });
 
 async function deviceVehicle(token){
