@@ -36,6 +36,16 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    let cancelled=false;
    const load=async()=>{
      try{
+       if(cloudUser?.role==='locator'){
+         const selected=await (await import('./apiClient')).apiGetMyGps();
+         if(cancelled)return;
+         if(!selected){setLocation(null);setLocationError('Brak przypisanego auta lub brak odebranej pozycji GPS.');return;}
+         const point={...selected,updatedAt:selected.observed_at};
+         setLocation(point);
+         const observed=serverMillis(point.updatedAt);
+         setLocationError(observed>0 && Date.now()-observed>180000?'Lokalizacja nieaktualna':'');
+         return;
+       }
        const rows=await apiGetGps();
        if(cancelled)return;
        const requested=idFor(vehicleRegistration);
@@ -48,7 +58,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    };
    load();const timer=setInterval(load,10000);
    return()=>{cancelled=true;clearInterval(timer);};
- },[cloudUser?.uid,vehicleRegistration]);
+ },[cloudUser?.uid,cloudUser?.role,vehicleRegistration]);
 
  const info=useMemo(()=>{
    const now=new Date(),base=monday(now),all=[];
