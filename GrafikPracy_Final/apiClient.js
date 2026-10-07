@@ -47,4 +47,4 @@ export function onSnapshot(target,options,callback,errorCallback){
   const poll=async()=>{if(stopped)return;try{const snap=target.kind==='doc'?await getDoc(target):await getDocs(target);const key=JSON.stringify(snap);if(key!==last){last=key;callback(snap);}}catch(e){errorCallback?.(e);}};
   poll();const timer=setInterval(poll,4000);return()=>{stopped=true;clearInterval(timer);};
 }
-export async function runTransaction(_db,fn){const tx={get:getDoc,update:updateDoc,set:setDoc};return fn(tx);}
+export async function runTransaction(_db,fn){const pending=[];const tx={get:getDoc,update:(r,d)=>{const p=updateDoc(r,d);pending.push(p);return p;},set:(r,d)=>{const p=setDoc(r,d);pending.push(p);return p;}};const result=await fn(tx);await Promise.all(pending);return result;}
