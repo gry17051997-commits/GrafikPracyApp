@@ -16,7 +16,7 @@ const fallbackWeek=(rotation,warehouse)=>{const a=rotation==='P'?'P':'M',b=a==='
 const fmt=d=>d.toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'});
 const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));return `${String(Math.floor(sec/3600)).padStart(2,'0')}:${String(Math.floor(sec%3600/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;};
 const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
-const serverMillis=ts=>Number.isFinite(Number(ts))?Number(ts):(typeof ts?.toMillis==='function'?ts.toMillis():0);
+const serverMillis=ts=>{if(typeof ts?.toMillis==='function')return ts.toMillis();const n=Number(ts);if(Number.isFinite(n))return n;const d=Date.parse(String(ts||''));return Number.isFinite(d)?d:0;};
 const idFor=v=>String(v||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
 const mapHtml=loc=>{
  const points=JSON.stringify(loc||null);
