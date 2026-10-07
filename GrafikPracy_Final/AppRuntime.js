@@ -26,7 +26,7 @@ import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
 import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, LOCATION_CONFIG_KEY} from './LocationService';
-import {FIREBASE_ENABLED, db} from './firebaseConfig';
+import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
 import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
@@ -208,7 +208,7 @@ export default function App() {
   const [cloudRetryTick,setCloudRetryTick] = useState(0);
   const [cloudUser,setCloudUser] = useState(null);
   const [cloudRole,setCloudRole] = useState('employee');
-  const [cloudReady,setCloudReady] = useState(!FIREBASE_ENABLED);
+  const [cloudReady,setCloudReady] = useState(!CENTRAL_API_ENABLED);
   const [authEmail,setAuthEmail] = useState('');
   const [authPassword,setAuthPassword] = useState('');
   const [authBusy,setAuthBusy] = useState(false);
@@ -287,7 +287,7 @@ export default function App() {
     ).slice(0,500);
   };
 
-  const readOnly = guestMode || (FIREBASE_ENABLED && !!cloudUser && cloudRole !== 'admin');
+  const readOnly = guestMode || (CENTRAL_API_ENABLED && !!cloudUser && cloudRole !== 'admin');
 
   const wkKey = iso(weekStart);
   const DEFAULT_BUSINESS_CONDITIONS = [
@@ -495,13 +495,13 @@ export default function App() {
     if (!ready) return;
     getLocationDeviceToken().then(v=>setLocationDeviceTokenState(v||'')).catch(()=>{});
     AsyncStorage.getItem(REPORT_HISTORY_KEY).then(raw => { if (raw) setReportHistory(JSON.parse(raw)); }).catch(()=>{});
-    AsyncStorage.getItem(CHAT_LOCAL_KEY).then(raw => { if (raw && !FIREBASE_ENABLED) setChatMessages(JSON.parse(raw)); }).catch(()=>{});
+    AsyncStorage.getItem(CHAT_LOCAL_KEY).then(raw => { if (raw && !CENTRAL_API_ENABLED) setChatMessages(JSON.parse(raw)); }).catch(()=>{});
   },[ready]);
 
   useEffect(() => {
     if (!ready) return;
     AsyncStorage.setItem(REPORT_HISTORY_KEY,JSON.stringify(reportHistory.slice(0,100))).catch(()=>{});
-    if (!FIREBASE_ENABLED) AsyncStorage.setItem(CHAT_LOCAL_KEY,JSON.stringify(chatMessages.slice(-100))).catch(()=>{});
+    if (!CENTRAL_API_ENABLED) AsyncStorage.setItem(CHAT_LOCAL_KEY,JSON.stringify(chatMessages.slice(-100))).catch(()=>{});
   },[ready,reportHistory,chatMessages]);
 
   const timestampMillis = value => {
@@ -514,7 +514,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = query(collection(db,'chatMessages'), orderBy('createdAt','desc'), limit(100));
     const unsub = onSnapshot(q, snap => {
       const rows = snap.docs.map(d => ({id:d.id,...d.data()})).sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
@@ -524,7 +524,7 @@ export default function App() {
   },[cloudUser,guestMode]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
       ? query(collection(db,'whatsappReports'), orderBy('createdAt','desc'), limit(100))
       : query(collection(db,'whatsappReports'), where('uid','==',cloudUser.uid), limit(50));
@@ -574,7 +574,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode)) return;
 
     const unsub = onSnapshot(
       collection(db,'schedules'),
@@ -681,7 +681,7 @@ export default function App() {
     return unsub;
   },[cloudUser,guestMode,cloudRole]);
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode)) return;
     const unsub = onSnapshot(doc(db,'settings','main'), snap => {
       if (snap.metadata.hasPendingWrites || cloudSettingsDirtyRef.current) return;
       if (!snap.exists()) {
@@ -725,7 +725,7 @@ export default function App() {
   },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
+    if (!CENTRAL_API_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
       || !cloudSettingsReady || !cloudSettingsDirtyRef.current) return;
 
     if (cloudSettingsSaveTimerRef.current) clearTimeout(cloudSettingsSaveTimerRef.current);
@@ -767,7 +767,7 @@ export default function App() {
     };
   },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser) return;
+    if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
       ? collection(db,'proposals')
       : query(collection(db,'proposals'),where('fromUid','==',cloudUser.uid));
@@ -817,7 +817,7 @@ export default function App() {
   },[ready,weeks,weekConfigs]);
 
   useEffect(() => {
-    if (!FIREBASE_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
+    if (!CENTRAL_API_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready) return;
     if (!cloudDirtyRef.current) return;
 
     if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
@@ -1057,7 +1057,7 @@ export default function App() {
     try {
       await Clipboard.setStringAsync(text);
       const reportEntry = {text,status:reportStatus,warehouse:reportStatus === 'W drodze' ? reportFromWarehouse + '->' + reportToWarehouse : reportWarehouse,ramp:reportRamp.trim(),loaded:reportLoaded,durationMinutes:parseReportDurationMinutes(reportDuration),createdAt:new Date().toISOString(),uid:cloudUser?.uid || null,email:cloudUser?.email || null,person:myPerson};
-      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'whatsappReports'),reportEntry);
+      if (CENTRAL_API_ENABLED && db && cloudUser) await addDoc(collection(db,'whatsappReports'),reportEntry);
       else setReportHistory(prev => [reportEntry,...prev].slice(0,100));
       if (reportGroupLink.trim()) await Linking.openURL(reportGroupLink.trim());
       else { try { await Linking.openURL('whatsapp://send?text=' + encodeURIComponent(text)); } catch(e) { await Linking.openURL('whatsapp://'); } }
@@ -1076,7 +1076,7 @@ export default function App() {
     setChatBusy(true);
     const message = {text:normalized,uid:cloudUser?.uid || null,email:cloudUser?.email || 'Gość',person:PEOPLE[myPerson]?.name || myPerson,createdAt:new Date().toISOString()};
     try {
-      if (FIREBASE_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
+      if (CENTRAL_API_ENABLED && db && cloudUser) await addDoc(collection(db,'chatMessages'),message);
       else setChatMessages(prev => [...prev,{...message,id:String(Date.now())}].slice(-100));
       return true;
     } catch(e) { setCloudError('Nie udało się wysłać wiadomości. Kod: ' + (e?.code || 'unknown')); return false; }
@@ -1714,7 +1714,7 @@ export default function App() {
       createdAt:new Date().toISOString()
     };
     try {
-      if(FIREBASE_ENABLED && db) await addDoc(collection(db,'proposals'),proposal);
+      if(CENTRAL_API_ENABLED && db) await addDoc(collection(db,'proposals'),proposal);
       else setProposals(p=>[{id:`${Date.now()}`,...proposal},...p]);
       setSwapModal(null); setSwapTarget('');
       Alert.alert('Wysłano','Propozycja zamiany czeka na zatwierdzenie administratora.');
@@ -1752,7 +1752,7 @@ export default function App() {
       return;
     }
     try {
-      if(FIREBASE_ENABLED && db) {
+      if(CENTRAL_API_ENABLED && db) {
         const proposalRef=doc(db,'proposals',proposal.id);
         const scheduleRef=doc(db,'schedules',proposalWeekKey);
         const committedWeek=await runTransaction(db,async tx=>{
@@ -1800,7 +1800,7 @@ export default function App() {
   const rejectProposal = async id => {
     if (readOnly) return;
     try {
-      if(FIREBASE_ENABLED && db) {
+      if(CENTRAL_API_ENABLED && db) {
         const proposalRef=doc(db,'proposals',id);
         await runTransaction(db,async tx=>{
           const snap=await tx.get(proposalRef);
@@ -2271,7 +2271,7 @@ export default function App() {
           );
         }) : <Text style={S.helpLine}>Brak wiadomości. Napisz pierwszą wiadomość 👋</Text>}
       </View>
-      {FIREBASE_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (
+      {CENTRAL_API_ENABLED && !cloudUser ? <View style={S.option}><Text style={S.optionText}>Zaloguj się, aby pisać na wspólnym czacie.</Text></View> : (
         <ChatComposer busy={chatBusy} onSend={sendChatMessage}/>
       )}
       <Text style={S.section}>📱 Ostatnie raporty WhatsApp</Text>
@@ -2523,14 +2523,14 @@ export default function App() {
       <Text style={S.section}>Mój profil</Text>
       <Text style={S.helpLine}>Przypisanie P/M/L jest kontrolowane przez administratora i nie może być zmieniane przez pracownika.</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
-        {PERSON_KEYS.map(k=><TouchableOpacity key={k} disabled={FIREBASE_ENABLED} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)},FIREBASE_ENABLED&&{opacity:myPerson===k?1:0.45}]} onPress={()=>!FIREBASE_ENABLED&&setMyPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+        {PERSON_KEYS.map(k=><TouchableOpacity key={k} disabled={CENTRAL_API_ENABLED} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)},CENTRAL_API_ENABLED&&{opacity:myPerson===k?1:0.45}]} onPress={()=>!CENTRAL_API_ENABLED&&setMyPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
       </ScrollView>
 
       <Text style={S.section}>⚡ Warunki generatora</Text>
       <Text style={S.helpLine}>Ustaw reguły MUSI, NIE MOŻE, PREFERUJE oraz liczbę zmian dla pracownika.</Text>
       <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={()=>setConditionModal(true)}><Text style={S.btnText}>⚙️ ZARZĄDZAJ WARUNKAMI ({conditions.length})</Text></TouchableOpacity>
 
-      {FIREBASE_ENABLED && cloudRole==='admin' && <>
+      {CENTRAL_API_ENABLED && cloudRole==='admin' && <>
         <Text style={S.section}>⚙️ Automatyczne generowanie tygodni</Text>
         <Text style={S.helpLine}>Opcja administratora. Po włączeniu aplikacja przygotowuje kolejne 4 tygodnie na podstawie ustawień bieżącego tygodnia. Pracownicy mają tylko podgląd.</Text>
         <View style={S.option}>
@@ -2549,7 +2549,7 @@ export default function App() {
         </View>)}
       </>}
 
-      {FIREBASE_ENABLED && cloudRole!=='admin' && <>
+      {CENTRAL_API_ENABLED && cloudRole!=='admin' && <>
         <Text style={S.section}>🔄 Moje propozycje zamian</Text>
         {proposals.slice(0,8).map(p=><View key={p.id} style={S.proposalCard}>
           <Text style={S.optionText}>{p.status==='pending'?'🟡 Oczekuje':p.status==='approved'?'🟢 Zatwierdzona':'🔴 Odrzucona'}</Text>
@@ -2569,7 +2569,7 @@ export default function App() {
         </TouchableOpacity>
       ))}
 
-      {FIREBASE_ENABLED && cloudUser && <>
+      {CENTRAL_API_ENABLED && cloudUser && <>
         <Text style={S.section}>Wspólny grafik online</Text>
         <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
         <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
@@ -2897,7 +2897,7 @@ export default function App() {
     </Modal>
   );
 
-  if (FIREBASE_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {
+  if (CENTRAL_API_ENABLED && (!cloudUser || !cloudReady) && !guestMode) {
     return (
       <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
         <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
@@ -2937,7 +2937,7 @@ export default function App() {
         <SafeAreaView style={S.container}>
           {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
-          {FIREBASE_ENABLED && cloudUser && <View style={S.cloudStatus}>
+          {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
             {cloudError ? <Text style={S.cloudStatusText}>⚠️ {cloudError}</Text> : null}
           </View>}
