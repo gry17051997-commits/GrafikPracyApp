@@ -2428,6 +2428,181 @@ export default function App() {
     </View></View></Modal>
   );
 
+const settings = (
+    <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
+      {header}
+
+      <View style={S.settingsHero}>
+        <Text style={S.settingsEyebrow}>USTAWIENIA</Text>
+        <Text style={S.settingsTitle}>Centrum sterowania</Text>
+        <Text style={S.settingsSub}>GPS, raporty, grafik i dane aplikacji w jednym miejscu.</Text>
+      </View>
+      {CENTRAL_API_ENABLED && cloudUser && cloudRole==='admin' && <AdminUsersPanel cloudUser={cloudUser}/>} 
+      {CENTRAL_API_ENABLED && cloudUser && cloudRole==='admin' ? (
+        <>
+          <Text style={S.section}>📒 Zarządzanie długiem (Ledger)</Text>
+          <Text style={S.helpLine}>Saldo jest niezależne od tygodnia. Generator tylko je odczytuje. Każda zmiana salda trafia do historii audytowej.</Text>
+          {PERSON_KEYS.map(k=>(
+            <View key={k} style={[S.option,{borderLeftWidth:4,borderLeftColor:personColor(k)}]}>
+              <View style={{flex:1}}>
+                <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+                <Text style={S.muted}>Saldo: <Text style={S.white}>+{Number(recoveryBalances[k])||0}</Text></Text>
+              </View>
+              <TouchableOpacity style={S.btn} onPress={()=>{setRecoveryCorrection(k);setRecoveryCorrectionValue('1');setRecoveryCorrectionReason('');}}>
+                <Text style={S.btnText}>KOREKTA</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <Text style={S.section}>Ostatnie operacje</Text>
+          {recoveryLedger.slice(0,15).length ? recoveryLedger.slice(0,15).map((entry,i)=>(
+            <View key={entry.id || i} style={S.option}>
+              <View style={{flex:1}}>
+                <Text style={S.optionText}>{PEOPLE[entry.person]?.name || entry.person} · {Number(entry.delta)>0?'+':''}{entry.delta}</Text>
+                <Text style={S.muted}>{entry.reason === 'off-recover' ? 'OFF - odrobienie zmiany' : entry.reason === 'recovery-confirmed' ? 'Spłata zatwierdzona' : entry.reason === 'manual-correction' ? 'Korekta administracyjna' : entry.reason || 'Operacja'}</Text>
+                <Text style={S.muted}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString('pl-PL') : ''}{entry.reason === 'manual-correction' && entry.metaReason ? ' · '+entry.metaReason : ''}</Text>
+              </View>
+            </View>
+          )) : <View style={S.option}><Text style={S.muted}>Brak operacji w historii.</Text></View>}
+        </>
+      ) : null}
+            <Text style={S.section}>📋 Raporty godzinowe</Text>
+      <Text style={S.helpLine}>Powiadomienie przychodzi 20 minut przed pełną godziną, ale tylko podczas Twojej zaplanowanej zmiany.</Text>
+      <View style={S.option}>
+        <Text style={S.optionText}>Raporty automatyczne</Text>
+        <TouchableOpacity style={[S.btn,reportsEnabled&&S.active]} onPress={()=>setReportsEnabled(v=>!v)}>
+          <Text style={S.btnText}>{reportsEnabled?'WŁĄCZONE':'WYŁĄCZONE'}</Text>
+        </TouchableOpacity>
+      </View>
+      <TextInput value={reportGroupLink} onChangeText={setReportGroupLink} autoCapitalize="none" placeholder="Link do grupy WhatsApp (opcjonalnie)" placeholderTextColor="#777" style={S.input}/>
+      <TouchableOpacity style={S.generateFull} onPress={()=>setReportModal(true)}>
+        <Text style={S.btnText}>📝 TEST / UTWÓRZ RAPORT</Text>
+      </TouchableOpacity>
+
+      <Text style={S.section}>🧹 Szybkie czyszczenie grafiku</Text>
+      <Text style={S.helpLine}>Możesz usunąć obsadę tylko jednej zmiany w całym tygodniu albo wyczyścić cały tydzień. Godziny i magazyny pozostają bez zmian.</Text>
+      <TouchableOpacity style={[S.danger,{marginTop:0}]} onPress={()=>clearWholeWeekShift(1)}><Text style={S.btnText}>WYCZYŚĆ I ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.danger,{marginTop:8}]} onPress={()=>clearWholeWeekShift(2)}><Text style={S.btnText}>WYCZYŚĆ II ZMIANĘ W TYGODNIU</Text></TouchableOpacity>
+      <TouchableOpacity style={[S.danger,{marginTop:8}]} onPress={clearCurrentWeek}><Text style={S.btnText}>WYCZYŚĆ CAŁY TYDZIEŃ</Text></TouchableOpacity>
+
+      <Text style={S.section}>Rotacja</Text>
+      <View style={S.row}>
+        {['P','M'].map(k=>
+          <TouchableOpacity key={k} style={[S.btn,rotation===k&&S.active]} onPress={()=>changeRotation(k)}>
+            <Text style={S.btnText}>Start: {PEOPLE[k].name}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <Text style={S.section}>Domyślny magazyn</Text>
+      {WAREHOUSES.map(w=>
+        <TouchableOpacity key={w} style={[S.option,warehouse===w&&S.optionActive]} onPress={()=>{if(readOnly)return; const wh=w; setWarehouse(wh); setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),hours,rotation:prev[wkKey]?.rotation||rotation,warehouse:wh,times}})); setWeek(prev=>prev.map(d=>({...d,warehouse:wh,shifts:d.shifts.map(s=>s.locked?s:{...s,warehouse:wh})})));}}>
+          <Text style={S.optionText}>{w}</Text>
+          {warehouse===w&&<Text style={S.check}>✓</Text>}
+        </TouchableOpacity>
+      )}
+
+      <Text style={S.section}>Godziny zmian: {hours} h</Text>
+      <View style={S.timeBox}>
+        <View style={S.timeRow}>
+          <Text style={S.white}>I</Text>
+          <TextInput value={times.s1} onChangeText={v=>setTimes(t=>({...t,s1:v}))} style={S.input} placeholder="06:00" placeholderTextColor="#777"/>
+          <Text style={S.sep}>→</Text>
+          <TextInput value={times.e1} onChangeText={v=>setTimes(t=>({...t,e1:v}))} style={S.input} placeholder="16:00" placeholderTextColor="#777"/>
+        </View>
+        <View style={S.timeRow}>
+          <Text style={S.white}>II</Text>
+          <TextInput value={times.s2} onChangeText={v=>setTimes(t=>({...t,s2:v}))} style={S.input} placeholder="16:00" placeholderTextColor="#777"/>
+          <Text style={S.sep}>→</Text>
+          <TextInput value={times.e2} onChangeText={v=>setTimes(t=>({...t,e2:v}))} style={S.input} placeholder="02:00" placeholderTextColor="#777"/>
+        </View>
+      </View>
+
+      <TouchableOpacity style={S.generateFull} onPress={regenerate}>
+        <Text style={S.btnText}>⚡ ZASTOSUJ I PRZELICZ GRAFIK</Text>
+      </TouchableOpacity>
+
+      <Text style={S.section}>Mój profil</Text>
+      <Text style={S.helpLine}>Przypisanie P/M/L jest kontrolowane przez administratora i nie może być zmieniane przez pracownika.</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+        {PERSON_KEYS.map(k=><TouchableOpacity key={k} disabled={CENTRAL_API_ENABLED} style={[S.chip,myPerson===k&&{backgroundColor:personColor(k)},CENTRAL_API_ENABLED&&{opacity:myPerson===k?1:0.45}]} onPress={()=>!CENTRAL_API_ENABLED&&setMyPerson(k)}><Text style={S.btnText}>{PEOPLE[k].name}</Text></TouchableOpacity>)}
+      </ScrollView>
+
+      <Text style={S.section}>⚡ Warunki generatora</Text>
+      <Text style={S.helpLine}>Ustaw reguły MUSI, NIE MOŻE, PREFERUJE oraz liczbę zmian dla pracownika.</Text>
+      <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={()=>setConditionModal(true)}><Text style={S.btnText}>⚙️ ZARZĄDZAJ WARUNKAMI ({conditions.length})</Text></TouchableOpacity>
+
+      {CENTRAL_API_ENABLED && cloudRole==='admin' && <>
+        <Text style={S.section}>⚙️ Automatyczne generowanie tygodni</Text>
+        <Text style={S.helpLine}>Opcja administratora. Po włączeniu aplikacja przygotowuje kolejne 4 tygodnie na podstawie ustawień bieżącego tygodnia. Pracownicy mają tylko podgląd.</Text>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Generuj kolejne tygodnie automatycznie</Text><Text style={S.muted}>{autoGenerateWeeks?'🟢 WŁĄCZONE':'🔴 WYŁĄCZONE'}</Text></View>
+          <TouchableOpacity style={[S.btn,autoGenerateWeeks&&S.active]} onPress={()=>setAutoGenerateWeeks(v=>!v)}><Text style={S.btnText}>{autoGenerateWeeks?'WŁĄCZONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
+        <View style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>Zezwalaj na 24h / dwie zmiany tej samej osoby</Text><Text style={S.muted}>{allow24h?'🟢 DOZWOLONE':'🔴 ZABLOKOWANE'}</Text></View>
+          <TouchableOpacity style={[S.btn,allow24h&&S.active]} onPress={()=>setAllow24h(v=>!v)}><Text style={S.btnText}>{allow24h?'DOZWOLONE':'WŁĄCZ'}</Text></TouchableOpacity>
+        </View>
+        <Text style={S.section}>🔔 Propozycje zamian {proposals.filter(p=>p.status==='pending').length ? `(${proposals.filter(p=>p.status==='pending').length})` : ''}</Text>
+        {proposals.filter(p=>p.status==='pending').slice(0,10).map(p=><View key={p.id} style={S.proposalCard}>
+          <Text style={S.optionText}>{PEOPLE[p.fromPerson]?.name || p.fromEmail} ↔ {PEOPLE[p.toPerson]?.name || 'pracownik'}</Text>
+          <Text style={S.helpLine}>{DAYS[p.fromDay]} · zm. {p.fromShift} → {DAYS[p.toDay]} · zm. {p.toShift}</Text>
+          <View style={S.row}><TouchableOpacity style={S.generate} onPress={()=>approveProposal(p)}><Text style={S.btnText}>✅ ZATWIERDŹ</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={()=>rejectProposal(p.id)}><Text style={S.btnText}>❌ ODRZUĆ</Text></TouchableOpacity></View>
+        </View>)}
+      </>}
+
+      {CENTRAL_API_ENABLED && cloudRole!=='admin' && <>
+        <Text style={S.section}>🔄 Moje propozycje zamian</Text>
+        {proposals.slice(0,8).map(p=><View key={p.id} style={S.proposalCard}>
+          <Text style={S.optionText}>{p.status==='pending'?'🟡 Oczekuje':p.status==='approved'?'🟢 Zatwierdzona':'🔴 Odrzucona'}</Text>
+          <Text style={S.helpLine}>{DAYS[p.fromDay]} · zm. {p.fromShift} ↔ {DAYS[p.toDay]} · zm. {p.toShift} · {PEOPLE[p.toPerson]?.name || ''}</Text>
+        </View>)}
+      </>}
+
+      <Text style={S.section}>Kolory pracowników</Text>
+      <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
+      {PERSON_KEYS.map(k => (
+        <TouchableOpacity key={k} style={[S.option,{borderLeftColor:personColor(k),borderLeftWidth:6}]} onPress={()=>!readOnly && setColorPerson(k)}>
+          <View style={{flexDirection:'row',alignItems:'center',gap:10}}>
+            <View style={[S.colorPreview,{backgroundColor:personColor(k)}]} />
+            <Text style={S.optionText}>{PEOPLE[k].name}</Text>
+          </View>
+          <Text style={S.muted}>{personColor(k)}</Text>
+        </TouchableOpacity>
+      ))}
+
+      {CENTRAL_API_ENABLED && cloudUser && <>
+        <Text style={S.section}>Wspólny grafik online</Text>
+        <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
+        <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
+      </>}
+
+      <Text style={S.section}>Bezpieczeństwo i dane</Text>
+      <TouchableOpacity style={S.option} onPress={()=>{setPinEntry('');setPinModal(true)}}>
+        <Text style={S.optionText}>🔐 PIN aplikacji</Text>
+        <Text style={S.muted}>{pinEnabled?'włączony':'wyłączony'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.option} onPress={createBackup}>
+        <Text style={S.optionText}>💾 Kopia zapasowa JSON</Text>
+        <Text style={S.muted}>podgląd / eksport</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.option} onPress={shareBackup}>
+        <Text style={S.optionText}>📤 Udostępnij backup</Text>
+        <Text style={S.muted}>telefon / plik / komunikator</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.option} onPress={()=>!readOnly && setDark(v=>!v)}>
+        <Text style={S.optionText}>🌙 Tryb ciemny</Text>
+        <Text style={S.muted}>{dark?'włączony':'wyłączony'}</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={S.danger} onPress={resetAll}>
+        <Text style={S.btnText}>WYCZYŚĆ DANE APLIKACJI</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
   const locatorSettings = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:110}}>
       {header}
