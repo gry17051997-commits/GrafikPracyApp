@@ -84,7 +84,7 @@ jobs:
           }
           """,
             "2": common + """
-          import { FIREBASE_ENABLED, auth, db } from './firebaseConfig';
+          import { CENTRAL_API_ENABLED, auth, db } from './firebaseConfig';
           import { API_BASE_URL } from './apiClient';
 
           export default function App() {
@@ -96,8 +96,9 @@ jobs:
           }
           """,
             "3": common + """
-          import { FIREBASE_ENABLED } from './firebaseConfig';
+          import { CENTRAL_API_ENABLED } from './firebaseConfig';
           import './LocationService';
+          import { API_BASE_URL } from './apiClient';
 
           export default function App() {
             return <View style={S.root}>
@@ -116,7 +117,7 @@ jobs:
           import * as Clipboard from 'expo-clipboard';
           import { captureRef } from 'react-native-view-shot';
           import * as Location from 'expo-location';
-          import { FIREBASE_ENABLED } from './firebaseConfig';
+          import { CENTRAL_API_ENABLED } from './firebaseConfig';
           import './LocationService';
           import { API_BASE_URL } from './apiClient';
 
@@ -133,7 +134,7 @@ jobs:
             return <View style={S.root}>
               <Text style={S.text}>TEST 4: ALL IMPORTS</Text>
               <Text style={S.sub}>All imports loaded</Text>
-              <Text style={S.sub}>Firebase: {FIREBASE_ENABLED ? 'OK' : 'FAIL'}</Text>
+              <Text style={S.sub}>Firebase: {CENTRAL_API_ENABLED ? 'OK' : 'FAIL'}</Text>
               <Text style={S.sub}>AsyncStorage: OK</Text>
               <Text style={S.sub}>Notifications: OK</Text>
             </View>;
