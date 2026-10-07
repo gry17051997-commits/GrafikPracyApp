@@ -132,10 +132,21 @@ app.post('/api/users',auth,admin,async(req,res)=>{
 });
 app.patch('/api/users/:uid',auth,admin,async(req,res)=>{
   const uid=req.params.uid,b=req.body||{};
-  if(uid===req.user.id&&b.role&&b.role!=='admin')return res.status(400).json({error:'CANNOT_DEMOTE_SELF'});
-  const r=await q('UPDATE users SET display_name=COALESCE($2,display_name),email=COALESCE($3,email),person_key=COALESCE($4,person_key),role=COALESCE($5,role),disabled=COALESCE($6,disabled),updated_at=NOW() WHERE id=$1 RETURNING *',[uid,b.displayName,b.email?String(b.email).trim().toLowerCase():null,b.personKey,b.role,b.disabled]);
-  if(!r.rows[0])return res.status(404).json({error:'USER_NOT_FOUND'});
-  res.json({user:publicUser(r.rows[0])});
+  const current=await q('SELECT * FROM users WHERE id=$1',[uid]);
+  if(!current.rows[0])return res.status(404).json({error:'USER_NOT_FOUND'});
+  const u=current.rows[0];
+  const nextRole=b.role!==undefined?String(b.role):u.role;
+  const nextPerson=b.personKey!==undefined?String(b.personKey):String(u.person_key||'');
+  const nextEmail=b.email!==undefined?String(b.email).trim().toLowerCase():u.email;
+  const nextName=b.displayName!==undefined?String(b.displayName).trim():u.display_name;
+  if(uid===req.user.id&&nextRole!=='admin')return res.status(400).json({error:'CANNOT_DEMOTE_SELF'});
+  if(!validRole(nextRole)||!validPerson(nextPerson)||!validEmail(nextEmail)||nextName.length<2||nextName.length>100)return res.status(400).json({error:'INVALID_USER'});
+  if(nextRole==='employee'&&!['P','M','L'].includes(nextPerson))return res.status(400).json({error:'EMPLOYEE_PERSON_REQUIRED'});
+  if(nextRole!=='employee'&&nextPerson!=='')return res.status(400).json({error:'PERSON_NOT_ALLOWED'});
+  try{
+    const r=await q('UPDATE users SET display_name=$2,email=$3,person_key=$4,role=$5,disabled=COALESCE($6,disabled),updated_at=NOW() WHERE id=$1 RETURNING *',[uid,nextName,nextEmail,nextPerson,nextRole,b.disabled]);
+    res.json({user:publicUser(r.rows[0])});
+  }catch(e){res.status(409).json({error:'USER_ALREADY_EXISTS'});}
 });
 app.delete('/api/users/:uid',auth,admin,async(req,res)=>{
   if(req.params.uid===req.user.id)return res.status(400).json({error:'CANNOT_DELETE_SELF'});
