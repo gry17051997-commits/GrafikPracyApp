@@ -13,7 +13,8 @@ const pool=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.D
 const PORT=Number(process.env.PORT||8787);
 const SESSION_DAYS=30;
 const hashToken=v=>crypto.createHash('sha256').update(String(v)).digest('hex');
-const hashPassword=password=>{const salt=crypto.randomBytes(16).toString('hex');const derived=crypto.scryptSync(String(password),salt,64,{N:16384,r:8,p:1,maxmem:128*1024*1024}).toString('hex');return 'scrypt
+const hashPassword=password=>{const salt=crypto.randomBytes(16).toString('hex');const derived=crypto.scryptSync(String(password),salt,64,{N:16384,r:8,p:1,maxmem:128*1024*1024}).toString('hex');return 'scrypt$'+salt+'$'+derived;};
+const verifyPassword=(password,stored)=>{const parts=String(stored||'').split('$');if(parts.length!==3||parts[0]!=='scrypt')return false;const derived=crypto.scryptSync(String(password),parts[1],64,{N:16384,r:8,p:1,maxmem:128*1024*1024}).toString('hex');const a=Buffer.from(derived,'hex'),b=Buffer.from(parts[2],'hex');return a.length===b.length&&crypto.timingSafeEqual(a,b);};
 const randomToken=()=>crypto.randomBytes(32).toString('hex');
 const id=()=>crypto.randomUUID();
 
