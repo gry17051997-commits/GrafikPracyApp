@@ -3,7 +3,8 @@ import {Alert,ScrollView,Text,TextInput,TouchableOpacity,View} from 'react-nativ
 import {api} from './apiClient';
 
 const Btn=({children,onPress,disabled})=><TouchableOpacity disabled={disabled} onPress={onPress} style={{backgroundColor:'#3f78ed',borderRadius:10,padding:10,marginRight:6,marginBottom:6}}><Text style={{color:'#fff',fontWeight:'900'}}>{children}</Text></TouchableOpacity>;
-const gpsOnline=p=>!!p?.last_seen_at&&(Date.now()-Date.parse(p.last_seen_at)<=180000);\nconst Input=({value,onChangeText,placeholder})=><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#6f7888" style={{backgroundColor:'#11151c',borderWidth:1,borderColor:'#303a4a',borderRadius:10,color:'#fff',padding:10,marginBottom:7}}/>;
+const gpsOnline=p=>!!p?.last_seen_at&&(Date.now()-Date.parse(p.last_seen_at)<=180000);
+const Input=({value,onChangeText,placeholder})=><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#6f7888" style={{backgroundColor:'#11151c',borderWidth:1,borderColor:'#303a4a',borderRadius:10,color:'#fff',padding:10,marginBottom:7}}/>;
 
 export default function AdminFleetPanel(){
  const [tab,setTab]=useState('vehicles'),[vehicles,setVehicles]=useState([]),[phones,setPhones]=useState([]),[users,setUsers]=useState([]),[assignments,setAssignments]=useState([]),[registration,setRegistration]=useState(''),[phoneName,setPhoneName]=useState(''),[newToken,setNewToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');
