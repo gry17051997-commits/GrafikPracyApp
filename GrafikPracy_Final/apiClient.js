@@ -72,7 +72,7 @@ export async function getDocs(qr){const constraints=qr.constraints||[],params=ne
 export function onSnapshot(target,options,callback,errorCallback){
   if(typeof options==='function'){errorCallback=callback;callback=options;options={};}
   let stopped=false,last='';
-  const poll=async()=>{if(stopped)return;try{const snap=target.kind==='doc'?await getDoc(target):await getDocs(target);const key=JSON.stringify(snap);if(key!==last){last=key;callback(snap);}}catch(e){errorCallback?.(e);}};
+  const poll=async()=>{if(stopped)return;try{const snap=target.kind==='doc'?await getDoc(target):await getDocs(target);const key=target.kind==='doc'?JSON.stringify({exists:snap.exists(),data:snap.exists()?snap.data():null,revision:snap.revision||0,updatedAt:snap.updatedAt||null}):JSON.stringify({docs:(snap.docs||[]).map(d=>({id:d.id,data:d.data(),metadata:d.metadata||{}}))});if(key!==last){last=key;callback(snap);}}catch(e){errorCallback?.(e);}};
   poll();const timer=setInterval(poll,4000);return()=>{stopped=true;clearInterval(timer);};
 }
 export async function runTransaction(_db,fn){const pending=[];const tx={get:getDoc,update:(r,d)=>{const p=updateDoc(r,d);pending.push(p);return p;},set:(r,d)=>{const p=setDoc(r,d);pending.push(p);return p;}};const result=await fn(tx);await Promise.all(pending);return result;}
