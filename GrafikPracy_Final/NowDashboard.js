@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import useSecondTicker from './hooks/useSecondTicker';
-import {View, Text, StyleSheet, ScrollView, Platform} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, Platform, Linking, TouchableOpacity} from 'react-native';
 import {apiGetGps} from './apiClient';
 import {WebView} from 'react-native-webview';
 
@@ -18,7 +18,6 @@ const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));re
 const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
 const serverMillis=ts=>{if(typeof ts?.toMillis==='function')return ts.toMillis();const n=Number(ts);if(Number.isFinite(n))return n;const d=Date.parse(String(ts||''));return Number.isFinite(d)?d:0;};
 const idFor=v=>String(v||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
-const mapHtml=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return '<!doctype html><html><body style="margin:0;background:#11151c"></body></html>';const d=0.018;const src='https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body{height:100%;margin:0;background:#11151c}iframe{width:100%;height:100%;border:0;display:block}</style></head><body><iframe title="mapa GPS" src="'+src+'"></iframe></body></html>';};
 const webMapSrc=loc=>{
  if(!loc)return '';
  const lat=Number(loc.latitude),lon=Number(loc.longitude),d=0.018;
@@ -77,6 +76,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
 
  const {active,next,later}=info;
  const color=k=>personColors?.[k]||'#467ff1';
+ const openMap=async()=>{if(!location)return;const lat=Number(location.latitude),lon=Number(location.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;try{await Linking.openURL('https://www.openstreetmap.org/?mlat='+encodeURIComponent(lat)+'&mlon='+encodeURIComponent(lon)+'#map=16/'+encodeURIComponent(lat)+'/'+encodeURIComponent(lon));}catch{setLocationError('Nie udało się otworzyć mapy. Sprawdź połączenie z internetem.');}};
 
  return <ScrollView style={S.scroll} contentContainerStyle={S.content}>
    <View style={S.hero}>
@@ -113,7 +113,8 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.locationCard}>
      <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:'🟢 AUTO ONLINE'):'🔴 BRAK LOKALIZACJI'}</Text>
      {location&&<><Text style={S.locationCoords}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}</Text><Text style={S.locationMeta}>Aktualizacja {new Date(serverMillis(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
-     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} loading="lazy" src={webMapSrc(location)}/>:<WebView originWhitelist={['*']} source={{html:mapHtml(location)}} javaScriptEnabled domStorageEnabled style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
+     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} loading="lazy" src={webMapSrc(location)}/>:<WebView originWhitelist={['https://www.openstreetmap.org']} source={{uri:webMapSrc(location)}} javaScriptEnabled domStorageEnabled setSupportMultipleWindows={false} style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
+     {location&&<TouchableOpacity accessibilityRole="button" accessibilityLabel="Otwórz aktualną pozycję na mapie" onPress={openMap} style={S.openMapButton}><Text style={S.openMapButtonText}>🗺️ OTWÓRZ MAPĘ NA ŻYWO</Text></TouchableOpacity>}
    </View>
  </ScrollView>;
 }
@@ -129,5 +130,5 @@ const S=StyleSheet.create({
  nextTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},nextName:{color:'#fff',fontSize:23,fontWeight:'900'},personDot:{fontSize:20},
  nextMeta:{color:'#c7cfdd',fontSize:14,marginTop:6},startsIn:{color:'#8fb0ff',fontSize:14,fontWeight:'900',marginTop:12},
  smallCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:14,padding:13,marginBottom:8,borderWidth:1,borderColor:'#2b313d',flexDirection:'row',alignItems:'center'},smallName:{color:'#fff',fontSize:16,fontWeight:'900'},smallMeta:{color:'#9fa8b8',fontSize:12,marginTop:4},smallShift:{color:'#8fb0ff',fontSize:11,fontWeight:'900'},
- empty:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:16,padding:18,borderWidth:1,borderColor:'#2b313d'},emptyText:{color:'#aeb6c4',fontSize:14},locationCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:18,padding:12,borderWidth:1,borderColor:'#303a4a',marginBottom:12},locationStatus:{color:'#fff',fontSize:16,fontWeight:'900'},locationCoords:{color:'#c7cfdd',fontSize:14,fontWeight:'800',marginTop:5},locationMeta:{color:'#8f99aa',fontSize:12,marginTop:4},miniMap:{height:180,borderRadius:14,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#2b313d',marginTop:10,alignItems:'center',justifyContent:'center'},locationEmpty:{color:'#8f99aa',fontSize:13,textAlign:'center',padding:18}
+ empty:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:16,padding:18,borderWidth:1,borderColor:'#2b313d'},emptyText:{color:'#aeb6c4',fontSize:14},locationCard:{backgroundColor:'rgba(20,25,34,.97)',borderRadius:18,padding:12,borderWidth:1,borderColor:'#303a4a',marginBottom:12},locationStatus:{color:'#fff',fontSize:16,fontWeight:'900'},locationCoords:{color:'#c7cfdd',fontSize:14,fontWeight:'800',marginTop:5},locationMeta:{color:'#8f99aa',fontSize:12,marginTop:4},miniMap:{height:180,borderRadius:14,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#2b313d',marginTop:10,alignItems:'center',justifyContent:'center'},openMapButton:{backgroundColor:'#3f78ed',borderRadius:12,padding:13,alignItems:'center',marginTop:10},openMapButtonText:{color:'#fff',fontWeight:'900',fontSize:14},locationEmpty:{color:'#8f99aa',fontSize:13,textAlign:'center',padding:18}
 });
