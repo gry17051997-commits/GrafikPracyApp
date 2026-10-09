@@ -8,11 +8,14 @@ export const LOCATION_TASK_NAME='grafik-pracy-vehicle-location-v2';
 export const LOCATION_CONFIG_KEY='grafik-pracy-location-config-v2';
 export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
+export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
 
 const getConfig=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_CONFIG_KEY);return raw?JSON.parse(raw):{};}catch{return{};}};
 export const getLocationDeviceToken=()=>AsyncStorage.getItem(LOCATION_DEVICE_TOKEN_KEY);
+export const getLocationDiagnostics=async()=>{try{const raw=await AsyncStorage.getItem(LOCATION_DIAGNOSTICS_KEY);return raw?JSON.parse(raw):{};}catch{return{};}};
+const patchDiagnostics=async patch=>{try{const old=await getLocationDiagnostics();await AsyncStorage.setItem(LOCATION_DIAGNOSTICS_KEY,JSON.stringify({...old,...patch}));}catch(error){console.log('LOCATION_DIAGNOSTICS_WRITE_ERROR',error?.message||error);}};
 export const setLocationDeviceToken=async token=>{const value=String(token||'').trim();if(value)await AsyncStorage.setItem(LOCATION_DEVICE_TOKEN_KEY,value);else await AsyncStorage.removeItem(LOCATION_DEVICE_TOKEN_KEY);return value;};
 
 const distanceMeters=(a,b)=>{if(!a||!b)return Infinity;const R=6371000,p1=a.latitude*Math.PI/180,p2=b.latitude*Math.PI/180,dp=(b.latitude-a.latitude)*Math.PI/180,dl=(b.longitude-a.longitude)*Math.PI/180,x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
@@ -70,6 +73,7 @@ async function saveLocationInternal(location){
   };
   try{
     const result=await apiPostGps(payload,deviceToken);
+    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
     const assignedVehicleId=normalizeVehicleId(result.vehicleId||result.registration||cfg.vehicleId);
     const local={...payload,vehicleId:assignedVehicleId,registration:result.registration||cfg.registration||'',receivedAt:now};
     let previous=null;try{const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);previous=raw?JSON.parse(raw):null;}catch{}
@@ -78,14 +82,26 @@ async function saveLocationInternal(location){
     local.historyAt=!previous||moved>=80||now-historyAt>=120000?now:historyAt;
     await AsyncStorage.setItem(LOCATION_CURRENT_KEY,JSON.stringify(local));
     await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,vehicleId:assignedVehicleId,registration:local.registration}));
-  }catch(error){console.log('LOCATION_API_WRITE_ERROR',error?.message||error);}
+  }catch(error){
+    const message=String(error?.message||error||'unknown');
+    await patchDiagnostics({lastUploadError:message.slice(0,240),lastUploadErrorAt:Date.now()});
+    console.log('LOCATION_API_WRITE_ERROR',message);
+  }
 }
 function saveLocation(location){const run=saveQueue.then(()=>saveLocationInternal(location));saveQueue=run.catch(()=>{});return run;}
 
 if(!TaskManager.isTaskDefined(LOCATION_TASK_NAME)){
   TaskManager.defineTask(LOCATION_TASK_NAME,async({data,error})=>{
-    if(error||!data?.locations?.length)return;
-    for(const location of data.locations)await saveLocation(location);
+    if(error){
+      await patchDiagnostics({lastTaskError:String(error.message||error).slice(0,240),lastTaskErrorAt:Date.now()});
+      return;
+    }
+    if(!data?.locations?.length)return;
+    for(const location of data.locations){
+      const coords=location?.coords||{};
+      await patchDiagnostics({lastTaskAt:Date.now(),lastTaskError:null,lastTaskErrorAt:null,lastLocalLatitude:Number(coords.latitude)||null,lastLocalLongitude:Number(coords.longitude)||null,lastLocalObservedAt:Number(location.timestamp)||Date.now()});
+      await saveLocation(location);
+    }
   });
 }
 
