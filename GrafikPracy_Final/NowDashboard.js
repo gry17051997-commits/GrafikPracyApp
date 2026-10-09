@@ -44,11 +44,11 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        if(cancelled)return;
        const requested=idFor(vehicleRegistration);
        const selected=rows.filter(x=>requested? idFor(x.registration||x.id)===requested:true).sort((x,y)=>serverMillis(y.observed_at)-serverMillis(x.observed_at))[0]||null;
-       if(!selected){setLocation(null);setLocationError('Brak aktualnej lokalizacji z centralnego API.');return;}
+       if(!selected){setLocationError('API nie zwróciło lokalizacji. Zachowuję ostatnią znaną pozycję.');return;}
        const point={...selected,updatedAt:selected.observed_at};
        setLocation(point);
        setLocationError(Date.now()-serverMillis(point.updatedAt)>180000?'Lokalizacja nieaktualna':'');
-     }catch(e){if(!cancelled){setLocation(null);setLocationError('Nie można pobrać lokalizacji z centralnego API.');}}
+     }catch(e){if(!cancelled){setLocationError('Brak połączenia z API. Zachowuję ostatnią znaną pozycję; sprawdź czas jej aktualizacji.');}}
    };
    load();const timer=setInterval(load,10000);
    return()=>{cancelled=true;clearInterval(timer);};
