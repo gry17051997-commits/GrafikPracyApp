@@ -25,7 +25,7 @@ import * as Clipboard from 'expo-clipboard';
 import {captureRef} from 'react-native-view-shot';
 import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
-import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, LOCATION_CONFIG_KEY} from './LocationService';
+import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, getLocationDiagnostics, LOCATION_CONFIG_KEY} from './LocationService';
 import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
 import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
@@ -236,6 +236,7 @@ export default function App() {
   const handledReportNotificationRef = useRef(null);
   const [warehouseGeo,setWarehouseGeo] = useState({});
   const [locationTracking,setLocationTracking] = useState(false);
+  const [locationDiagnostics,setLocationDiagnostics] = useState({});
   const [locationBusy,setLocationBusy] = useState(false);
   const [locationDeviceToken,setLocationDeviceTokenState] = useState('');
   const locationConfigLoaded = useRef(false);
@@ -464,6 +465,8 @@ export default function App() {
         const c=await getVehicleLocationConfig();
         if(!mounted)return;
         await syncLocatorGpsFromCentralAssignment(c.registration||c.vehicleId||'');
+        const diagnostics=await getLocationDiagnostics();
+        if(mounted)setLocationDiagnostics(diagnostics);
       }catch(e){if(mounted)setLocationTracking(false);}
     };
     refresh();
@@ -2634,6 +2637,13 @@ const settings = (
         </TouchableOpacity>
       </View>
       <Text style={S.helpLine}>Po aktywacji Android poprosi o dokładną lokalizację oraz lokalizację w tle. Wybierz „Zawsze zezwalaj”, jeśli system pokaże taką opcję.</Text>
+      <View style={S.option}><View style={{flex:1}}>
+        <Text style={S.optionText}>🛠️ Diagnostyka GPS w tle</Text>
+        <Text style={S.muted}>Ostatni pomiar lokalny: {locationDiagnostics.lastTaskAt?new Date(locationDiagnostics.lastTaskAt).toLocaleString('pl-PL'):'brak pomiaru zadania w tle'}</Text>
+        <Text style={S.muted}>Ostatni zapis do serwera: {locationDiagnostics.lastUploadAt?new Date(locationDiagnostics.lastUploadAt).toLocaleString('pl-PL'):'brak potwierdzonego zapisu'}</Text>
+        {locationDiagnostics.lastTaskError&&<Text style={S.muted}>Błąd zadania: {locationDiagnostics.lastTaskError}</Text>}
+        {locationDiagnostics.lastUploadError&&<Text style={S.muted}>Błąd wysyłania: {locationDiagnostics.lastUploadError}</Text>}
+      </View></View>
       <Text style={S.section}>🏭 Kalibracja stref magazynów</Text>
       {WAREHOUSES.map(w=><View key={w} style={S.option}>
         <View style={{flex:1}}><Text style={S.optionText}>{w}</Text><Text style={S.muted}>{warehouseGeo[w]?'📍 '+Number(warehouseGeo[w].latitude).toFixed(5)+', '+Number(warehouseGeo[w].longitude).toFixed(5):'brak punktu GPS'}</Text></View>
