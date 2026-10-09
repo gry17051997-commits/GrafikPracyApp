@@ -18,10 +18,21 @@ export const setLocationDeviceToken=async token=>{const value=String(token||'').
 const distanceMeters=(a,b)=>{if(!a||!b)return Infinity;const R=6371000,p1=a.latitude*Math.PI/180,p2=b.latitude*Math.PI/180,dp=(b.latitude-a.latitude)*Math.PI/180,dl=(b.longitude-a.longitude)*Math.PI/180,x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
 
 const getDeviceAssignment=async token=>{
-  if(!API_BASE_URL||!token)return null;
-  const r=await fetch(API_BASE_URL+'/gps/device',{headers:{'X-Device-Token':token}});
-  if(!r.ok)return null;
-  return r.json();
+  if(!API_BASE_URL||!token)throw new Error('GPS_DEVICE_CONFIGURATION_MISSING');
+  let response;
+  try{
+    response=await fetch(API_BASE_URL+'/gps/device',{headers:{'X-Device-Token':token}});
+  }catch(error){
+    // Błąd sieci/API nie jest dowodem, że urządzenie utraciło przypisanie.
+    // Nie wolno z jego powodu zatrzymywać działającego foreground service.
+    throw new Error('GPS_ASSIGNMENT_NETWORK_ERROR: '+String(error?.message||error));
+  }
+  if(response.status===401||response.status===404)return null;
+  if(!response.ok)throw new Error('GPS_ASSIGNMENT_HTTP_'+response.status);
+  let assignment;
+  try{assignment=await response.json();}catch{throw new Error('GPS_ASSIGNMENT_INVALID_RESPONSE');}
+  if(!assignment?.vehicleId)return null;
+  return assignment;
 };
 
 const LOCATION_OPTIONS={
