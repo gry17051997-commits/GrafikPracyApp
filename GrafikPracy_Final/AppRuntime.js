@@ -2997,7 +2997,8 @@ const settings = (
                 <Text style={S.fieldLabel}>Rampa</Text>
                 <TextInput value={reportRamp} onChangeText={setReportRamp} placeholder="np. R39" placeholderTextColor="#777" style={S.reportInput}/>
                 <Text style={S.fieldLabel}>Czas trwania</Text>
-                <View style={S.durationGrid}>{['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.durationTile,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}</View>\n                {getLastReportForStatus(reportStatus) && parseReportDurationMinutes(reportDuration) > 0 && <Text style={S.continuityHint}>🔄 Kontynuacja poprzedniego raportu: czas jest automatycznie naliczany od ostatniego wysłania.</Text>}
+                <View style={S.durationGrid}>{['5 min','10 min','15 min','20 min','30 min','45 min','1 h'].map(v=><TouchableOpacity key={v} style={[S.durationTile,reportDuration===v&&S.active]} onPress={()=>setReportDuration(v)}><Text style={S.btnText}>{v}</Text></TouchableOpacity>)}</View>
+                {getLastReportForStatus(reportStatus) && parseReportDurationMinutes(reportDuration) > 0 && <Text style={S.continuityHint}>🔄 Kontynuacja poprzedniego raportu: czas jest automatycznie naliczany od ostatniego wysłania.</Text>}
               </>}
             </>}
             <Text style={S.section}>Gotowy tekst</Text>
