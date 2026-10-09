@@ -18,15 +18,13 @@ const countdown=end=>{const sec=Math.max(0,Math.floor((end-Date.now())/1000));re
 const dateLabel=d=>d.toLocaleDateString('pl-PL',{day:'2-digit',month:'2-digit'});
 const serverMillis=ts=>{if(typeof ts?.toMillis==='function')return ts.toMillis();const n=Number(ts);if(Number.isFinite(n))return n;const d=Date.parse(String(ts||''));return Number.isFinite(d)?d:0;};
 const idFor=v=>String(v||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40);
-const webMapSrc=loc=>{
- if(!loc)return '';
- const lat=Number(loc.latitude),lon=Number(loc.longitude),d=0.018;
- return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;
-};
+const reverseGeocode=async loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;try{const res=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=pl&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{Accept:'application/json'}});if(!res.ok)return null;const data=await res.json(),a=data?.address||{};const locality=a.city||a.town||a.village||a.municipality||a.suburb||a.county||'';const road=a.road||a.pedestrian||a.residential||a.highway||'';const house=a.house_number||'';const route=a.ref||a.road_reference||'';const parts=[locality,route&&route!==road?route:'',road+(house?' '+house:'')].filter(Boolean);return parts.length?Array.from(new Set(parts)).join(', '):data?.name||data?.display_name||null;}catch{return null;}};
+const mapHtml=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return '<!doctype html><html><body style="margin:0;background:#0d121b"></body></html>';const safeLat=lat.toFixed(6),safeLon=lon.toFixed(6);return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;padding:0;background:#0d121b;overflow:hidden}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const p=['+safeLat+','+safeLon+'];const map=L.map("map",{zoomControl:false,attributionControl:true}).setView(p,15);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap contributors"}).addTo(map);L.marker(p).addTo(map).bindPopup("Aktualna lokalizacja auta").openPopup();setTimeout(()=>map.invalidateSize(),250);</script></body></html>';};
 
 export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
+ const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
  useSecondTicker(1000);
  useEffect(()=>{
    let cancelled=false;
@@ -55,6 +53,13 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    load();const timer=setInterval(load,10000);
    return()=>{cancelled=true;clearInterval(timer);};
  },[cloudUser?.uid,cloudUser?.role,vehicleRegistration]);
+ useEffect(()=>{
+   let cancelled=false;
+   if(!location){setLocationAddress('Brak adresu lokalizacji');return;}
+   setLocationAddress('Ustalanie adresu…');
+   const timer=setTimeout(async()=>{const address=await reverseGeocode(location);if(!cancelled)setLocationAddress(address||'Nie udało się ustalić adresu');},350);
+   return()=>{cancelled=true;clearTimeout(timer);};
+ },[location?.latitude?Math.round(Number(location.latitude)*10000):null,location?.longitude?Math.round(Number(location.longitude)*10000):null]);
 
  const info=useMemo(()=>{
    const now=new Date(),base=monday(now),all=[];
@@ -112,8 +117,8 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.sectionHeader}><Text style={S.sectionTitle}>📍 Lokalizacja auta</Text></View>
    <View style={S.locationCard}>
      <Text style={S.locationStatus}>{location?(locationError?'🟠 '+locationError:'🟢 AUTO ONLINE'):'🔴 BRAK LOKALIZACJI'}</Text>
-     {location&&<><Text style={S.locationCoords}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)}</Text><Text style={S.locationMeta}>Aktualizacja {new Date(serverMillis(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
-     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} loading="lazy" src={webMapSrc(location)}/>:<WebView originWhitelist={['https://www.openstreetmap.org']} source={{uri:webMapSrc(location)}} javaScriptEnabled domStorageEnabled setSupportMultipleWindows={false} style={{flex:1}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
+     {location&&<><Text style={S.locationCoords}>{locationAddress}</Text><Text style={S.locationMeta}>{Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · Aktualizacja {new Date(serverMillis(location.updatedAt)).toLocaleTimeString('pl-PL',{hour:'2-digit',minute:'2-digit'})} · ±{Math.round(Number(location.accuracy||0))} m</Text></>}
+     <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} srcDoc={mapHtml(location)}/>:<WebView key={Math.round(Number(location.latitude)*10000)+'_'+Math.round(Number(location.longitude)*10000)} originWhitelist={['*']} source={{html:mapHtml(location),baseUrl:'https://www.openstreetmap.org'}} javaScriptEnabled domStorageEnabled mixedContentMode="always" setSupportMultipleWindows={false} scrollEnabled={false} style={{flex:1,backgroundColor:'#0d121b'}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
      {location&&<TouchableOpacity accessibilityRole="button" accessibilityLabel="Otwórz aktualną pozycję na mapie" onPress={openMap} style={S.openMapButton}><Text style={S.openMapButtonText}>🗺️ OTWÓRZ MAPĘ NA ŻYWO</Text></TouchableOpacity>}
    </View>
  </ScrollView>;
