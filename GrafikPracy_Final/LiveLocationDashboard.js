@@ -12,10 +12,22 @@ const geocodeAddress=async point=>{const lat=Number(point?.latitude),lon=Number(
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;const d=0.006;return 'https://www.openstreetmap.org/export/embed.html?bbox='+(lon-d)+'%2C'+(lat-d)+'%2C'+(lon+d)+'%2C'+(lat+d)+'&layer=mapnik&marker='+lat+'%2C'+lon;};
 const buildLiveMapHtml=(current,rows)=>{
  const valid=(rows||[]).filter(p=>Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))&&serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
- const route=[];let previous=null;
- for(const p of valid){const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};if(previous&&point.time-previous.time<=5*60*1000&&distanceMeters(previous,point)>=15&&(point.speed*3.6>=4||distanceMeters(previous,point)>=80)){route.push([previous.latitude,previous.longitude]);route.push([point.latitude,point.longitude]);}previous=point;}
- const payload=JSON.stringify({current:current?{lat:Number(current.latitude),lon:Number(current.longitude),speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,route}).replace(/</g,'\\u003c');
- return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const d='+payload+';const map=L.map("map",{zoomControl:true}).setView(d.current?[d.current.lat,d.current.lon]:[51.0,16.8],d.current?14:7);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);if(d.route.length>1){const line=L.polyline(d.route,{color:"#2d7cff",weight:5,opacity:.9}).addTo(map);map.fitBounds(line.getBounds().pad(.15));}if(d.current){const marker=L.circleMarker([d.current.lat,d.current.lon],{radius:9,color:"#fff",weight:3,fillColor:d.current.speed*3.6>=8?"#22c55e":"#f59e0b",fillOpacity:1}).addTo(map);marker.bindPopup("Aktualna pozycja<br>Prędkość: "+Math.round(d.current.speed*3.6)+" km/h<br>Aktualizacja: "+new Date(d.current.time).toLocaleTimeString("pl-PL"));if(d.route.length<2)map.setView([d.current.lat,d.current.lon],15);}</script></body></html>';
+ const segments=[];let segment=[],previous=null;
+ for(const p of valid){
+   const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
+   const moved=previous?distanceMeters(previous,point):0;
+   const continuous=previous&&point.time>previous.time&&point.time-previous.time<=5*60*1000;
+   const isMoving=point.speed*3.6>=4||moved>=80;
+   if(!continuous){if(segment.length>1)segments.push(segment);segment=[];}
+   if(continuous&&isMoving&&moved>=15){
+     if(!segment.length)segment.push([previous.latitude,previous.longitude]);
+     segment.push([point.latitude,point.longitude]);
+   }else if(segment.length>1){segments.push(segment);segment=[];}
+   previous=point;
+ }
+ if(segment.length>1)segments.push(segment);
+ const payload=JSON.stringify({current:current?{lat:Number(current.latitude),lon:Number(current.longitude),speed:Number(current.speed||0),time:serverMillis(current.updatedAt)}:null,segments}).replace(/</g,'\\u003c');
+ return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#101722}.leaflet-control-attribution{font-size:9px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const d='+payload+';const map=L.map("map",{zoomControl:true}).setView(d.current?[d.current.lat,d.current.lon]:[51.0,16.8],d.current?14:7);L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);let bounds=[];d.segments.forEach(points=>{const line=L.polyline(points,{color:"#2d7cff",weight:5,opacity:.9}).addTo(map);bounds.push(...points);});if(d.current){const marker=L.circleMarker([d.current.lat,d.current.lon],{radius:9,color:"#fff",weight:3,fillColor:d.current.speed*3.6>=8?"#22c55e":"#f59e0b",fillOpacity:1}).addTo(map);marker.bindPopup("Aktualna pozycja<br>Prędkość: "+Math.round(d.current.speed*3.6)+" km/h<br>Aktualizacja: "+new Date(d.current.time).toLocaleTimeString("pl-PL"));bounds.push([d.current.lat,d.current.lon]);}if(bounds.length>1)map.fitBounds(bounds,{padding:[20,20],maxZoom:16});else if(bounds.length===1)map.setView(bounds[0],15);</script></body></html>';
 };
 
 export default function LiveLocationDashboard({vehicleRegistration='',warehouseGeo={},reportHistory=[],onApplySuggestion}){
