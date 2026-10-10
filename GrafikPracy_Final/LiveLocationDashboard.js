@@ -17,7 +17,7 @@ const buildLiveMapHtml=(current,rows)=>{
    const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
    const moved=previous?distanceMeters(previous,point):0;
    const continuous=previous&&point.time>previous.time&&point.time-previous.time<=5*60*1000;
-   const isMoving=point.speed*3.6>=4||moved>=80;
+   const isMoving=point.speed*3.6>=5||moved>=30;
    if(!continuous){if(segment.length>1)segments.push(segment);segment=[];}
    if(continuous&&isMoving&&moved>=15){
      if(!segment.length)segment.push([previous.latitude,previous.longitude]);
@@ -49,7 +49,7 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
    const lastStatus=String(last?.status||'');
    const lastCreated=serverMillis(last?.createdAt);
    const sameStatus=!!candidate&&lastStatus===candidate.status;
-   const sameStop=!!candidate?.warehouse&&String(last?.warehouse||'').split('->')[0]===candidate.warehouse;
+   const lastText=String(last?.text||'').toUpperCase();\n   const sameStop=!!candidate?.warehouse&&(String(last?.warehouse||'').split('->')[0]===candidate.warehouse||lastText.includes(candidate.warehouse.toUpperCase()));
    const recentlyReported=lastCreated>0&&Date.now()-lastCreated<3*60*1000;
    if(candidate&&!(sameStatus&&(!candidate.warehouse||sameStop||recentlyReported)))suggestion=candidate;
  }
@@ -65,7 +65,37 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
   <Modal visible={!!selectedPoint} transparent animationType="slide" onRequestClose={()=>setSelectedPoint(null)}><View style={styles.modalBackdrop}><View style={styles.modalCard}><Text style={styles.section}>📍 SZCZEGÓŁY PUNKTU GPS</Text>{selectedPoint&&<><Text style={styles.main}>{new Date(serverMillis(selectedPoint.updatedAt)).toLocaleString('pl-PL')}</Text><Text style={styles.sub}>{Number(selectedPoint.speed||0)*3.6>5?'🚚 Ruch powyżej 5 km/h':'🅿️ Postój (do 5 km/h)'}</Text><Text style={styles.sub}>Prędkość: {Math.round(Number(selectedPoint.speed||0)*3.6)} km/h · Dokładność: ±{Math.round(Number(selectedPoint.accuracy||0))} m</Text><Text style={styles.sub}>Czas postoju w pobliżu: {formatDuration(stopDuration(history,selectedPoint))}</Text><Text style={styles.sub}>Współrzędne: {Number(selectedPoint.latitude).toFixed(6)}, {Number(selectedPoint.longitude).toFixed(6)}</Text><View style={styles.detailMap}>{Platform.OS==='web'?<iframe title="pozycja historyczna" style={{width:'100%',height:'100%',border:0}} src={mapUrl(selectedPoint)}/>:<WebView key={'history-'+serverMillis(selectedPoint.updatedAt)} originWhitelist={['https://www.openstreetmap.org']} source={{uri:mapUrl(selectedPoint)}} javaScriptEnabled domStorageEnabled style={{flex:1}}/>}</View><TouchableOpacity style={styles.button} onPress={()=>Linking.openURL('https://www.openstreetmap.org/?mlat='+selectedPoint.latitude+'&mlon='+selectedPoint.longitude+'#map=17/'+selectedPoint.latitude+'/'+selectedPoint.longitude)}><Text style={styles.buttonText}>OTWÓRZ TEN PUNKT NA MAPIE</Text></TouchableOpacity></>}<TouchableOpacity style={styles.closeButton} onPress={()=>setSelectedPoint(null)}><Text style={styles.buttonText}>ZAMKNIJ</Text></TouchableOpacity></View></View></Modal>
  </ScrollView>;
 }
-const buildGpsEvents=rows=>{const ordered=[...(rows||[])].filter(p=>serverMillis(p.updatedAt)>0).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));const events=[];let current=null,previous=null;for(const point of ordered){const timestamp=serverMillis(point.updatedAt);const gap=previous?timestamp-serverMillis(previous.updatedAt):0;const moved=previous?distanceMeters(previous,point):0;const moving=Number(point.speed||0)*3.6>=8||moved>=80;const state=gap>30*60*1000?null:moving;if(!current||state===null||current.moving!==moving){if(current)events.push(current);current={moving,startAt:timestamp,endAt:timestamp,duration:0,points:[point],point,averageSpeed:0,speedTotal:Math.max(0,Number(point.speed||0)*3.6),speedCount:1};}else{current.endAt=timestamp;current.points.push(point);current.point=point;current.speedTotal+=Math.max(0,Number(point.speed||0)*3.6);current.speedCount++;}previous=point;}if(current)events.push(current);return events.map(event=>({...event,duration:Math.max(0,event.endAt-event.startAt),averageSpeed:Math.round(event.speedTotal/event.speedCount)}));};
+const buildGpsEvents=rows=>{
+ const points=[...(rows||[])].filter(p=>serverMillis(p.updatedAt)>0&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude))).sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));
+ const classified=[];let previous=null,lastStable=false;
+ for(const point of points){
+  const t=serverMillis(point.updatedAt),gap=previous?t-serverMillis(previous.updatedAt):0,moved=previous?distanceMeters(previous,point):0;
+  const gpsSpeed=Math.max(0,Number(point.speed||0)*3.6);
+  const derivedSpeed=previous&&gap>0&&gap<=180000&&moved>=30?moved/gap*3600:0;
+  const speed=Math.max(gpsSpeed,derivedSpeed);
+  let moving=speed>=8||moved>=80;
+  if(speed>5&&speed<8&&moved<80)moving=lastStable;
+  classified.push({point,t,moving,speed,moved,gap});
+  if(classified.length>=3){
+   const a=classified[classified.length-3],b=classified[classified.length-2],c=classified[classified.length-1];
+   if(a.moving===c.moving&&b.moving!==a.moving&&b.gap<=180000&&c.gap<=180000)b.moving=a.moving;
+  }
+  if(speed>=8||moved>=80)lastStable=true;else if(speed<=5&&moved<40)lastStable=false;
+  previous=point;
+ }
+ const events=[];
+ for(const sample of classified){
+  const state=sample.moving,prev=events[events.length-1];
+  const continuous=prev&&sample.t-prev.endAt<=5*60*1000&&sample.t>=prev.endAt;
+  if(prev&&prev.moving===state&&continuous){
+   prev.endAt=sample.t;prev.duration=prev.endAt-prev.startAt;prev.points.push(sample.point);prev.point=sample.point;
+   prev.speedTotal+=sample.speed;prev.speedCount++;prev.averageSpeed=Math.round(prev.speedTotal/prev.speedCount);
+  }else{
+   events.push({moving:state,startAt:sample.t,endAt:sample.t,duration:0,points:[sample.point],point:sample.point,averageSpeed:Math.round(sample.speed),speedTotal:sample.speed,speedCount:1});
+  }
+ }
+ return events;
+};
 const stopDuration=(rows,point)=>{const ordered=[...rows].sort((a,b)=>serverMillis(a.updatedAt)-serverMillis(b.updatedAt));const index=ordered.findIndex(x=>x===point||serverMillis(x.updatedAt)===serverMillis(point.updatedAt));if(index<0)return 0;const isStop=x=>Number(x.speed||0)*3.6<=5&&distanceMeters(x,point)<=100;let start=index,end=index;while(start>0&&isStop(ordered[start-1])&&isStop(ordered[start]))start--;while(end<ordered.length-1&&isStop(ordered[end+1])&&isStop(ordered[end]))end++;return Math.max(0,serverMillis(ordered[end].updatedAt)-serverMillis(ordered[start].updatedAt));};
 const formatDuration=ms=>{const min=Math.floor(ms/60000);return min<1?'krócej niż minutę':min<60?min+' min':Math.floor(min/60)+' godz. '+min%60+' min';};
 const styles={header:{backgroundColor:'#141922',borderRadius:20,padding:18,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},title:{color:'#fff',fontSize:23,fontWeight:'900'},sub:{color:'#9ba3b3',fontSize:13,marginTop:5},error:{color:'#f0b35a',fontSize:13,marginTop:8,fontWeight:'800'},card:{backgroundColor:'#141922',borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:'#303a4a'},big:{color:'#fff',fontSize:18,fontWeight:'900'},main:{color:'#fff',fontSize:17,fontWeight:'800',marginTop:8},section:{color:'#fff',fontSize:16,fontWeight:'900',marginBottom:7},suggestion:{color:'#75a1ff',fontSize:18,fontWeight:'900'},button:{backgroundColor:'#3f78ed',borderRadius:13,padding:13,alignItems:'center',marginTop:10},buttonText:{color:'#fff',fontWeight:'900'},history:{color:'#cbd2df',fontSize:12,marginTop:7},historyRow:{paddingVertical:8,borderBottomWidth:1,borderBottomColor:'#303a4a'},historyHint:{color:'#75a1ff',fontSize:12,marginTop:4},mapWrap:{height:300,borderRadius:18,overflow:'hidden',backgroundColor:'#0d121b',borderWidth:1,borderColor:'#303a4a',alignItems:'center',justifyContent:'center'},modalBackdrop:{flex:1,backgroundColor:'rgba(0,0,0,0.78)',justifyContent:'center',padding:16},modalCard:{backgroundColor:'#141922',borderRadius:20,borderWidth:1,borderColor:'#303a4a',padding:16,maxHeight:'90%'},detailMap:{height:260,borderRadius:14,overflow:'hidden',marginTop:12,backgroundColor:'#0d121b'},closeButton:{backgroundColor:'#303a4a',borderRadius:12,padding:12,alignItems:'center',marginTop:10}};
