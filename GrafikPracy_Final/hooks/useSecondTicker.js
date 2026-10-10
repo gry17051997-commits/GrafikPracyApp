@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 
 export default function useSecondTicker(intervalMs=1000) {
-  const [, forceRender] = useState(0);
+  const [tick, forceRender] = useState(0);
   const frameRef = useRef(null);
   const lastTickRef = useRef(Date.now());
 
@@ -25,5 +25,5 @@ export default function useSecondTicker(intervalMs=1000) {
     };
   }, [intervalMs]);
 
-  return Date.now();
+  return tick;
 }
