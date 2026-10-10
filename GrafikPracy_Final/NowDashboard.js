@@ -26,6 +26,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [locationError,setLocationError]=useState('');
  const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
  useSecondTicker(1000);
+ const gpsRefreshTick=useSecondTicker(10000);
  useEffect(()=>{
    let cancelled=false;
    const load=async()=>{
@@ -50,9 +51,9 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
        setLocationError(Date.now()-serverMillis(point.updatedAt)>180000?'Lokalizacja nieaktualna':'');
      }catch(e){if(!cancelled){setLocationError('Brak połączenia z API. Zachowuję ostatnią znaną pozycję; sprawdź czas jej aktualizacji.');}}
    };
-   load();const timer=setInterval(load,10000);
-   return()=>{cancelled=true;clearInterval(timer);};
- },[cloudUser?.uid,cloudUser?.role,vehicleRegistration]);
+   load();
+   return()=>{cancelled=true;};
+ },[cloudUser?.uid,cloudUser?.role,vehicleRegistration,gpsRefreshTick]);
  useEffect(()=>{
    let cancelled=false;
    if(!location){setLocationAddress('Brak adresu lokalizacji');return;}
