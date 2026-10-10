@@ -10,7 +10,35 @@ export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});
 export async function apiMe(){return (await api('/me')).user;}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
 export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
-export async function apiPostGps(payload,deviceToken){if(!API_BASE_URL)throw new Error('Brak centralnego API.');const r=await fetch(API_BASE_URL+'/gps',{method:'POST',headers:{'Content-Type':'application/json','X-Device-Token':deviceToken},body:JSON.stringify(payload)});const data=await r.json();if(!r.ok)throw new Error(data?.error||'GPS_API_ERROR');return data;}
+export async function apiPostGps(payload,deviceToken){
+  if(!API_BASE_URL)throw new Error('Brak centralnego API.');
+  const controller=new AbortController();
+  let timeoutId;
+  try{
+    const timeout=new Promise((_,reject)=>{
+      timeoutId=setTimeout(()=>{
+        controller.abort();
+        reject(new Error('GPS_API_TIMEOUT'));
+      },12000);
+    });
+    const request=fetch(API_BASE_URL+'/gps',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Device-Token':deviceToken},
+      body:JSON.stringify(payload),
+      signal:controller.signal
+    });
+    const r=await Promise.race([request,timeout]);
+    let data=null;
+    try{data=await r.json();}catch{throw new Error('GPS_API_INVALID_RESPONSE');}
+    if(!r.ok)throw new Error(data?.error||'GPS_API_ERROR');
+    return data;
+  }catch(error){
+    if(error?.name==='AbortError')throw new Error('GPS_API_TIMEOUT');
+    throw error;
+  }finally{
+    if(timeoutId)clearTimeout(timeoutId);
+  }
+}
 
 export const serverTimestamp=()=>new Date().toISOString();
 export const deleteField=()=>({__apiDeleteField:true});
