@@ -22,7 +22,7 @@ const buildLiveMapHtml=(current,rows)=>{
    if(continuous&&isMoving&&moved>=15){
      if(!segment.length)segment.push([previous.latitude,previous.longitude]);
      segment.push([point.latitude,point.longitude]);
-   }else if(segment.length>1){segments.push(segment);segment=[];}
+   }else{if(segment.length>1)segments.push(segment);segment=[];}
    previous=point;
  }
  if(segment.length>1)segments.push(segment);
