@@ -212,7 +212,7 @@ test('local schedule persistence is serialized and surfaces storage failures', a
 test('shared generator settings and recovery ledger persist through the central API store', () => {
   const app = fs.readFileSync(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   assert.match(app,/from '\.\/apiClient'/);
-  assert.match(app,/setDoc\(doc\(db,'settings','main')/);
+  assert.ok(app.includes("setDoc(doc(db,'settings','main')"));
   assert.doesNotMatch(app,/from ['"]firebase\/firestore/);
 });
 
