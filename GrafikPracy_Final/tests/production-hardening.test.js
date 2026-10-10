@@ -294,3 +294,18 @@ test('central document store rejects arbitrary collection names', () => {
   assert.match(server, /STORE_COLLECTIONS=new Set/);
   assert.match(server, /!STORE_COLLECTIONS\.has\(name\)/);
 });
+
+test('GPS uploads have a finite timeout and always release the timeout timer', () => {
+  const source = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const start = source.indexOf('export async function apiPostGps(');
+  const end = source.indexOf('\n}', start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+  assert.match(block, /new AbortController\(\)/);
+  assert.match(block, /setTimeout\(/);
+  assert.match(block, /12000/);
+  assert.match(block, /controller\.abort\(\)/);
+  assert.match(block, /Promise\.race\(\[request,timeout\]\)/);
+  assert.match(block, /clearTimeout\(timeoutId\)/);
+  assert.match(block, /GPS_API_TIMEOUT/);
+});
