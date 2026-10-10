@@ -266,7 +266,7 @@ app.get('/api/gps/vehicles',auth,async(_req,res)=>{
   res.json({vehicles:r.rows});
 });
 app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
-  const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 500",[req.params.vehicleId]);
+  const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
   res.json({history:r.rows});
 });
 
