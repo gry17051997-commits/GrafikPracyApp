@@ -17,7 +17,7 @@ const buildLiveMapHtml=(current,rows)=>{
    const point={latitude:Number(p.latitude),longitude:Number(p.longitude),speed:Number(p.speed||0),time:serverMillis(p.updatedAt)};
    const moved=previous?distanceMeters(previous,point):0;
    const continuous=previous&&point.time>previous.time&&point.time-previous.time<=5*60*1000;
-   const isMoving=point.speed*3.6>=4||moved>=80;
+   const isMoving=point.speed*3.6>=5||moved>=30;
    if(!continuous){if(segment.length>1)segments.push(segment);segment=[];}
    if(continuous&&isMoving&&moved>=15){
      if(!segment.length)segment.push([previous.latitude,previous.longitude]);
@@ -49,7 +49,7 @@ export default function LiveLocationDashboard({vehicleRegistration='',warehouseG
    const lastStatus=String(last?.status||'');
    const lastCreated=serverMillis(last?.createdAt);
    const sameStatus=!!candidate&&lastStatus===candidate.status;
-   const sameStop=!!candidate?.warehouse&&String(last?.warehouse||'').split('->')[0]===candidate.warehouse;
+   const lastText=String(last?.text||'').toUpperCase();\n   const sameStop=!!candidate?.warehouse&&(String(last?.warehouse||'').split('->')[0]===candidate.warehouse||lastText.includes(candidate.warehouse.toUpperCase()));
    const recentlyReported=lastCreated>0&&Date.now()-lastCreated<3*60*1000;
    if(candidate&&!(sameStatus&&(!candidate.warehouse||sameStop||recentlyReported)))suggestion=candidate;
  }
