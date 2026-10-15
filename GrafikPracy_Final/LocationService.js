@@ -10,6 +10,7 @@ export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
 export const LOCATION_PENDING_QUEUE_KEY='grafik-pracy-location-pending-queue-v1';
+export const LOCATION_REJECTED_QUEUE_KEY='grafik-pracy-location-rejected-queue-v1';
 const LOCATION_OPTIONS_VERSION=3;
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
@@ -78,23 +79,48 @@ async function saveLocationInternal(location){
     try{const raw=await AsyncStorage.getItem(LOCATION_PENDING_QUEUE_KEY);const parsed=raw?JSON.parse(raw):[];return Array.isArray(parsed)?parsed.filter(x=>x&&x.payload&&x.token).slice(0,500):[];}catch{return[];}
   };
   const writePendingQueue=async queue=>AsyncStorage.setItem(LOCATION_PENDING_QUEUE_KEY,JSON.stringify(queue.slice(0,500)));
+  const appendRejected=async(item,error)=>{
+    try{
+      const raw=await AsyncStorage.getItem(LOCATION_REJECTED_QUEUE_KEY);
+      const stored=raw?JSON.parse(raw):[];
+      const rejected=Array.isArray(stored)?stored:[];
+      rejected.push({payload:item.payload,token:item.token,rejectedAt:Date.now(),status:Number(error?.status)||null,code:String(error?.code||error?.message||'GPS_API_ERROR').slice(0,120)});
+      await AsyncStorage.setItem(LOCATION_REJECTED_QUEUE_KEY,JSON.stringify(rejected.slice(-500)));
+      await patchDiagnostics({rejectedGpsCount:Math.min(rejected.length,500),lastPermanentGpsError:String(error?.code||error?.message||'GPS_API_ERROR').slice(0,160),lastPermanentGpsErrorAt:Date.now()});
+    }catch(storageError){
+      // Jeśli nie uda się zachować odrzuconego pomiaru, nie usuwaj go z kolejki.
+      throw storageError;
+    }
+  };
+  const isPermanentGpsError=error=>Number.isInteger(error?.status)&&error.status>=400&&error.status<500&&error.status!==408&&error.status!==429;
   const uploadWithRetries=async({payload,token})=>{
     let failure=null;
     for(let attempt=0;attempt<3;attempt++){
       try{return {result:await apiPostGps(payload,token),error:null};}
-      catch(error){failure=error;if(attempt<2)await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));}
+      catch(error){
+        failure=error;
+        if(isPermanentGpsError(error))return {result:null,error,permanent:true};
+        if(attempt<2)await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));
+      }
     }
-    return {result:null,error:failure};
+    return {result:null,error:failure,permanent:false};
   };
 
-  // Zachowujemy kolejność pomiarów: najpierw opróżniamy trwałą kolejkę,
-  // dopiero potem wysyłamy najnowszą pozycję. Błąd sieci nie wyłącza GPS.
+  // Najpierw próbujemy starsze pomiary. Błędy przejściowe zachowują FIFO,
+  // natomiast odrzucone przez API pomiary trafiają do osobnej kolejki diagnostycznej,
+  // aby pojedynczy 4xx (np. DEVICE_NOT_ASSIGNED) nie blokował nowych pozycji.
   let pending=await readPendingQueue();
   while(pending.length){
     const oldest=pending[0];
     const sent=await uploadWithRetries(oldest);
     if(!sent.result){
       lastError=sent.error;
+      if(sent.permanent){
+        await appendRejected(oldest,lastError);
+        pending.shift();
+        await writePendingQueue(pending);
+        continue;
+      }
       pending.push({payload,token:deviceToken});
       await writePendingQueue(pending);
       const message=String(lastError?.message||lastError||'unknown');
