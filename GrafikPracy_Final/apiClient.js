@@ -32,7 +32,12 @@ export async function apiPostGps(payload,deviceToken){
     const r=await Promise.race([request,timeout]);
     let data=null;
     try{data=await r.json();}catch{throw new Error('GPS_API_INVALID_RESPONSE');}
-    if(!r.ok)throw new Error(data?.error||'GPS_API_ERROR');
+    if(!r.ok){
+      const error=new Error(data?.error||'GPS_API_ERROR');
+      error.status=r.status;
+      error.code=data?.error||'GPS_API_ERROR';
+      throw error;
+    }
     return data;
   }catch(error){
     if(error?.name==='AbortError')throw new Error('GPS_API_TIMEOUT');
