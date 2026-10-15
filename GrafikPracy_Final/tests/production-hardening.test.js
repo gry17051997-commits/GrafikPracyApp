@@ -364,3 +364,24 @@ test('GPS upload failures are persisted in a bounded offline queue and retried F
   assert.match(service, /LOCATION_API_WRITE_ERROR_QUEUED/);
   assert.match(service, /pendingGpsCount/);
 });
+
+
+test('GPS HTTP errors preserve status and code for safe offline queue recovery', () => {
+  const client = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const start = client.indexOf('export async function apiPostGps(');
+  const end = client.indexOf('\n}', start);
+  const block = client.slice(start, end);
+  assert.match(block, /error\.status=r\.status/);
+  assert.match(block, /error\.code=data\?\.error\|\|'GPS_API_ERROR'/);
+});
+
+test('permanent GPS 4xx rejections are quarantined so they cannot block fresh positions', async () => {
+  const service = await fs.promises.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /LOCATION_REJECTED_QUEUE_KEY/);
+  assert.match(service, /const isPermanentGpsError=error=>Number\.isInteger\(error\?\.status\)/);
+  assert.match(service, /error\.status!==408&&error\.status!==429/);
+  assert.match(service, /if\(sent\.permanent\)/);
+  assert.match(service, /await appendRejected\(oldest,lastError\)/);
+  assert.match(service, /rejectedGpsCount/);
+  assert.match(service, /lastPermanentGpsError/);
+});
