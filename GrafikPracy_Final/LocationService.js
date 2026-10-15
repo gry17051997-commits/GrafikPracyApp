@@ -78,10 +78,10 @@ async function saveLocationInternal(location){
     try{const raw=await AsyncStorage.getItem(LOCATION_PENDING_QUEUE_KEY);const parsed=raw?JSON.parse(raw):[];return Array.isArray(parsed)?parsed.filter(x=>x&&x.payload&&x.token).slice(0,500):[];}catch{return[];}
   };
   const writePendingQueue=async queue=>AsyncStorage.setItem(LOCATION_PENDING_QUEUE_KEY,JSON.stringify(queue.slice(0,500)));
-  const uploadWithRetries=async(item)=>{
+  const uploadWithRetries=async({payload,token})=>{
     let failure=null;
     for(let attempt=0;attempt<3;attempt++){
-      try{return {result:await apiPostGps(item.payload,item.token),error:null};}
+      try{return {result:await apiPostGps(payload,token),error:null};}
       catch(error){failure=error;if(attempt<2)await new Promise(resolve=>setTimeout(resolve,750*(attempt+1)));}
     }
     return {result:null,error:failure};
