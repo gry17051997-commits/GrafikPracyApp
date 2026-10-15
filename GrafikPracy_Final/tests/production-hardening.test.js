@@ -302,6 +302,9 @@ test('dashboard GPS mini map keeps a stable WebView and updates the OSM embed wi
   assert.match(dashboard, /const miniMapHtml=/);
   assert.match(dashboard, /key="gps-mini-map"/);
   assert.match(dashboard, /window\.setGpsPoint=function\(lat,lon\)/);
+  assert.match(dashboard, /L\.polyline\(\[\]/);
+  assert.match(dashboard, /gpsRoute\.setLatLngs\(gpsPoints\)/);
+  assert.doesNotMatch(dashboard, /gpsMapFrame/);
   assert.match(dashboard, /injectJavaScript\('window\.setGpsPoint\('/);
   assert.doesNotMatch(dashboard, /key=\{Math\.round\(Number\(location\.latitude\)\*10000\)/);
 });
