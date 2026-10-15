@@ -232,7 +232,7 @@ test('GPS tracking requires a central device assignment and sends positions thro
   assert.ok(service.includes("fetch(API_BASE_URL+'/gps/device'"));
 assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   assert.ok(service.includes("if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};"));
-  assert.match(service, /apiPostGps\(payload,deviceToken\)/);
+  assert.match(service, /apiPostGps\(payload,token\)/);
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
 
@@ -302,6 +302,9 @@ test('dashboard GPS mini map keeps a stable WebView and updates the OSM embed wi
   assert.match(dashboard, /const miniMapHtml=/);
   assert.match(dashboard, /key="gps-mini-map"/);
   assert.match(dashboard, /window\.setGpsPoint=function\(lat,lon\)/);
+  assert.match(dashboard, /L\.polyline\(\[\]/);
+  assert.match(dashboard, /gpsRoute\.setLatLngs\(gpsPoints\)/);
+  assert.doesNotMatch(dashboard, /gpsMapFrame/);
   assert.match(dashboard, /injectJavaScript\('window\.setGpsPoint\('/);
   assert.doesNotMatch(dashboard, /key=\{Math\.round\(Number\(location\.latitude\)\*10000\)/);
 });
@@ -347,4 +350,38 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : ''"));
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
+});
+
+
+test('GPS upload failures are persisted in a bounded offline queue and retried FIFO', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /LOCATION_PENDING_QUEUE_KEY/);
+  assert.match(service, /AsyncStorage\.setItem\(LOCATION_PENDING_QUEUE_KEY,JSON\.stringify/);
+  assert.match(service, /while\(pending\.length\)/);
+  assert.match(service, /pending\.shift\(\)/);
+  assert.match(service, /LOCATION_PENDING_QUEUE_RETRY_FAILED/);
+  assert.match(service, /LOCATION_API_WRITE_ERROR_QUEUED/);
+  assert.match(service, /pendingGpsCount/);
+});
+
+
+test('GPS HTTP errors preserve status and code for safe offline queue recovery', () => {
+  const client = fs.readFileSync(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const start = client.indexOf('export async function apiPostGps(');
+  const end = client.indexOf('\n}', start);
+  const block = client.slice(start, end);
+  assert.match(block, /error\.status=r\.status/);
+  assert.match(block, /error\.code=data\?\.error\|\|'GPS_API_ERROR'/);
+});
+
+test('permanent GPS 4xx rejections are quarantined so they cannot block fresh positions', async () => {
+  const service = await fs.promises.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /LOCATION_REJECTED_QUEUE_KEY/);
+  assert.match(service, /const isPermanentGpsError=error=>Number\.isInteger\(error\?\.status\)/);
+  assert.match(service, /error\.status!==408&&error\.status!==429/);
+  assert.match(service, /if\(sent\.permanent\)/);
+  assert.match(service, /await appendRejected\(oldest,lastError\)/);
+  assert.match(service, /rejectedGpsCount/);
+  assert.match(service, /lastPermanentGpsError/);
 });
