@@ -232,7 +232,7 @@ test('GPS tracking requires a central device assignment and sends positions thro
   assert.ok(service.includes("fetch(API_BASE_URL+'/gps/device'"));
 assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   assert.ok(service.includes("if(!assignment?.vehicleId)return {ok:false,reason:'device-not-assigned'};"));
-  assert.match(service, /apiPostGps\(payload,deviceToken\)/);
+  assert.match(service, /apiPostGps\(payload,token\)/);
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
 
