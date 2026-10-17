@@ -225,6 +225,24 @@ test('GPS dashboards use the central API instead of Firestore', () => {
   assert.doesNotMatch(now,/firebase\/firestore/);
 });
 
+test('GPS current-position endpoints disable HTTP caching and older delayed fixes cannot overwrite newer server state', async () => {
+  const fs = await import('node:fs/promises');
+  const server = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  for (const route of ["'/api/gps/mine'","'/api/gps/vehicles'","'/api/gps/:vehicleId/history'"]) {
+    const start = server.indexOf('app.get('+route);
+    assert.ok(start >= 0, 'missing GPS route '+route);
+    const block = server.slice(start, server.indexOf('\n});', start)+4);
+    assert.match(block, /Cache-Control/);
+    assert.match(block, /no-store/);
+  }
+  assert.match(server, /WHERE EXCLUDED\.observed_at >= gps_current\.observed_at/);
+  assert.match(server, /acceptedAsCurrent:currentWrite\.rowCount>0/);
+  assert.match(server, /currentReceivedAt:currentPosition\?\.received_at/);
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /lastServerCurrentAccepted:result\.acceptedAsCurrent!==false/);
+  assert.match(service, /lastServerCurrentReceivedAt:result\.currentReceivedAt/);
+});
+
 test('GPS tracking requires a central device assignment and sends positions through the central API', async () => {
   const fs = await import('node:fs/promises');
   const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
