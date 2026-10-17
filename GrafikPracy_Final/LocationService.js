@@ -150,7 +150,7 @@ export async function startVehicleLocationTracking({vehicleId,registration}={}){
   const bg=await Location.requestBackgroundPermissionsAsync();
   if(bg.status!=='granted')return {ok:false,reason:'background-permission'};
   const old=await getConfig();
-  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||registration||''}));
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...old,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,trackingStartedAt:Date.now(),vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||registration||''}));
   const alreadyRunning=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   if(alreadyRunning && old.optionsVersion!==LOCATION_OPTIONS_VERSION){
     await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
@@ -184,18 +184,46 @@ export async function ensureVehicleLocationTracking(){
   if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
   let running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   let restarted=false;
-  if(running && Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-    running=false;
+  const now=Date.now();
+  const diagnostics=await getLocationDiagnostics();
+  const lastTaskAt=Number(diagnostics.lastTaskAt||0);
+  const trackingStartedAt=Number(cfg.trackingStartedAt||0);
+  // hasStartedLocationUpdatesAsync reports registration, not that Android is
+  // still delivering fixes. Recover a registered-but-silent task after 60 s.
+  const lastProofAt=lastTaskAt||trackingStartedAt;
+  const taskIsStale=running&&lastProofAt>0&&(now-lastProofAt)>60000;
+  const recoveryRecentlyTried=Number(diagnostics.lastRecoveryAttemptAt||0)>0&&(now-Number(diagnostics.lastRecoveryAttemptAt))<60000;
+  if(running&&(Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION||(taskIsStale&&!recoveryRecentlyTried))){
+    await patchDiagnostics({lastRecoveryAttemptAt:now,lastRecoveryReason:Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION?'options-version':'background-task-stale',lastRecoveryError:null});
+    try{
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      running=false;
+    }catch(error){
+      const message=String(error?.message||error||'unknown');
+      await patchDiagnostics({lastRecoveryError:message.slice(0,240)});
+      running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if(running&&taskIsStale)return {ok:false,reason:'recovery-stop-failed',error:message};
+    }
   }
   if(!running){
-    await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
-    restarted=true;
+    try{
+      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
+      restarted=true;
+      await patchDiagnostics({lastRecoverySuccessAt:Date.now(),lastRecoveryError:null});
+    }catch(error){
+      const message=String(error?.message||error||'unknown');
+      await patchDiagnostics({lastRecoveryError:message.slice(0,240),lastRecoveryErrorAt:Date.now()});
+      return {ok:false,reason:'recovery-start-failed',error:message};
+    }
   }
-  if(!running || Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||cfg.registration||''}));
+  if(!running||restarted||Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
+    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,trackingStartedAt:now,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||cfg.registration||''}));
   }
-  try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){console.log('LOCATION_REFRESH_ERROR',e);}
+  try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){
+    const message=String(e?.message||e||'unknown');
+    await patchDiagnostics({lastForegroundFixError:message.slice(0,240),lastForegroundFixErrorAt:Date.now()});
+    console.log('LOCATION_REFRESH_ERROR',e);
+  }
   return {ok:true,restarted,vehicleId:assignment.vehicleId,registration:assignment.registration||''};
 }
 
