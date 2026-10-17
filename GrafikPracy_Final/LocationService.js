@@ -187,7 +187,13 @@ export async function ensureVehicleLocationTracking(){
   const now=Date.now();
   const diagnostics=await getLocationDiagnostics();
   const lastTaskAt=Number(diagnostics.lastTaskAt||0);
-  const trackingStartedAt=Number(cfg.trackingStartedAt||0);
+  let trackingStartedAt=Number(cfg.trackingStartedAt||0);
+  // Migrate existing installations that predate trackingStartedAt so a task
+  // with no recorded callback can still be detected as stale on the next pass.
+  if(running&&!trackingStartedAt){
+    trackingStartedAt=now;
+    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,trackingStartedAt:now}));
+  }
   // hasStartedLocationUpdatesAsync reports registration, not that Android is
   // still delivering fixes. Recover a registered-but-silent task after 60 s.
   const lastProofAt=lastTaskAt||trackingStartedAt;
