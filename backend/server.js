@@ -253,20 +253,23 @@ app.post('/api/gps',async(req,res)=>{
   const altitude=Number.isFinite(Number(b.altitude))?Number(b.altitude):null;
   const speed=Number.isFinite(Number(b.speed))?Number(b.speed):null;
   const heading=Number.isFinite(Number(b.heading))?Number(b.heading):null;
-  await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW()',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
+  await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE EXCLUDED.observed_at >= gps_current.observed_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('INSERT INTO gps_history(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('UPDATE phones p SET last_seen_at=NOW(),updated_at=NOW() FROM assignments a WHERE a.phone_id=p.id AND a.vehicle_id=$1 AND a.active=true',[v.id]);
   res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString()});
 });
 app.get('/api/gps/mine',auth,async(req,res)=>{
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate').set('Pragma','no-cache').set('Expires','0');
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY a.updated_at DESC LIMIT 1',[req.user.id]);
   res.json({vehicle:r.rows[0]||null});
 });
 app.get('/api/gps/vehicles',auth,async(_req,res)=>{
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate').set('Pragma','no-cache').set('Expires','0');
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
   res.json({vehicles:r.rows});
 });
 app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
+  res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate').set('Pragma','no-cache').set('Expires','0');
   const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
   res.json({history:r.rows});
 });
