@@ -92,7 +92,7 @@ async function saveLocationInternal(location){
     return;
   }
   try{
-    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null});
+    await patchDiagnostics({lastUploadAt:Date.now(),lastUploadError:null,lastUploadErrorAt:null,lastServerCurrentAccepted:result.acceptedAsCurrent!==false,lastServerCurrentObservedAt:result.currentObservedAt||result.observedAt||null,lastServerCurrentReceivedAt:result.currentReceivedAt||result.receivedAt||null});
     const assignedVehicleId=normalizeVehicleId(result.vehicleId||result.registration||cfg.vehicleId);
     const local={...payload,vehicleId:assignedVehicleId,registration:result.registration||cfg.registration||'',receivedAt:Date.now()};
     let previous=null;try{const raw=await AsyncStorage.getItem(LOCATION_CURRENT_KEY);previous=raw?JSON.parse(raw):null;}catch{}
