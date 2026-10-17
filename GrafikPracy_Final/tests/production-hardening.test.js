@@ -236,6 +236,17 @@ assert.ok(service.includes("if(!assignment?.vehicleId)return null;"));
   assert.match(service, /normalizeVehicleId\(assignment\.vehicleId\)/);
 });
 
+test('GPS tracking detects stale background updates and retries current position on recovery', async () => {
+  const fs = await import('node:fs/promises');
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /STALE_THRESHOLD_MS\s*=\s*2\.5\s*\*\s*60\s*\*\s*1000/);
+  assert.match(service, /const isStale=lastActivity>0&&\(Date\.now\(\)-lastActivity>STALE_THRESHOLD_MS\)/);
+  assert.match(service, /if\(running&&\(optionsChanged\|\|isStale\)\)/);
+  assert.match(service, /wasStale:isStale/);
+  assert.match(service, /LOCATION_REFRESH_ERROR/);
+  assert.match(service, /GPS_ASSIGNMENT_NETWORK_ERROR/);
+});
+
 test('fleet assignment UI uses locator uid consistently', async () => {
   const fs = await import('node:fs/promises');
   const panel = await fs.readFile(new URL('../AdminFleetPanel.js', import.meta.url), 'utf8');

@@ -10,6 +10,7 @@ export const LOCATION_CURRENT_KEY='grafik-pracy-location-current-v2';
 export const LOCATION_DEVICE_TOKEN_KEY='grafik-pracy-location-device-token-v1';
 export const LOCATION_DIAGNOSTICS_KEY='grafik-pracy-location-diagnostics-v1';
 const LOCATION_OPTIONS_VERSION=3;
+const STALE_THRESHOLD_MS=2.5*60*1000;
 
 export const normalizeVehicleId=value=>String(value||'').trim().toUpperCase().replace(/[^A-Z0-9ĄĆĘŁŃÓŚŹŻ]+/gi,'_').slice(0,40)||'SLUZBOWY';
 
@@ -171,20 +172,40 @@ export async function stopVehicleLocationTracking(){
 
 export async function ensureVehicleLocationTracking(){
   if(Platform.OS==='web'||!API_BASE_URL)return {ok:false,reason:'unsupported'};
-  // Funkcja może być wywołana przy wznowieniu aplikacji. Nie zatrzymuj ani nie
-  // uznawaj działającego nadajnika za wyłączony tylko dlatego, że ekran był zablokowany.
   const cfg=await getConfig();
   if(cfg.enabled!==true)return {ok:false,reason:'disabled'};
   const token=await getLocationDeviceToken();
   if(!token)return {ok:false,reason:'device-token-missing'};
-  const assignment=await getDeviceAssignment(token);
-  if(!assignment?.vehicleId){await stopVehicleLocationTracking();return {ok:false,reason:'device-not-assigned'};}
-  const fg=await Location.getForegroundPermissionsAsync(),bg=await Location.getBackgroundPermissionsAsync();
+
+  let assignment;
+  try{
+    assignment=await getDeviceAssignment(token);
+  }catch(error){
+    // Przejściowy błąd sieci nie oznacza utraty przypisania urządzenia.
+    // Korzystaj z ostatniego znanego przypisania i nie wyłączaj nadajnika.
+    if(!cfg.vehicleId)return {ok:false,reason:'assignment-unavailable'};
+    assignment={vehicleId:cfg.vehicleId,registration:cfg.registration||''};
+  }
+
+  if(!assignment?.vehicleId){
+    await stopVehicleLocationTracking();
+    return {ok:false,reason:'device-not-assigned'};
+  }
+  const fg=await Location.getForegroundPermissionsAsync();
+  const bg=await Location.getBackgroundPermissionsAsync();
   if(fg.status!=='granted'||bg.status!=='granted')return {ok:false,reason:'permission'};
   if(!(await Location.hasServicesEnabledAsync()))return {ok:false,reason:'location-services-disabled'};
+
+  const diagnostics=await getLocationDiagnostics();
+  const lastTaskAt=Number(diagnostics.lastTaskAt||0);
+  const lastUploadAt=Number(diagnostics.lastUploadAt||0);
+  const lastActivity=Math.max(lastTaskAt,lastUploadAt);
+  const isStale=lastActivity>0&&(Date.now()-lastActivity>STALE_THRESHOLD_MS);
   let running=await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
   let restarted=false;
-  if(running && Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
+  const optionsChanged=Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION;
+
+  if(running&&(optionsChanged||isStale)){
     await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
     running=false;
   }
@@ -192,11 +213,32 @@ export async function ensureVehicleLocationTracking(){
     await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME,LOCATION_OPTIONS);
     restarted=true;
   }
-  if(!running || Number(cfg.optionsVersion||0)!==LOCATION_OPTIONS_VERSION){
-    await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({...cfg,enabled:true,optionsVersion:LOCATION_OPTIONS_VERSION,vehicleId:normalizeVehicleId(assignment.vehicleId),registration:assignment.registration||cfg.registration||''}));
+
+  await AsyncStorage.setItem(LOCATION_CONFIG_KEY,JSON.stringify({
+    ...cfg,
+    enabled:true,
+    optionsVersion:LOCATION_OPTIONS_VERSION,
+    vehicleId:normalizeVehicleId(assignment.vehicleId),
+    registration:assignment.registration||cfg.registration||''
+  }));
+
+  // Po wznowieniu aplikacji pobierz świeży pomiar i spróbuj wysłać go do API.
+  try{
+    await saveLocation(await Location.getCurrentPositionAsync({
+      accuracy:Location.Accuracy.High,
+      mayShowUserSettingsDialog:true
+    }));
+  }catch(error){
+    console.log('LOCATION_REFRESH_ERROR',error);
   }
-  try{await saveLocation(await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.High}));}catch(e){console.log('LOCATION_REFRESH_ERROR',e);}
-  return {ok:true,restarted,vehicleId:assignment.vehicleId,registration:assignment.registration||''};
+
+  return {
+    ok:true,
+    restarted,
+    wasStale:isStale,
+    vehicleId:assignment.vehicleId,
+    registration:assignment.registration||''
+  };
 }
 
 export async function getVehicleLocationConfig(){
