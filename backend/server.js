@@ -253,10 +253,11 @@ app.post('/api/gps',async(req,res)=>{
   const altitude=Number.isFinite(Number(b.altitude))?Number(b.altitude):null;
   const speed=Number.isFinite(Number(b.speed))?Number(b.speed):null;
   const heading=Number.isFinite(Number(b.heading))?Number(b.heading):null;
-  await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE EXCLUDED.observed_at >= gps_current.observed_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
+  const currentWrite=await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE EXCLUDED.observed_at >= gps_current.observed_at RETURNING observed_at,received_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('INSERT INTO gps_history(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('UPDATE phones p SET last_seen_at=NOW(),updated_at=NOW() FROM assignments a WHERE a.phone_id=p.id AND a.vehicle_id=$1 AND a.active=true',[v.id]);
-  res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString()});
+  const currentPosition=currentWrite.rows[0] || (await q('SELECT observed_at,received_at FROM gps_current WHERE vehicle_id=$1',[v.id])).rows[0] || null;
+  res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString(),acceptedAsCurrent:currentWrite.rowCount>0,currentObservedAt:currentPosition?.observed_at||null,currentReceivedAt:currentPosition?.received_at||null});
 });
 app.get('/api/gps/mine',auth,async(req,res)=>{
   res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate').set('Pragma','no-cache').set('Expires','0');
