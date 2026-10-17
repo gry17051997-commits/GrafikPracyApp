@@ -236,6 +236,11 @@ test('GPS current-position endpoints disable HTTP caching and older delayed fixe
     assert.match(block, /no-store/);
   }
   assert.match(server, /WHERE EXCLUDED\.observed_at >= gps_current\.observed_at/);
+  assert.match(server, /acceptedAsCurrent:currentWrite\.rowCount>0/);
+  assert.match(server, /currentReceivedAt:currentPosition\?\.received_at/);
+  const service = await fs.readFile(new URL('../LocationService.js', import.meta.url), 'utf8');
+  assert.match(service, /lastServerCurrentAccepted:result\.acceptedAsCurrent!==false/);
+  assert.match(service, /lastServerCurrentReceivedAt:result\.currentReceivedAt/);
 });
 
 test('GPS tracking requires a central device assignment and sends positions through the central API', async () => {
