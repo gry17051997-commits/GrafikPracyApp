@@ -41,3 +41,13 @@ Build Android musi otrzymać zmienną EXPO_PUBLIC_API_URL wskazującą publiczny
 ## Bezpieczeństwo
 
 Hasła są haszowane scrypt z indywidualną losową solą. Tokeny sesji i tokeny urządzeń GPS są przechowywane po stronie serwera wyłącznie jako SHA-256 hash.
+
+
+## Produkcyjna konfiguracja bezpieczeństwa
+
+- `ALLOWED_ORIGINS`: lista originów webowych rozdzielona przecinkami, np. `https://twoja-aplikacja.web.app,https://twoja-aplikacja.firebaseapp.com`. W produkcji pusta lista nie dopuszcza originów przeglądarkowych.
+- `TRUST_PROXY`: opcjonalna konfiguracja Express `trust proxy`. Na Renderze domyślnie ufany jest jeden hop proxy; ustaw tę wartość tylko zgodnie z rzeczywistą topologią wdrożenia.
+- Limity domyślne: logowanie 12 prób / 15 min na IP, rejestracja 5 / 15 min na IP, endpointy GPS 120 / min na IP.
+- Żądania bez nagłówka `Origin` są dopuszczane dla kompatybilności z klientami natywnymi. To nie zastępuje tokena urządzenia ani autoryzacji API.
+
+Harmonogramy obsługują opcjonalne `expectedRevision` w `PUT /api/schedules/:weekId`. Wartość `0` oznacza utworzenie wyłącznie wtedy, gdy harmonogram nie istnieje. Wartość dodatnia wymaga zgodności z aktualną rewizją. Konflikt zwraca HTTP 409 i `REVISION_CONFLICT`. Pominięcie pola zachowuje kompatybilność ze starszymi klientami.

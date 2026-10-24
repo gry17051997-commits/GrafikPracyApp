@@ -1,13 +1,50 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import pg from 'pg';
 
 const {Pool}=pg;
 const app=express();
-app.use(cors());
+
+// Render terminates TLS in front of Express. Trust only the configured proxy hop(s),
+// not arbitrary X-Forwarded-* headers from the public client.
+const trustProxyRaw=String(process.env.TRUST_PROXY||'').trim();
+const trustProxy=trustProxyRaw
+  ? (/^\d+$/.test(trustProxyRaw)?Number(trustProxyRaw):trustProxyRaw)
+  : (process.env.RENDER ? 1 : false);
+app.set('trust proxy',trustProxy);
+
+const allowedOrigins=String(process.env.ALLOWED_ORIGINS||'')
+  .split(',')
+  .map(origin=>origin.trim())
+  .filter(Boolean);
+const isProduction=process.env.NODE_ENV==='production';
+app.use(cors({
+  origin(origin,callback){
+    // Native clients normally omit Origin. This is compatibility, not authentication.
+    if(!origin)return callback(null,true);
+    const normalized=String(origin);
+    if(allowedOrigins.includes(normalized))return callback(null,true);
+    // An empty list is permissive only in non-production development.
+    if(allowedOrigins.length===0&&!isProduction)return callback(null,true);
+    return callback(null,false);
+  }
+}));
 app.use(express.json({limit:'2mb'}));
+
+const makeRateLimiter=(windowMs,max,message)=>rateLimit({
+  windowMs,
+  limit:max,
+  standardHeaders:'draft-8',
+  legacyHeaders:false,
+  message:{error:'RATE_LIMITED',message},
+  // express-rate-limit uses req.ip, respecting the trust proxy setting above.
+});
+const authLoginLimiter=makeRateLimiter(15*60*1000,12,'Too many login attempts. Try again later.');
+const authRegisterLimiter=makeRateLimiter(15*60*1000,5,'Too many registration attempts. Try again later.');
+const gpsLimiter=makeRateLimiter(60*1000,120,'Too many GPS requests. Try again shortly.');
 
 const pool=new Pool({
   connectionString:process.env.DATABASE_URL,
@@ -78,7 +115,7 @@ app.get('/api/health',async(_req,res)=>{
   catch(e){res.status(503).json({ok:false,error:e.message});}
 });
 
-app.post('/api/auth/register',async(req,res)=>{
+app.post('/api/auth/register',authRegisterLimiter,async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
   const displayName=String(req.body?.displayName||email.split('@')[0]||'').trim();
@@ -94,7 +131,7 @@ app.post('/api/auth/register',async(req,res)=>{
   }catch(e){res.status(409).json({error:'USER_ALREADY_EXISTS'});}
 });
 
-app.post('/api/auth/login',async(req,res)=>{
+app.post('/api/auth/login',authLoginLimiter,async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
   const r=await q('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1',[email]);
@@ -235,13 +272,13 @@ async function deviceVehicle(token){
   const r=await q('SELECT v.* FROM phones p JOIN assignments a ON a.phone_id=p.id AND a.active=true JOIN vehicles v ON v.id=a.vehicle_id WHERE p.device_token_hash=$1 AND p.active=true AND v.active=true',[hashToken(token)]);
   return r.rows[0];
 }
-app.get('/api/gps/device',async(req,res)=>{
+app.get('/api/gps/device',gpsLimiter,async(req,res)=>{
   const token=String(req.headers['x-device-token']||'').trim();
   const v=await deviceVehicle(token);
   if(!v)return res.status(401).json({error:'DEVICE_NOT_ASSIGNED'});
   res.json({vehicleId:v.id,registration:v.registration,name:v.name});
 });
-app.post('/api/gps',async(req,res)=>{
+app.post('/api/gps',gpsLimiter,async(req,res)=>{
   const token=String(req.headers['x-device-token']||'').trim();
   const v=await deviceVehicle(token);
   if(!v)return res.status(401).json({error:'DEVICE_NOT_ASSIGNED'});
@@ -277,8 +314,35 @@ app.get('/api/schedules/:weekId',auth,async(req,res)=>{
 });
 app.put('/api/schedules/:weekId',auth,async(req,res)=>{
   if(req.user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});
-  const r=await q('INSERT INTO schedules(week_id,payload,revision,updated_by) VALUES($1,$2,1,$3) ON CONFLICT(week_id) DO UPDATE SET payload=EXCLUDED.payload,revision=schedules.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *',[req.params.weekId,JSON.stringify(req.body?.payload||{}),req.user.id]);
-  res.json({schedule:r.rows[0]});
+  const body=req.body||{};
+  const hasExpectedRevision=Object.prototype.hasOwnProperty.call(body,'expectedRevision');
+  const expectedRevision=body.expectedRevision;
+  if(hasExpectedRevision&&(!Number.isInteger(expectedRevision)||expectedRevision<0))return res.status(400).json({error:'INVALID_EXPECTED_REVISION'});
+  const payload=JSON.stringify(body.payload||{});
+
+  // No expectedRevision means legacy behavior for older app versions.
+  if(!hasExpectedRevision){
+    const r=await q('INSERT INTO schedules(week_id,payload,revision,updated_by) VALUES($1,$2,1,$3) ON CONFLICT(week_id) DO UPDATE SET payload=EXCLUDED.payload,revision=schedules.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *',[req.params.weekId,payload,req.user.id]);
+    return res.json({schedule:r.rows[0]});
+  }
+
+  // Revision 0 means "create only if this week does not exist".
+  if(expectedRevision===0){
+    const r=await q('INSERT INTO schedules(week_id,payload,revision,updated_by) VALUES($1,$2,1,$3) ON CONFLICT(week_id) DO NOTHING RETURNING *',[req.params.weekId,payload,req.user.id]);
+    if(!r.rows[0]){
+      const current=await q('SELECT revision FROM schedules WHERE week_id=$1',[req.params.weekId]);
+      return res.status(409).json({error:'REVISION_CONFLICT',revision:current.rows[0]?.revision??null});
+    }
+    return res.json({schedule:r.rows[0]});
+  }
+
+  // Compare-and-swap is performed atomically by PostgreSQL.
+  const updated=await q('UPDATE schedules SET payload=$1,revision=revision+1,updated_at=NOW(),updated_by=$2 WHERE week_id=$3 AND revision=$4 RETURNING *',[payload,req.user.id,req.params.weekId,expectedRevision]);
+  if(!updated.rows[0]){
+    const current=await q('SELECT revision FROM schedules WHERE week_id=$1',[req.params.weekId]);
+    return res.status(409).json({error:'REVISION_CONFLICT',revision:current.rows[0]?.revision??null});
+  }
+  return res.json({schedule:updated.rows[0]});
 });
 
 app.get('/api/store/:collection',auth,async(req,res)=>{
