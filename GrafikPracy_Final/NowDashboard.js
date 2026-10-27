@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import useSecondTicker from './hooks/useSecondTicker';
 import {View, Text, StyleSheet, ScrollView, Platform, Linking, TouchableOpacity} from 'react-native';
 import {apiGetGps} from './apiClient';
+import TripHistoryPanel from './TripHistoryPanel';
 import {WebView} from 'react-native-webview';
 
 const PEOPLE={P:'Paweł',M:'Mateusz',L:'Łukasz'};
@@ -126,6 +127,8 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
      <View style={S.miniMap}>{location?(Platform.OS==='web'?<iframe title="mini-mapa-lokalizacji" style={{width:'100%',height:'100%',border:0,display:'block'}} src={mapUrl(location)}/>:<WebView ref={miniMapRef} key="gps-mini-map" originWhitelist={['*']} mixedContentMode="compatibility" source={{html:miniMapHtml,baseUrl:'https://www.openstreetmap.org/'}} javaScriptEnabled domStorageEnabled setSupportMultipleWindows={false} androidLayerType="software" onLoadEnd={()=>{miniMapLoaded.current=true;syncMiniMap();}} onError={()=>{miniMapLoaded.current=false;}} style={{flex:1,backgroundColor:'#0d121b'}}/>):<Text style={S.locationEmpty}>Mapa pojawi się po odebraniu pozycji GPS.</Text>}</View>
      {location&&<TouchableOpacity accessibilityRole="button" accessibilityLabel="Otwórz aktualną pozycję na mapie" onPress={openMap} style={S.openMapButton}><Text style={S.openMapButtonText}>🗺️ OTWÓRZ MAPĘ NA ŻYWO</Text></TouchableOpacity>}
    </View>
+
+   {location?.id ? <TripHistoryPanel vehicleId={location.id}/> : null}
  </ScrollView>;
 }
 
