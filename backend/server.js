@@ -271,6 +271,23 @@ app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
   res.json({history:r.rows});
 });
 
+app.get('/api/gps/:vehicleId/trips',auth,async(req,res)=>{
+  const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
+  const {buildTrips}=await import('./tripHistory.js');
+  res.json({trips:buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:false})});
+});
+app.get('/api/gps/:vehicleId/trips/:tripId',auth,async(req,res)=>{
+  const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
+  const {buildTrips}=await import('./tripHistory.js');
+  const trip=buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:true}).find(x=>x.id===req.params.tripId);
+  if(!trip)return res.status(404).json({error:'TRIP_NOT_FOUND'});
+  res.json({trip});
+});
+app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
+  const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
+  res.json({history:r.rows});
+});
+
 app.get('/api/schedules/:weekId',auth,async(req,res)=>{
   const r=await q('SELECT week_id,payload,revision,updated_at,updated_by FROM schedules WHERE week_id=$1',[req.params.weekId]);
   res.json({schedule:r.rows[0]||null});
