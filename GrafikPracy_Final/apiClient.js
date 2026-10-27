@@ -1,19 +1,71 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_ORIGIN=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'').replace(/\/api$/i,'');
-// The central Express API mounts all routes under /api (including /api/auth/login).
-export const API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : '';
+const API_URL_CONFIG=String(process.env.EXPO_PUBLIC_API_URL||'').trim().replace(/\/+$/,'');
+const API_ORIGIN=API_URL_CONFIG.replace(/\/api$/i,'').replace(/\/+$/,'');
+const API_URL_VALID=(()=>{if(!API_ORIGIN)return false;try{const u=new URL(API_ORIGIN);return (u.protocol==='https:'||u.protocol==='http:')&&!!u.host&&u.pathname==='/'&&!u.search&&!u.hash;}catch{return false;}})();
+// EXPO_PUBLIC_API_URL is an origin only, for example https://example.com. Never append /api twice.
+export const API_BASE_URL=API_URL_VALID ? API_ORIGIN+'/api' : '';
 export const API_TOKEN_KEY='grafik-pracy-api-token-v1';
 
 async function token(){return AsyncStorage.getItem(API_TOKEN_KEY);}
-export async function api(path,{method='GET',body,headers={}}={}){if(!API_BASE_URL)throw new Error('Brak EXPO_PUBLIC_API_URL. Aplikacja nie ma skonfigurowanego centralnego API.');const t=await token();const h={'Content-Type':'application/json',...headers};if(t)h.Authorization='Bearer '+t;const r=await fetch(API_BASE_URL+path,{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)});let data=null;try{data=await r.json();}catch{}if(!r.ok){const e=new Error(data?.error||'API_ERROR');e.status=r.status;e.code=data?.error;throw e;}return data;}
+export async function api(path,{method='GET',body,headers={}}={}){
+  if(!API_BASE_URL)throw new Error('Nieprawidłowe EXPO_PUBLIC_API_URL. Ustaw adres serwera jako origin, np. https://example.com lub http://192.168.1.10:8787, bez ścieżki /api.');
+
+  const controller=new AbortController();
+  let timeoutId;
+  let timedOut=false;
+  let timeoutError;
+
+  try{
+    const timeout=new Promise((_,reject)=>{
+      timeoutId=setTimeout(()=>{
+        timedOut=true;
+        timeoutError=new Error('API_TIMEOUT');
+        timeoutError.code='API_TIMEOUT';
+        timeoutError.status=408;
+        reject(timeoutError);
+        controller.abort();
+      },15000);
+    });
+
+    const operation=(async()=>{
+      try{
+        const t=await token();
+        const h={'Content-Type':'application/json',...headers};
+        if(t)h.Authorization='Bearer '+t;
+        const r=await fetch(API_BASE_URL+path,{
+          method,
+          headers:h,
+          body:body===undefined?undefined:JSON.stringify(body),
+          signal:controller.signal
+        });
+        let data=null;
+        try{data=await r.json();}catch{}
+        if(!r.ok){
+          const e=new Error(data?.error||'API_ERROR');
+          e.status=r.status;
+          if(data?.error!==undefined)e.code=data.error;
+          throw e;
+        }
+        return data;
+      }catch(error){
+        if(timedOut)throw timeoutError;
+        throw error;
+      }
+    })();
+
+    return await Promise.race([operation,timeout]);
+  }finally{
+    if(timeoutId!==undefined)clearTimeout(timeoutId);
+  }
+}
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
 export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
 export async function apiPostGps(payload,deviceToken){
-  if(!API_BASE_URL)throw new Error('Brak centralnego API.');
+  if(!API_BASE_URL)throw new Error('Nieprawidłowe EXPO_PUBLIC_API_URL. Podaj adres serwera bez końcowego /api.');
   const controller=new AbortController();
   let timeoutId;
   try{
@@ -106,3 +158,6 @@ export function onSnapshot(target,options,callback,errorCallback){
   poll();const timer=setInterval(poll,4000);return()=>{stopped=true;clearInterval(timer);};
 }
 export async function runTransaction(_db,fn){const pending=[];const tx={get:getDoc,update:(r,d)=>{const p=updateDoc(r,d);pending.push(p);return p;},set:(r,d)=>{const p=setDoc(r,d);pending.push(p);return p;}};const result=await fn(tx);await Promise.all(pending);return result;}
+
+export async function apiGetGpsTrips(vehicleId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips')).trips;}
+export async function apiGetGpsTrip(vehicleId,tripId){return (await api('/gps/'+encodeURIComponent(vehicleId)+'/trips/'+encodeURIComponent(tripId))).trip;}
