@@ -1653,7 +1653,7 @@ export default function App() {
   };
 
   const openOff = (dayIndex,shiftIndex) => {
-    if(readOnly || dayHasPassed(dayIndex)) return;
+    if(readOnly) return;
     const sh=currentWeek[dayIndex]?.shifts?.[shiftIndex];
     setOffMode('plain'); setOffReplacement(''); setOffModal({dayIndex,shiftIndex,person:sh?.person||null});
   };
@@ -1750,11 +1750,7 @@ export default function App() {
       Alert.alert('Nieprawidłowa zamiana','Wybierz zmianę, na której wybrany pracownik faktycznie pracuje.');
       return;
     }
-    if(dayHasPassed(swapModal.dayIndex) || dayHasPassed(swapTargetDay)){
-      Alert.alert('Nie można','Nie można proponować zamiany z dniem, który już minął.');
-      return;
-    }
-    const proposal={
+        const proposal={
       fromUid:cloudUser.uid,
       fromEmail:cloudUser.email || '',
       weekKey:wkKey,
@@ -1787,19 +1783,13 @@ export default function App() {
     }
     const fromDay=Number(proposal.fromDay), toDay=Number(proposal.toDay);
     const fromShift=Number(proposal.fromShift), toShift=Number(proposal.toShift);
-    const parts=String(proposalWeekKey).split('-').map(Number);
-    const proposalWeekStart=new Date(parts[0],parts[1]-1,parts[2]);
-    const now=new Date();
-    const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
     const a=proposalWeek[fromDay]?.shifts?.[fromShift-1];
     const b=proposalWeek[toDay]?.shifts?.[toShift-1];
     const expectedA=proposal.fromExpectedPerson ?? proposal.fromPerson ?? null;
     const expectedB=proposal.toExpectedPerson ?? proposal.toPerson ?? null;
     const aMatches=a && a.person===expectedA;
     const bMatches=b && b.person===expectedB;
-    const fromDate=new Date(proposalWeekStart); fromDate.setDate(fromDate.getDate()+fromDay);
-    const toDate=new Date(proposalWeekStart); toDate.setDate(toDate.getDate()+toDay);
-    if(!a || !b || !aMatches || !bMatches || fromDate < today || toDate < today){
+    if(!a || !b || !aMatches || !bMatches){
       Alert.alert('Propozycja nieaktualna','Grafik zmienił się od czasu wysłania propozycji. Zamiana nie została wykonana.');
       return;
     }
@@ -2160,7 +2150,7 @@ export default function App() {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
           <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
-          {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport || dayHasPassed(i)} onPress={()=>!readOnly && !dayHasPassed(i) && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
+          {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>!readOnly && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
             <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(currentWeekTimes,si+1) : ''}</Text>
@@ -2243,7 +2233,7 @@ export default function App() {
           <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
             <View style={S.between}>
               <View>
-                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]} {dayHasPassed(di)?'🔒':'🔓'}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
+                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
                 <Text style={S.muted}>{shortDate(dateObj)} · {d.warehouse || warehouse}</Text>
               </View>
               <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
@@ -2263,25 +2253,25 @@ export default function App() {
 
                   <TouchableOpacity
                     style={[S.person,p&&{backgroundColor:personColor(s.person),borderLeftColor:personColor(s.person),borderLeftWidth:4}]}
-                    onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}
+                    onPress={()=>!readOnly && setEdit({dayIndex:di,shiftIndex:si})}
                   >
                     <Text style={[S.personText,p&&{color:contrastText(personColor(s.person))}]}>{p ? p.name : 'WOLNA ZMIANA'}</Text>
                     <Text style={[S.personSub,p&&{color:contrastText(personColor(s.person)),opacity:0.82}]}>{s.warehouse || warehouse}</Text>
                   </TouchableOpacity>
 
                   <View style={S.actions}>
-                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && toggleLock(di,si)}>
+                    <TouchableOpacity onPress={()=>!readOnly && toggleLock(di,si)}>
                       <Text style={S.actionText}>{s.locked?'Odblokuj':'Zablokuj'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}>
                       <Text style={S.actionText}>Edytuj</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && removeShift(di,si)}>
+                    <TouchableOpacity onPress={()=>!readOnly && removeShift(di,si)}>
                       <Text style={S.delete}>Usuń</Text>
                     </TouchableOpacity>
                   </View>
-                  {!dayHasPassed(di) && s.person && cloudUser && <TouchableOpacity style={S.swapMini} onPress={()=>setSwapModal({dayIndex:di,shiftIndex:si,person:s.person})}><Text style={S.actionText}>🔄 Zaproponuj zamianę</Text></TouchableOpacity>}
-                  {!dayHasPassed(di) && !readOnly && <TouchableOpacity style={S.swapMini} onPress={()=>openOff(di,si)}><Text style={S.actionText}>🏖️ Ustaw wolne</Text></TouchableOpacity>}
+                  {s.person && cloudUser && <TouchableOpacity style={S.swapMini} onPress={()=>setSwapModal({dayIndex:di,shiftIndex:si,person:s.person})}><Text style={S.actionText}>🔄 Zaproponuj zamianę</Text></TouchableOpacity>}
+                  {!readOnly && <TouchableOpacity style={S.swapMini} onPress={()=>openOff(di,si)}><Text style={S.actionText}>🏖️ Ustaw wolne</Text></TouchableOpacity>}
                 </View>
               );
             })}
