@@ -76,3 +76,5 @@ jobs:
           path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+# Harmless comment update to trigger a fresh build on main.
