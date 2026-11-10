@@ -2263,7 +2263,7 @@ export default function App() {
                     <TouchableOpacity onPress={()=>!readOnly && toggleLock(di,si)}>
                       <Text style={S.actionText}>{s.locked?'Odblokuj':'Zablokuj'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={()=>!readOnly && !dayHasPassed(di) && setEdit({dayIndex:di,shiftIndex:si})}>
+                    <TouchableOpacity onPress={()=>!readOnly && setEdit({dayIndex:di,shiftIndex:si})}>
                       <Text style={S.actionText}>Edytuj</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={()=>!readOnly && removeShift(di,si)}>
