@@ -151,19 +151,39 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence uses a fresh transaction snapshot and updates only dirty shift fields', async () => {
+test('schedule cloud persistence sends dirty slot patches with base values to the atomic API', async () => {
   const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
-  const blockEnd = source.indexOf("    },250);", blockStart);
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const client = await fs.readFile(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const blockStart = app.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
+  const blockEnd = app.indexOf("    },250);", blockStart);
   assert.ok(blockStart >= 0 && blockEnd > blockStart);
-  const block = source.slice(blockStart, blockEnd);
+  const block = app.slice(blockStart, blockEnd);
   assert.match(block, /const localMap=weekToShiftMap\(localWeek,weekKeyAtSave\)/);
-  assert.ok(block.includes('transactionUpdate[`shifts.${key}`]'));
-  assert.ok(block.includes('runTransaction(db, async tx =>'));
-  assert.ok(block.includes('tx.get(scheduleRef)'));
-  assert.ok(block.includes('tx.update(scheduleRef,transactionUpdate)'));
-  assert.doesNotMatch(block, /tx\.set\(settingsRef/);
+  assert.match(block, /expectedSlots/);
+  assert.match(block, /await apiPatchSchedule\(weekKeyAtSave,patchPayload\)/);
+  assert.match(client, /apiPatchSchedule\(w,p\)/);
+  assert.match(backend, /app\.patch\('\/api\/schedules\/:weekId\/patch'/);
+  assert.match(backend, /FOR UPDATE/);
+  assert.match(backend, /SCHEDULE_FIELD_CONFLICT/);
+  assert.match(backend, /await client\.query\('COMMIT'\)/);
+  assert.doesNotMatch(block, /runTransaction\(db, async tx =>/);
+});
+
+test('proposal approval updates schedule slots and proposal status in one PostgreSQL transaction', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const client = await fs.readFile(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(app, /await apiApproveProposal\(proposal\.id/);
+  assert.match(app, /await apiRejectProposal\(id\)/);
+  assert.match(client, /apiApproveProposal\(id,p\)/);
+  assert.match(client, /apiRejectProposal\(id\)/);
+  assert.match(backend, /app\.post\('\/api\/proposals\/:proposalId\/approve'/);
+  assert.match(backend, /app\.post\('\/api\/proposals\/:proposalId\/reject'/);
+  assert.match(backend, /PROPOSAL_STALE/);
+  assert.match(backend, /PROPOSAL_NOT_PENDING/);
 });
 
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
