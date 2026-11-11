@@ -77,4 +77,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-# Harmless comment update to trigger a fresh build on main.
+# Trigger fresh APK build after synchronization retry update.
