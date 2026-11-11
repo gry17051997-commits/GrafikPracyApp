@@ -298,6 +298,43 @@ app.put('/api/schedules/:weekId',auth,async(req,res)=>{
   res.json({schedule:r.rows[0]});
 });
 
+
+function jsonEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+async function lockDocument(client,collectionName,docId,userId){
+ await client.query('INSERT INTO documents(collection_name,doc_id,payload,revision,updated_by) VALUES($1,$2,$3::jsonb,1,$4) ON CONFLICT(collection_name,doc_id) DO NOTHING',[collectionName,docId,JSON.stringify({}),userId]);
+ const r=await client.query('SELECT payload,revision FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',[collectionName,docId]);return r.rows[0];
+}
+app.patch('/api/schedules/:weekId/patch',auth,admin,async(req,res)=>{
+ const weekId=String(req.params.weekId||''),b=req.body||{},slots=b.slots&&typeof b.slots==='object'?b.slots:{},expected=b.expectedSlots&&typeof b.expectedSlots==='object'?b.expectedSlots:{},hasConfig=Object.prototype.hasOwnProperty.call(b,'config'),client=await pool.connect();
+ try{await client.query('BEGIN');const row=await lockDocument(client,'schedules',weekId,req.user.id),payload=row.payload&&typeof row.payload==='object'?row.payload:{},shifts=payload.shifts&&typeof payload.shifts==='object'?{...payload.shifts}:{},conflicts=[];
+ for(const key of Object.keys(slots)){if(!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(key)){await client.query('ROLLBACK');return res.status(400).json({error:'INVALID_SHIFT_KEY'});}const he=Object.prototype.hasOwnProperty.call(expected,key),hc=Object.prototype.hasOwnProperty.call(shifts,key);if(he!==hc||(he&&!jsonEqual(expected[key],shifts[key])))conflicts.push(key);}
+ if(hasConfig&&Object.prototype.hasOwnProperty.call(b,'expectedConfig')&&!jsonEqual(payload.config??null,b.expectedConfig??null))conflicts.push('config');
+ if(conflicts.length){await client.query('ROLLBACK');return res.status(409).json({error:'SCHEDULE_FIELD_CONFLICT',conflicts});}
+ for(const [k,v] of Object.entries(slots)){if(v===null)delete shifts[k];else shifts[k]=v;}
+ const next={...payload,weekId,shifts,updatedAt:new Date().toISOString(),updatedBy:req.user.id};if(hasConfig)next.config=b.config;
+ const u=await client.query('UPDATE documents SET payload=$3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2 RETURNING revision,payload,updated_at',['schedules',weekId,JSON.stringify(next),req.user.id]);
+ await client.query('COMMIT');res.json({ok:true,revision:u.rows[0].revision,data:u.rows[0].payload,updatedAt:u.rows[0].updated_at});
+ }catch(e){try{await client.query('ROLLBACK');}catch{}console.error('Schedule patch failed',e);res.status(500).json({error:'SCHEDULE_PATCH_FAILED'});}finally{client.release();}
+});
+app.post('/api/proposals/:proposalId/approve',auth,admin,async(req,res)=>{
+ const pid=String(req.params.proposalId||''),weekId=String(req.body?.weekId||''),aKey=String(req.body?.fromKey||''),bKey=String(req.body?.toKey||'');
+ if(!weekId||!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(aKey)||!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(bKey)||aKey===bKey)return res.status(400).json({error:'INVALID_PROPOSAL_APPROVAL'});
+ const client=await pool.connect();try{await client.query('BEGIN');
+ const pr=await client.query('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',['proposals',pid]);if(!pr.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'PROPOSAL_NOT_FOUND'});}
+ const p=pr.rows[0].payload||{};if(p.status!=='pending'){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_NOT_PENDING'});}if(String(p.weekKey||weekId)!==weekId){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_WEEK_MISMATCH'});}
+ const sr=await client.query('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',['schedules',weekId]);if(!sr.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'SCHEDULE_NOT_FOUND'});}
+ const data=sr.rows[0].payload||{},shifts=data.shifts&&typeof data.shifts==='object'?{...data.shifts}:{},x=shifts[aKey],y=shifts[bKey],ea=p.fromExpectedPerson??p.fromPerson??null,eb=p.toExpectedPerson??p.toPerson??null;
+ if(!x||!y||x.person!==ea||y.person!==eb||x.locked||y.locked){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_STALE'});}
+ shifts[aKey]={...x,person:y.person,manual:true};shifts[bKey]={...y,person:x.person,manual:true};const next={...data,shifts,updatedAt:new Date().toISOString(),updatedBy:req.user.id};
+ await client.query('UPDATE documents SET payload=$3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2',['schedules',weekId,JSON.stringify(next),req.user.id]);
+ const np={...p,status:'approved',approvedAt:new Date().toISOString(),approvedBy:req.user.id};await client.query('UPDATE documents SET payload=$3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2',['proposals',pid,JSON.stringify(np),req.user.id]);
+ await client.query('COMMIT');res.json({ok:true,schedule:next,proposal:np});
+ }catch(e){try{await client.query('ROLLBACK');}catch{}console.error('Proposal approval failed',e);res.status(500).json({error:'PROPOSAL_APPROVAL_FAILED'});}finally{client.release();}
+});
+app.post('/api/proposals/:proposalId/reject',auth,admin,async(req,res)=>{
+ const client=await pool.connect();try{await client.query('BEGIN');const r=await client.query('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',['proposals',String(req.params.proposalId)]);if(!r.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'PROPOSAL_NOT_FOUND'});}const p=r.rows[0].payload||{};if(p.status!=='pending'){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_NOT_PENDING'});}const next={...p,status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:req.user.id};await client.query('UPDATE documents SET payload=$3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2',['proposals',String(req.params.proposalId),JSON.stringify(next),req.user.id]);await client.query('COMMIT');res.json({ok:true,proposal:next});}catch(e){try{await client.query('ROLLBACK');}catch{}res.status(500).json({error:'PROPOSAL_REJECTION_FAILED'});}finally{client.release();}
+});
+
 app.get('/api/store/:collection',auth,async(req,res)=>{
   try{
     assertCollectionName(req.params.collection);
