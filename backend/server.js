@@ -312,18 +312,32 @@ app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
   res.json({history:r.rows});
 });
 
+// Compatibility routes use the same documents.schedules records as the app store and atomic patch API.
 app.get('/api/schedules/:weekId',auth,async(req,res)=>{
-  const r=await q('SELECT week_id,payload,revision,updated_at,updated_by FROM schedules WHERE week_id=$1',[req.params.weekId]);
-  res.json({schedule:r.rows[0]||null});
+  const r=await q('SELECT doc_id,payload,revision,updated_at,updated_by FROM documents WHERE collection_name=$1 AND doc_id=$2',['schedules',req.params.weekId]);
+  if(!r.rows[0])return res.json({schedule:null});
+  const row=r.rows[0];
+  res.json({schedule:{week_id:row.doc_id,payload:row.payload,revision:row.revision,updated_at:row.updated_at,updated_by:row.updated_by}});
 });
-app.put('/api/schedules/:weekId',auth,async(req,res)=>{
-  if(req.user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});
-  const r=await q('INSERT INTO schedules(week_id,payload,revision,updated_by) VALUES($1,$2,1,$3) ON CONFLICT(week_id) DO UPDATE SET payload=EXCLUDED.payload,revision=schedules.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING *',[req.params.weekId,JSON.stringify(req.body?.payload||{}),req.user.id]);
-  res.json({schedule:r.rows[0]});
+app.put('/api/schedules/:weekId',auth,admin,scheduleWriteLimit,async(req,res)=>{
+  const payload=req.body?.payload&&typeof req.body.payload==='object'?req.body.payload:{};
+  const r=await q('INSERT INTO documents(collection_name,doc_id,payload,revision,updated_by) VALUES($1,$2,$3::jsonb,1,$4) ON CONFLICT(collection_name,doc_id) DO UPDATE SET payload=EXCLUDED.payload,revision=documents.revision+1,updated_at=NOW(),updated_by=EXCLUDED.updated_by RETURNING doc_id,payload,revision,updated_at,updated_by',['schedules',req.params.weekId,JSON.stringify(payload),req.user.id]);
+  const row=r.rows[0];
+  res.json({schedule:{week_id:row.doc_id,payload:row.payload,revision:row.revision,updated_at:row.updated_at,updated_by:row.updated_by}});
 });
 
 
-function jsonEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+function jsonEqual(a,b){
+ if(a===b)return true;
+ if(a===null||b===null||typeof a!=='object'||typeof b!=='object')return a===b;
+ if(Array.isArray(a)||Array.isArray(b)){
+  if(!Array.isArray(a)||!Array.isArray(b)||a.length!==b.length)return false;
+  return a.every((value,index)=>jsonEqual(value,b[index]));
+ }
+ const ak=Object.keys(a).sort(),bk=Object.keys(b).sort();
+ if(ak.length!==bk.length)return false;
+ return ak.every((key,index)=>key===bk[index]&&jsonEqual(a[key],b[key]));
+}
 function scheduleSlotKey(weekId,dayOffset,shiftNumber){
  const m=String(weekId).match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)throw new Error('INVALID_WEEK_ID');
  const d=new Date(Date.UTC(Number(m[1]),Number(m[2])-1,Number(m[3])+Number(dayOffset)));
@@ -339,13 +353,17 @@ function normalizeScheduleShifts(payload,weekId){
  }));
  return map;
 }
-async function lockDocument(client,collectionName,docId,userId){
- await client.query('INSERT INTO documents(collection_name,doc_id,payload,revision,updated_by) VALUES($1,$2,$3::jsonb,1,$4) ON CONFLICT(collection_name,doc_id) DO NOTHING',[collectionName,docId,JSON.stringify({}),userId]);
- const r=await client.query('SELECT payload,revision FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',[collectionName,docId]);return r.rows[0];
+async function lockDocument(client,collectionName,docId){
+ const r=await client.query('SELECT payload,revision,updated_at,updated_by FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',[collectionName,docId]);
+ return r.rows[0]||null;
 }
 app.patch('/api/schedules/:weekId/patch',auth,admin,scheduleWriteLimit,async(req,res)=>{
  const weekId=String(req.params.weekId||''),b=req.body||{},slots=b.slots&&typeof b.slots==='object'?b.slots:{},expected=b.expectedSlots&&typeof b.expectedSlots==='object'?b.expectedSlots:{},hasConfig=Object.prototype.hasOwnProperty.call(b,'config'),client=await pool.connect();
- try{await client.query('BEGIN');const row=await lockDocument(client,'schedules',weekId,req.user.id),payload=row.payload&&typeof row.payload==='object'?row.payload:{},shifts=normalizeScheduleShifts(payload,weekId),conflicts=[];
+ try{
+ await client.query('BEGIN');
+ const row=await lockDocument(client,'schedules',weekId);
+ if(!row){await client.query('ROLLBACK');return res.status(404).json({error:'SCHEDULE_NOT_FOUND'});}
+ const payload=row.payload&&typeof row.payload==='object'?row.payload:{},shifts=normalizeScheduleShifts(payload,weekId),conflicts=[];
  for(const key of Object.keys(slots)){if(!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(key)){await client.query('ROLLBACK');return res.status(400).json({error:'INVALID_SHIFT_KEY'});}const he=Object.prototype.hasOwnProperty.call(expected,key),hc=Object.prototype.hasOwnProperty.call(shifts,key);if(he!==hc||(he&&!jsonEqual(expected[key],shifts[key])))conflicts.push(key);}
  if(hasConfig&&Object.prototype.hasOwnProperty.call(b,'expectedConfig')&&!jsonEqual(payload.config??null,b.expectedConfig??null))conflicts.push('config');
  if(conflicts.length){await client.query('ROLLBACK');return res.status(409).json({error:'SCHEDULE_FIELD_CONFLICT',conflicts});}
@@ -363,7 +381,7 @@ app.post('/api/proposals/:proposalId/approve',auth,admin,proposalWriteLimit,asyn
  const p=pr.rows[0].payload||{};if(p.status!=='pending'){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_NOT_PENDING'});}if(String(p.weekKey||weekId)!==weekId){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_WEEK_MISMATCH'});}
  const expectedFrom=scheduleSlotKey(weekId,Number(p.fromDay),Number(p.fromShift)),expectedTo=scheduleSlotKey(weekId,Number(p.toDay),Number(p.toShift));
  if(aKey!==expectedFrom||bKey!==expectedTo){await client.query('ROLLBACK');return res.status(400).json({error:'PROPOSAL_SLOT_MISMATCH'});}
- const sr=await client.query('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',['schedules',weekId]);if(!sr.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'SCHEDULE_NOT_FOUND'});}
+ const scheduleRow=await lockDocument(client,'schedules',weekId);if(!scheduleRow){await client.query('ROLLBACK');return res.status(404).json({error:'SCHEDULE_NOT_FOUND'});}const sr={rows:[scheduleRow]};
  const data=sr.rows[0].payload||{},shifts=normalizeScheduleShifts(data,weekId),x=shifts[aKey],y=shifts[bKey],ea=p.fromExpectedPerson??p.fromPerson??null,eb=p.toExpectedPerson??p.toPerson??null;
  if(!x||!y||x.person!==ea||y.person!==eb||x.locked||y.locked){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_STALE'});}
  shifts[aKey]={...x,person:y.person,manual:true};shifts[bKey]={...y,person:x.person,manual:true};const next={...data,shifts,updatedAt:new Date().toISOString(),updatedBy:req.user.id};
