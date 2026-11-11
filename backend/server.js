@@ -50,6 +50,30 @@ async function auth(req,res,next){
   }catch(e){next(e);}
 }
 function admin(req,res,next){if(req.user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});next();}
+function createUserRateLimiter({windowMs,max}) {
+  const buckets = new Map();
+  return (req,res,next) => {
+    const now = Date.now();
+    const key = String(req.user?.id || req.ip || 'anonymous');
+    let bucket = buckets.get(key);
+    if (!bucket || now - bucket.startedAt >= windowMs) {
+      bucket = {startedAt:now,count:0};
+      buckets.set(key,bucket);
+    }
+    bucket.count += 1;
+    if (bucket.count > max) {
+      const retryAfter = Math.max(1,Math.ceil((windowMs - (now - bucket.startedAt))/1000));
+      res.set('Retry-After',String(retryAfter));
+      return res.status(429).json({error:'RATE_LIMITED',retryAfter});
+    }
+    if (buckets.size > 5000) {
+      for (const [id,value] of buckets) if (now - value.startedAt >= windowMs) buckets.delete(id);
+    }
+    next();
+  };
+}
+const scheduleWriteLimit = createUserRateLimiter({windowMs:60_000,max:90});
+const proposalWriteLimit = createUserRateLimiter({windowMs:60_000,max:30});
 
 function canStoreRead(name,user,payload={}){
   if(name==='audit')return user.role==='admin';
@@ -319,7 +343,7 @@ async function lockDocument(client,collectionName,docId,userId){
  await client.query('INSERT INTO documents(collection_name,doc_id,payload,revision,updated_by) VALUES($1,$2,$3::jsonb,1,$4) ON CONFLICT(collection_name,doc_id) DO NOTHING',[collectionName,docId,JSON.stringify({}),userId]);
  const r=await client.query('SELECT payload,revision FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',[collectionName,docId]);return r.rows[0];
 }
-app.patch('/api/schedules/:weekId/patch',auth,admin,async(req,res)=>{
+app.patch('/api/schedules/:weekId/patch',auth,admin,scheduleWriteLimit,async(req,res)=>{
  const weekId=String(req.params.weekId||''),b=req.body||{},slots=b.slots&&typeof b.slots==='object'?b.slots:{},expected=b.expectedSlots&&typeof b.expectedSlots==='object'?b.expectedSlots:{},hasConfig=Object.prototype.hasOwnProperty.call(b,'config'),client=await pool.connect();
  try{await client.query('BEGIN');const row=await lockDocument(client,'schedules',weekId,req.user.id),payload=row.payload&&typeof row.payload==='object'?row.payload:{},shifts=normalizeScheduleShifts(payload,weekId),conflicts=[];
  for(const key of Object.keys(slots)){if(!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(key)){await client.query('ROLLBACK');return res.status(400).json({error:'INVALID_SHIFT_KEY'});}const he=Object.prototype.hasOwnProperty.call(expected,key),hc=Object.prototype.hasOwnProperty.call(shifts,key);if(he!==hc||(he&&!jsonEqual(expected[key],shifts[key])))conflicts.push(key);}
@@ -331,7 +355,7 @@ app.patch('/api/schedules/:weekId/patch',auth,admin,async(req,res)=>{
  await client.query('COMMIT');res.json({ok:true,revision:u.rows[0].revision,data:u.rows[0].payload,updatedAt:u.rows[0].updated_at});
  }catch(e){try{await client.query('ROLLBACK');}catch{}console.error('Schedule patch failed',e);res.status(500).json({error:'SCHEDULE_PATCH_FAILED'});}finally{client.release();}
 });
-app.post('/api/proposals/:proposalId/approve',auth,admin,async(req,res)=>{
+app.post('/api/proposals/:proposalId/approve',auth,admin,proposalWriteLimit,async(req,res)=>{
  const pid=String(req.params.proposalId||''),weekId=String(req.body?.weekId||''),aKey=String(req.body?.fromKey||''),bKey=String(req.body?.toKey||'');
  if(!weekId||!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(aKey)||!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(bKey)||aKey===bKey)return res.status(400).json({error:'INVALID_PROPOSAL_APPROVAL'});
  const client=await pool.connect();try{await client.query('BEGIN');
@@ -348,7 +372,7 @@ app.post('/api/proposals/:proposalId/approve',auth,admin,async(req,res)=>{
  await client.query('COMMIT');res.json({ok:true,schedule:next,proposal:np});
  }catch(e){try{await client.query('ROLLBACK');}catch{}console.error('Proposal approval failed',e);res.status(500).json({error:'PROPOSAL_APPROVAL_FAILED'});}finally{client.release();}
 });
-app.post('/api/proposals/:proposalId/reject',auth,admin,async(req,res)=>{
+app.post('/api/proposals/:proposalId/reject',auth,admin,proposalWriteLimit,async(req,res)=>{
  const client=await pool.connect();try{await client.query('BEGIN');const r=await client.query('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2 FOR UPDATE',['proposals',String(req.params.proposalId)]);if(!r.rows[0]){await client.query('ROLLBACK');return res.status(404).json({error:'PROPOSAL_NOT_FOUND'});}const p=r.rows[0].payload||{};if(p.status!=='pending'){await client.query('ROLLBACK');return res.status(409).json({error:'PROPOSAL_NOT_PENDING'});}const next={...p,status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:req.user.id};await client.query('UPDATE documents SET payload=$3::jsonb,revision=revision+1,updated_at=NOW(),updated_by=$4 WHERE collection_name=$1 AND doc_id=$2',['proposals',String(req.params.proposalId),JSON.stringify(next),req.user.id]);await client.query('COMMIT');res.json({ok:true,proposal:next});}catch(e){try{await client.query('ROLLBACK');}catch{}res.status(500).json({error:'PROPOSAL_REJECTION_FAILED'});}finally{client.release();}
 });
 
