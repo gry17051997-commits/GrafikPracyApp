@@ -301,7 +301,7 @@ app.put('/api/schedules/:weekId',auth,async(req,res)=>{
 
 function jsonEqual(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 function scheduleSlotKey(weekId,dayOffset,shiftNumber){
- const m=String(weekId).match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);if(!m)throw new Error('INVALID_WEEK_ID');
+ const m=String(weekId).match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)throw new Error('INVALID_WEEK_ID');
  const d=new Date(Date.UTC(Number(m[1]),Number(m[2])-1,Number(m[3])+Number(dayOffset)));
  const date=d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
  return 'shift_'+date+'_'+shiftNumber;
