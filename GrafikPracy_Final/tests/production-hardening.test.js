@@ -167,6 +167,9 @@ test('schedule cloud persistence sends dirty slot patches with base values to th
   assert.match(backend, /app\.patch\('\/api\/schedules\/:weekId\/patch'/);
   assert.match(backend, /FOR UPDATE/);
   assert.match(backend, /SCHEDULE_FIELD_CONFLICT/);
+  assert.match(backend, /createUserRateLimiter/);
+  assert.match(backend, /scheduleWriteLimit/);
+  assert.match(backend, /proposalWriteLimit/);
   assert.match(backend, /await client\.query\('COMMIT'\)/);
   assert.doesNotMatch(block, /runTransaction\(db, async tx =>/);
 });
