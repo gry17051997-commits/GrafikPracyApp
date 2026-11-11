@@ -64,7 +64,11 @@ export function updateDoc(r,data){
   const task=previous.catch(()=>{}).then(async()=>{
     const patch=Object.entries(data||{});
     let lastError=null;
-    for(let attempt=0;attempt<4;attempt++){
+    // Multiple clients can update the same schedule document at nearly the
+    // same time. Re-read the latest revision and rebase the patch on every
+    // conflict instead of failing after only four short retries.
+    const maxAttempts=8;
+    for(let attempt=0;attempt<maxAttempts;attempt++){
       try{
         const current=await getDoc(r);
         const base=current.exists()?current.data():{};
@@ -84,8 +88,11 @@ export function updateDoc(r,data){
         return await setDoc(r,next,{merge:false,expectedRevision:Number(current.revision)||undefined});
       }catch(e){
         lastError=e;
-        if(e?.code!=='REVISION_CONFLICT' || attempt===3) throw e;
-        await new Promise(resolve=>setTimeout(resolve,150*(attempt+1)));
+        if(e?.code!=='REVISION_CONFLICT' || attempt===maxAttempts-1) throw e;
+        // Exponential backoff gives the competing client time to finish its
+        // write; the next iteration fetches a fresh server revision.
+        const delay=Math.min(3000,200*Math.pow(2,attempt));
+        await new Promise(resolve=>setTimeout(resolve,delay));
       }
     }
     throw lastError||new Error('UPDATE_FAILED');
