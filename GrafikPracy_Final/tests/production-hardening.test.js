@@ -390,7 +390,8 @@ test('atomic schedule API uses one documents store for legacy and patch routes',
   assert.match(legacy, /FROM documents WHERE collection_name=\$1 AND doc_id=\$2/);
   assert.match(legacy, /INSERT INTO documents\(collection_name,doc_id,payload/);
   assert.doesNotMatch(legacy, /FROM schedules|INTO schedules/);
-  assert.match(backend, /if\(!row&&b\.createIfMissing===true\)/);\n  assert.match(backend, /SCHEDULE_NOT_FOUND/);
+  assert.match(backend, /if\(!row&&b\.createIfMissing===true\)/);
+  assert.match(backend, /SCHEDULE_NOT_FOUND/);
 });
 
 test('schedule conflict refreshes baseline without silently retrying the conflicting edit', async () => {
