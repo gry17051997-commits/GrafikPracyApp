@@ -186,6 +186,15 @@ test('proposal approval updates schedule slots and proposal status in one Postgr
   assert.match(backend, /PROPOSAL_NOT_PENDING/);
 });
 
+test('atomic schedule API parses real ISO week identifiers and keeps config baseline after save', async () => {
+  const fs = await import('node:fs/promises');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(backend, /match\\(\\/\\^\\(\\\\d\\{4\\}\\)-\\(\\\\d\\{2\\}\\}\\)-\\(\\\\d\\{2\\}\\}\\)\\$\\/\\)/);
+  assert.doesNotMatch(backend, /match\\(\\/\\^\\(\\\\\\\\d/);
+  assert.match(app, /remoteWeekConfigByWeekRef\\.current\\[weekKeyAtSave\\]=latestData\\.config \\?\\? config/);
+});
+
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
