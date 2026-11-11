@@ -27,7 +27,7 @@ import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
 import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, getLocationDiagnostics, LOCATION_CONFIG_KEY} from './LocationService';
 import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
-import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
+import {apiLogin,apiLogout,apiMe,api,apiPatchSchedule,apiApproveProposal,apiRejectProposal,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
@@ -893,43 +893,11 @@ export default function App() {
           return;
         }
 
-        await runTransaction(db, async tx => {
-          const snap=await tx.get(scheduleRef);
-          if (!snap.exists()) {
-            tx.set(scheduleRef,{
-              weekId:weekKeyAtSave,
-              shifts:localMap,
-              config,
-              updatedAt:serverTimestamp(),
-              updatedBy:cloudUser.uid
-            });
-            return;
-          }
-
-          const current=snap.data() || {};
-          const currentMap=current.shifts && typeof current.shifts === 'object'
-            ? current.shifts
-            : weekToShiftMap(current.week || [],weekKeyAtSave);
-
-          // Rebase only the locally dirty slots onto the transaction's fresh
-          // server snapshot. Changes made by another device are preserved.
-          const transactionUpdate={
-            updatedAt:serverTimestamp(),
-            updatedBy:cloudUser.uid
-          };
-          dirtyAtSave.forEach(key => {
-            if (Object.prototype.hasOwnProperty.call(localMap,key)) {
-              transactionUpdate[`shifts.${key}`]=localMap[key];
-            } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
-              transactionUpdate[`shifts.${key}`]=deleteField();
-            }
-          });
-          if (configDirtyAtSave) transactionUpdate.config=config;
-
-          if (Object.keys(transactionUpdate).length > 2) {
-            tx.update(scheduleRef,transactionUpdate);
-          }
-        });
+        const slots={},expectedSlots={},remoteMap=remoteShiftMapByWeekRef.current[weekKeyAtSave]||{};
+        dirtyAtSave.forEach(key=>{slots[key]=Object.prototype.hasOwnProperty.call(localMap,key)?localMap[key]:null;if(Object.prototype.hasOwnProperty.call(remoteMap,key))expectedSlots[key]=remoteMap[key];});
+        const patchPayload={slots,expectedSlots};
+        if(configDirtyAtSave){patchPayload.config=config;patchPayload.expectedConfig=remoteWeekConfigByWeekRef.current[weekKeyAtSave]??null;}
+        await apiPatchSchedule(weekKeyAtSave,patchPayload);
 
         const latest=await getDoc(scheduleRef);
         const latestData=latest.exists()?latest.data():{};
@@ -1799,33 +1767,10 @@ export default function App() {
     }
     try {
       if(CENTRAL_API_ENABLED && db) {
-        const proposalRef=doc(db,'proposals',proposal.id);
-        const scheduleRef=doc(db,'schedules',proposalWeekKey);
-        const committedWeek=await runTransaction(db,async tx=>{
-          const proposalSnap=await tx.get(proposalRef);
-          if(!proposalSnap.exists() || proposalSnap.data()?.status !== 'pending') {
-            throw new Error('proposal-not-pending');
-          }
-          const scheduleSnap=await tx.get(scheduleRef);
-          if(!scheduleSnap.exists()) throw new Error('schedule-missing');
-          const scheduleData=scheduleSnap.data() || {};
-          const currentMap=scheduleData.shifts && typeof scheduleData.shifts === 'object'
-            ? scheduleData.shifts
-            : weekToShiftMap(scheduleData.week || [],proposalWeekKey);
-          const source=shiftMapToWeek(currentMap,proposalWeek,proposalWeekKey);
-          const x=source?.[fromDay]?.shifts?.[fromShift-1];
-          const y=source?.[toDay]?.shifts?.[toShift-1];
-          if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
-            throw new Error('proposal-stale');
-          }
-          const next=cloneWeek(source);
-          const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
-          const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
-          const nextMap=weekToShiftMap(next,proposalWeekKey);
-          tx.update(scheduleRef,{shifts:nextMap,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
-          tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
-          return next;
-        });
+        const fromKey=`shift_${weekDateKey(proposalWeekKey,fromDay)}_${fromShift}`,toKey=`shift_${weekDateKey(proposalWeekKey,toDay)}_${toShift}`;
+        await apiApproveProposal(proposal.id,{weekId:proposalWeekKey,fromKey,toKey});
+        const fresh=await getDoc(doc(db,'schedules',proposalWeekKey)),freshData=fresh.exists()?fresh.data():{},freshMap=freshData.shifts&&typeof freshData.shifts==='object'?freshData.shifts:{};
+        const committedWeek=shiftMapToWeek(freshMap,proposalWeek,proposalWeekKey);
         setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
       } else {
         const source=weeks[proposalWeekKey];
@@ -1847,12 +1792,7 @@ export default function App() {
     if (readOnly) return;
     try {
       if(CENTRAL_API_ENABLED && db) {
-        const proposalRef=doc(db,'proposals',id);
-        await runTransaction(db,async tx=>{
-          const snap=await tx.get(proposalRef);
-          if(!snap.exists() || snap.data()?.status !== 'pending') throw new Error('proposal-not-pending');
-          tx.update(proposalRef,{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
-        });
+        await apiRejectProposal(id);
       } else {
         setProposals(p=>p.map(x=>x.id===id && x.status==='pending'?{...x,status:'rejected'}:x));
       }
