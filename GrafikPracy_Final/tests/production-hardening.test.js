@@ -380,3 +380,37 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
 });
+
+test('atomic schedule API uses one documents store for legacy and patch routes', async () => {
+  const fs = await import('node:fs/promises');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const legacyStart = backend.indexOf("app.get('/api/schedules/:weekId'");
+  const legacyEnd = backend.indexOf("function jsonEqual", legacyStart);
+  const legacy = backend.slice(legacyStart, legacyEnd);
+  assert.match(legacy, /FROM documents WHERE collection_name=\$1 AND doc_id=\$2/);
+  assert.match(legacy, /INSERT INTO documents\(collection_name,doc_id,payload/);
+  assert.doesNotMatch(legacy, /FROM schedules|INTO schedules/);
+  assert.match(backend, /if\(!row\)\{await client\.query\('ROLLBACK'\);return res\.status\(404\)/);
+});
+
+test('schedule conflict refreshes baseline without silently retrying the conflicting edit', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const start = app.indexOf("if(code==='SCHEDULE_FIELD_CONFLICT')");
+  const end = app.indexOf("setCloudError('Nie udało się zapisać zmiany grafiku online.", start);
+  const block = app.slice(start, end);
+  assert.match(block, /await getDoc\(scheduleRef\)/);
+  assert.match(block, /remoteShiftMapByWeekRef\.current\[weekKeyAtSave\]=data\.shifts/);
+  assert.match(block, /cloudDirtyRef\.current=false/);
+  assert.match(block, /Do not auto-retry a conflicting slot/);
+});
+
+test('central API ISO timestamps are parsed and proposal state follows server writes', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const api = await fs.readFile(new URL('../apiClient.js', import.meta.url), 'utf8');
+  assert.match(app, /Date\.parse\(savedAt\)/);
+  assert.doesNotMatch(app, /latestData\.updatedAt\?\.toMillis\?\(\)\s*\?\?\s*null/);
+  assert.match(app, /setProposals\(p=>p\.map\(x=>x\.id===id&&x\.status==='pending'\?\{\.\.\.x,status:'rejected'\}:x\)\)/);
+  assert.match(api, /e\.conflicts=Array\.isArray\(data\?\.conflicts\)/);
+});
