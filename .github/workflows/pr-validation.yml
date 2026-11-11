@@ -51,7 +51,7 @@ jobs:
         run: node -e "const u=process.env.EXPO_PUBLIC_API_URL; if (u !== \"https://grafik-pracy-api-fra.onrender.com\") process.exit(1); console.log(\"Central API URL configured:\", u)"
       - name: Smoke test live central API and login route
         env:
-          API_ORIGIN: ${{ env.EXPO_PUBLIC_API_URL }}
+          API_ORIGIN: "https://grafik-pracy-api-fra.onrender.com"
         run: |
           set -euo pipefail
           echo "Checking central API health (Render may need a cold start)..."
