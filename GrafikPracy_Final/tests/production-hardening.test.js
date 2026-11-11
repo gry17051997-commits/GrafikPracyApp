@@ -195,7 +195,7 @@ test('atomic schedule API parses real ISO week identifiers and keeps config base
   const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   assert.ok(backend.includes(String.raw`match(/^(\d{4})-(\d{2})-(\d{2})$/)`));
   assert.ok(!backend.includes(String.raw`match(/^(\\d`));
-  assert.ok(app.includes('remoteWeekConfigByWeekRef.current[weekKeyAtSave]=latestData.config ?? config'));
+  assert.match(app, /remoteWeekConfigByWeekRef\.current\[weekKeyAtSave\]=serverData\.config\?\?null/);
 });
 
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
