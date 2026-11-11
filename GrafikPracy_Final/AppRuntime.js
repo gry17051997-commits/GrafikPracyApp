@@ -1326,7 +1326,7 @@ export default function App() {
       setAuthPassword('');
       setCloudReady(true);
     }catch(e){
-      setCloudError(e?.code==='INVALID_CREDENTIALS'?'Nieprawidłowy e-mail lub hasło.':'Nie udało się zalogować do centralnego serwera.');
+      setCloudError(e?.code==='TOO_MANY_ATTEMPTS'?'Zbyt wiele prób logowania. Spróbuj ponownie za 15 minut.':e?.code==='INVALID_CREDENTIALS'?'Nieprawidłowy e-mail lub hasło.':'Nie udało się zalogować do centralnego serwera.');
     }finally{setAuthBusy(false);}
   };
 
@@ -1335,7 +1335,7 @@ export default function App() {
     try{
       const email=authEmail.trim();
       if(!email){setCloudError('Wpisz adres e-mail.');return;}
-      if(authPassword.length<6){setCloudError('Hasło musi mieć co najmniej 6 znaków.');return;}
+      if(authPassword.length<10){setCloudError('Hasło musi mieć co najmniej 10 znaków.');return;}
       const data=await api('/auth/register',{method:'POST',body:{email,password:authPassword,displayName:email.split('@')[0]}});
       await AsyncStorage.setItem('grafik-pracy-api-token-v1',data.token);
       setCloudUser(data.user);
@@ -1344,7 +1344,7 @@ export default function App() {
       setAuthPassword('');
       setCloudReady(true);
     }catch(e){
-      setCloudError(e?.code==='USER_ALREADY_EXISTS'?'Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.':'Nie udało się utworzyć konta.');
+      setCloudError(e?.code==='REGISTRATION_CLOSED'?'Rejestracja jest zamknięta. Konto zakłada administrator.':e?.code==='TOO_MANY_ATTEMPTS'?'Zbyt wiele prób. Spróbuj ponownie za 15 minut.':e?.code==='USER_ALREADY_EXISTS'?'Ten e-mail jest już zarejestrowany. Zamiast tworzyć konto, użyj ZALOGUJ SIĘ.':'Nie udało się utworzyć konta.');
     }finally{setAuthBusy(false);}
   };
 

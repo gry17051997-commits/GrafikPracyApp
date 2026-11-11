@@ -128,7 +128,7 @@ export default function AdminUsersPanel({cloudUser}) {
             <Text style={{color:'#9299a8',fontSize:13,marginTop:5,marginBottom:12}}>{modal?.mode==='create'?'Utwórz konto logowania i profil.':'E-mail i hasło ustawia się podczas tworzenia konta. Edycja zmienia profil, rolę i przypisanie.'}</Text>
             {input('Imię i nazwisko','displayName',{placeholder:'np. Jan Kowalski'})}
             {input('E-mail','email',{placeholder:'pracownik@firma.pl',autoCapitalize:'none',keyboardType:'email-address',editable:modal?.mode==='create'})}
-            {modal?.mode==='create'&&input('Hasło, min. 6 znaków','password',{placeholder:'Hasło',secureTextEntry:true})}
+            {modal?.mode==='create'&&input('Hasło, min. 10 znaków','password',{placeholder:'Hasło',secureTextEntry:true})}
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Przypisanie</Text>
             <View style={{flexDirection:'row',gap:6,marginBottom:10}}>{['',...KEYS].map(k=><TouchableOpacity key={k} onPress={()=>setForm(f=>({...f,personKey:k}))} style={{backgroundColor:form.personKey===k?'#3f78ed':'#252b35',borderRadius:10,padding:10}}><Text style={{color:'#fff',fontWeight:'800'}}>{k||'BRAK'}</Text></TouchableOpacity>)}</View>
             <Text style={{color:'#c7ccd6',fontSize:12,fontWeight:'800',marginBottom:5}}>Rola</Text>

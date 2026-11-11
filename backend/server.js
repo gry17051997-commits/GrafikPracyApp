@@ -6,7 +6,15 @@ import pg from 'pg';
 
 const {Pool}=pg;
 const app=express();
-app.use(cors());
+app.set('trust proxy',1);
+// CORS: only origins listed in ALLOWED_ORIGINS (comma-separated). Native mobile requests carry no Origin header and are allowed.
+const ALLOWED_ORIGINS=new Set(String(process.env.ALLOWED_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean));
+app.use(cors({
+  origin(origin,cb){
+    if(!origin||ALLOWED_ORIGINS.has(origin))return cb(null,true);
+    return cb(null,false);
+  }
+}));
 app.use(express.json({limit:'2mb'}));
 
 const pool=new Pool({
@@ -15,6 +23,28 @@ const pool=new Pool({
 });
 const PORT=Number(process.env.PORT||8787);
 const SESSION_DAYS=30;
+const PASSWORD_MIN=10;
+const PASSWORD_MAX=128;
+const validPassword=v=>typeof v==='string'&&v.length>=PASSWORD_MIN&&v.length<=PASSWORD_MAX;
+
+// Login/registration throttling: per IP and per e-mail, sliding window, in-process.
+const AUTH_WINDOW_MS=15*60*1000;
+const AUTH_MAX_PER_IP=30;
+const AUTH_MAX_PER_EMAIL=8;
+const authAttempts=new Map();
+function attemptKeyHit(key,max){
+  const now=Date.now();
+  const list=(authAttempts.get(key)||[]).filter(t=>now-t<AUTH_WINDOW_MS);
+  list.push(now);authAttempts.set(key,list);
+  return list.length>max;
+}
+function authThrottled(req,email){
+  const ipHit=attemptKeyHit('ip:'+req.ip,AUTH_MAX_PER_IP);
+  const emailHit=email?attemptKeyHit('email:'+email,AUTH_MAX_PER_EMAIL):false;
+  return ipHit||emailHit;
+}
+function clearEmailAttempts(email){authAttempts.delete('email:'+email);}
+setInterval(()=>{const now=Date.now();for(const [k,v] of authAttempts){const f=v.filter(t=>now-t<AUTH_WINDOW_MS);if(f.length)authAttempts.set(k,f);else authAttempts.delete(k);}},5*60*1000).unref();
 const STORE_COLLECTIONS=new Set(['chatMessages','proposals','schedules','settings','warehouseZones','whatsappReports','audit']);
 
 const hashToken=v=>crypto.createHash('sha256').update(String(v)).digest('hex');
@@ -78,28 +108,44 @@ app.get('/api/health',async(_req,res)=>{
   catch(e){res.status(503).json({ok:false,error:e.message});}
 });
 
+// Public registration is closed. It only works once, to create the very first admin,
+// and only when ALLOW_BOOTSTRAP_ADMIN=true. Further accounts are created by an admin via POST /api/users.
 app.post('/api/auth/register',async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase();
+  if(authThrottled(req,email))return res.status(429).json({error:'TOO_MANY_ATTEMPTS'});
+  if(process.env.ALLOW_BOOTSTRAP_ADMIN!=='true')return res.status(403).json({error:'REGISTRATION_CLOSED'});
   const password=String(req.body?.password||'');
   const displayName=String(req.body?.displayName||email.split('@')[0]||'').trim();
-  if(!validEmail(email)||password.length<6||password.length>128||displayName.length<2||displayName.length>100)return res.status(400).json({error:'INVALID_REGISTRATION'});
-  const count=await q('SELECT COUNT(*)::int AS n FROM users');
-  const role=Number(count.rows[0].n)===0?'admin':'employee';
+  if(!validEmail(email)||!validPassword(password)||displayName.length<2||displayName.length>100)return res.status(400).json({error:'INVALID_REGISTRATION'});
+  const client=await pool.connect();
   try{
+    await client.query('BEGIN');
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('grafik_bootstrap_admin'))");
+    const count=await client.query('SELECT COUNT(*)::int AS n FROM users');
+    if(Number(count.rows[0].n)!==0){await client.query('ROLLBACK');return res.status(403).json({error:'REGISTRATION_CLOSED'});}
     const uid=id();
-    const r=await q('INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,$5) RETURNING *',[uid,email,hashPassword(password),displayName,role]);
+    const r=await client.query('INSERT INTO users(id,email,password_hash,display_name,role) VALUES($1,$2,$3,$4,$5) RETURNING *',[uid,email,hashPassword(password),displayName,'admin']);
     const token=randomToken();
-    await q("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+($3 || ' days')::interval)",[hashToken(token),uid,SESSION_DAYS]);
+    await client.query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+($3 || ' days')::interval)",[hashToken(token),uid,SESSION_DAYS]);
+    await client.query('COMMIT');
     res.status(201).json({token,user:publicUser(r.rows[0])});
-  }catch(e){res.status(409).json({error:'USER_ALREADY_EXISTS'});}
+  }catch(e){
+    try{await client.query('ROLLBACK');}catch{}
+    if(e?.code==='23505')return res.status(409).json({error:'USER_ALREADY_EXISTS'});
+    console.error('Register error',e);
+    res.status(500).json({error:'REGISTRATION_FAILED'});
+  }finally{client.release();}
 });
 
 app.post('/api/auth/login',async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase();
   const password=String(req.body?.password||'');
+  if(authThrottled(req,email))return res.status(429).json({error:'TOO_MANY_ATTEMPTS'});
+  if(password.length>PASSWORD_MAX)return res.status(401).json({error:'INVALID_CREDENTIALS'});
   const r=await q('SELECT * FROM users WHERE lower(email)=lower($1) LIMIT 1',[email]);
   const u=r.rows[0];
   if(!u||u.disabled||!verifyPassword(password,u.password_hash))return res.status(401).json({error:'INVALID_CREDENTIALS'});
+  clearEmailAttempts(email);
   const token=randomToken();
   await q("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+($3 || ' days')::interval)",[hashToken(token),u.id,SESSION_DAYS]);
   res.json({token,user:publicUser(u)});
@@ -123,7 +169,7 @@ app.post('/api/users',auth,admin,async(req,res)=>{
   const displayName=String(b.displayName||'').trim();
   const personKey=String(b.personKey||'');
   const role=String(b.role||'employee');
-  if(!validEmail(email)||password.length<6||password.length>128||displayName.length<2||displayName.length>100||!validRole(role)||!validPerson(personKey)||(role==='employee'&&!['P','M','L'].includes(personKey))||(role!=='employee'&&personKey))return res.status(400).json({error:'INVALID_USER'});
+  if(!validEmail(email)||!validPassword(password)||displayName.length<2||displayName.length>100||!validRole(role)||!validPerson(personKey)||(role==='employee'&&!['P','M','L'].includes(personKey))||(role!=='employee'&&personKey))return res.status(400).json({error:'INVALID_USER'});
   try{
     const exists=await q('SELECT 1 FROM users WHERE lower(email)=lower($1) OR ($2<>$3 AND person_key=$2) LIMIT 1',[email,personKey,'']);
     if(exists.rows[0])return res.status(409).json({error:'USER_ALREADY_EXISTS'});
@@ -262,30 +308,43 @@ app.get('/api/gps/mine',auth,async(req,res)=>{
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY a.updated_at DESC LIMIT 1',[req.user.id]);
   res.json({vehicle:r.rows[0]||null});
 });
-app.get('/api/gps/vehicles',auth,async(_req,res)=>{
-  const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
+// GPS read access: admin sees every vehicle; a locator only the vehicle actively assigned to them; others nothing.
+async function canViewVehicleGps(user,vehicleId){
+  if(user.role==='admin')return true;
+  if(user.role!=='locator')return false;
+  const r=await q('SELECT 1 FROM assignments WHERE vehicle_id=$1 AND user_id=$2 AND active=true LIMIT 1',[vehicleId,user.id]);
+  return !!r.rows[0];
+}
+async function gpsVehicleGuard(req,res,next){
+  try{
+    if(!/^[0-9a-f-]{36}$/i.test(String(req.params.vehicleId||'')))return res.status(400).json({error:'INVALID_VEHICLE_ID'});
+    if(!(await canViewVehicleGps(req.user,req.params.vehicleId)))return res.status(403).json({error:'GPS_FORBIDDEN'});
+    next();
+  }catch(e){next(e);}
+}
+app.get('/api/gps/vehicles',auth,async(req,res)=>{
+  if(req.user.role!=='admin'&&req.user.role!=='locator')return res.status(403).json({error:'GPS_FORBIDDEN'});
+  const r=req.user.role==='admin'
+    ? await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration')
+    : await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY v.registration',[req.user.id]);
   res.json({vehicles:r.rows});
 });
-app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
+app.get('/api/gps/:vehicleId/history',auth,gpsVehicleGuard,async(req,res)=>{
   const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
   res.json({history:r.rows});
 });
 
-app.get('/api/gps/:vehicleId/trips',auth,async(req,res)=>{
+app.get('/api/gps/:vehicleId/trips',auth,gpsVehicleGuard,async(req,res)=>{
   const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
   const {buildTrips}=await import('./tripHistory.js');
   res.json({trips:buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:false})});
 });
-app.get('/api/gps/:vehicleId/trips/:tripId',auth,async(req,res)=>{
+app.get('/api/gps/:vehicleId/trips/:tripId',auth,gpsVehicleGuard,async(req,res)=>{
   const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
   const {buildTrips}=await import('./tripHistory.js');
   const trip=buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:true}).find(x=>x.id===req.params.tripId);
   if(!trip)return res.status(404).json({error:'TRIP_NOT_FOUND'});
   res.json({trip});
-});
-app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
-  const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
-  res.json({history:r.rows});
 });
 
 app.get('/api/schedules/:weekId',auth,async(req,res)=>{
@@ -373,8 +432,10 @@ app.post('/api/store/:collection',auth,async(req,res)=>{
   }catch(e){res.status(400).json({error:e.message});}
 });
 app.delete('/api/store/:collection/:id',auth,async(req,res)=>{
+  try{assertCollectionName(req.params.collection);}catch(e){return res.status(400).json({error:e.message});}
   const existing=await q('SELECT payload FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
-  if(existing.rows[0]&&!canStoreWrite(req.params.collection,req.user,existing.rows[0].payload||{},existing.rows[0].payload||{}))return res.status(403).json({error:'STORE_WRITE_FORBIDDEN'});
+  if(!existing.rows[0])return res.status(404).json({error:'DOCUMENT_NOT_FOUND'});
+  if(!canStoreWrite(req.params.collection,req.user,existing.rows[0].payload||{},existing.rows[0].payload||{}))return res.status(403).json({error:'STORE_WRITE_FORBIDDEN'});
   await q('DELETE FROM documents WHERE collection_name=$1 AND doc_id=$2',[req.params.collection,req.params.id]);
   res.json({ok:true});
 });
