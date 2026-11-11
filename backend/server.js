@@ -361,7 +361,12 @@ app.patch('/api/schedules/:weekId/patch',auth,admin,scheduleWriteLimit,async(req
  const weekId=String(req.params.weekId||''),b=req.body||{},slots=b.slots&&typeof b.slots==='object'?b.slots:{},expected=b.expectedSlots&&typeof b.expectedSlots==='object'?b.expectedSlots:{},hasConfig=Object.prototype.hasOwnProperty.call(b,'config'),client=await pool.connect();
  try{
  await client.query('BEGIN');
- const row=await lockDocument(client,'schedules',weekId);
+ let row=await lockDocument(client,'schedules',weekId);
+ if(!row&&b.createIfMissing===true){
+  const initial={weekId,shifts:{},config:b.expectedConfig??null};
+  await client.query('INSERT INTO documents(collection_name,doc_id,payload,revision,updated_by) VALUES($1,$2,$3::jsonb,1,$4) ON CONFLICT(collection_name,doc_id) DO NOTHING',['schedules',weekId,JSON.stringify(initial),req.user.id]);
+  row=await lockDocument(client,'schedules',weekId);
+ }
  if(!row){await client.query('ROLLBACK');return res.status(404).json({error:'SCHEDULE_NOT_FOUND'});}
  const payload=row.payload&&typeof row.payload==='object'?row.payload:{},shifts=normalizeScheduleShifts(payload,weekId),conflicts=[];
  for(const key of Object.keys(slots)){if(!/^shift_[0-9]{4}-[0-9]{2}-[0-9]{2}_[12]$/.test(key)){await client.query('ROLLBACK');return res.status(400).json({error:'INVALID_SHIFT_KEY'});}const he=Object.prototype.hasOwnProperty.call(expected,key),hc=Object.prototype.hasOwnProperty.call(shifts,key);if(he!==hc||(he&&!jsonEqual(expected[key],shifts[key])))conflicts.push(key);}
