@@ -8,7 +8,7 @@ function validateInput(form,requirePassword=true){
   const personKey=String(form.personKey||'');
   const role=String(form.role||'employee');
   if(!/^\S+@\S+\.\S+$/.test(email))throw new Error('Podaj prawidłowy e-mail.');
-  if(requirePassword&&(password.length<6||password.length>128))throw new Error('Hasło musi mieć od 6 do 128 znaków.');
+  if(requirePassword&&(password.length<10||password.length>128))throw new Error('Hasło musi mieć od 10 do 128 znaków.');
   if(displayName.length<2||displayName.length>100)throw new Error('Imię i nazwisko musi mieć od 2 do 100 znaków.');
   if(!['','P','M','L'].includes(personKey))throw new Error('Nieprawidłowe przypisanie pracownika.');
   if(!['employee','locator','admin'].includes(role))throw new Error('Nieprawidłowa rola.');
