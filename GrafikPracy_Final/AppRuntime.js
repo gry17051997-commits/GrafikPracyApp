@@ -904,6 +904,7 @@ export default function App() {
         remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
           ? latestData.shifts
           : localMap;
+        remoteWeekConfigByWeekRef.current[weekKeyAtSave]=latestData.config ?? config;
         cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
 
         const currentMap=weekToShiftMap(
