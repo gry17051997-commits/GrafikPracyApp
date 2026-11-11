@@ -10,6 +10,9 @@ export async function api(path,{method='GET',body,headers={}}={}){if(!API_BASE_U
 export async function apiLogin(email,password){const data=await api('/auth/login',{method:'POST',body:{email,password}});await AsyncStorage.setItem(API_TOKEN_KEY,data.token);return data.user;}
 export async function apiLogout(){try{await api('/auth/logout',{method:'POST'});}finally{await AsyncStorage.removeItem(API_TOKEN_KEY);}}
 export async function apiMe(){return (await api('/me')).user;}
+export async function apiPatchSchedule(w,p){return api('/schedules/'+encodeURIComponent(w)+'/patch',{method:'PATCH',body:p});}
+export async function apiApproveProposal(id,p){return api('/proposals/'+encodeURIComponent(id)+'/approve',{method:'POST',body:p});}
+export async function apiRejectProposal(id){return api('/proposals/'+encodeURIComponent(id)+'/reject',{method:'POST',body:{}});}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
 export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
 export async function apiPostGps(payload,deviceToken){
