@@ -902,11 +902,20 @@ export default function App() {
         // Use the committed transaction response as the new baseline. A second
         // GET could fail after the write committed and cause an unsafe stale retry.
         const latestData=saved?.data && typeof saved.data==='object' ? saved.data : {};
-        remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
-          ? latestData.shifts
-          : localMap;
-        remoteWeekConfigByWeekRef.current[weekKeyAtSave]=latestData.config ?? config;
-        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
+        let serverShifts=latestData.shifts && typeof latestData.shifts === 'object' ? latestData.shifts : null;
+        let serverData=latestData;
+        if(!serverShifts){
+          const refreshed=await getDoc(scheduleRef);
+          if(refreshed.exists()){
+            serverData=refreshed.data()||{};
+            serverShifts=serverData.shifts && typeof serverData.shifts==='object' ? serverData.shifts : null;
+          }
+        }
+        if(!serverShifts)throw new Error('SCHEDULE_SAVE_RESPONSE_INCOMPLETE');
+        remoteShiftMapByWeekRef.current[weekKeyAtSave]=serverShifts;
+        if(Object.prototype.hasOwnProperty.call(serverData,'config'))remoteWeekConfigByWeekRef.current[weekKeyAtSave]=serverData.config??null;
+        const savedAt=serverData.updatedAt||saved?.updatedAt;
+        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=typeof savedAt==='string'?(Date.parse(savedAt)||null):(savedAt?.toMillis?.()??null);
 
         const currentMap=weekToShiftMap(
           weeksRef.current[weekKeyAtSave] || currentWeek,
@@ -926,7 +935,28 @@ export default function App() {
         cloudSaveRetryAttemptRef.current = 0;
         setCloudError('');
       } catch(e) {
-        setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+        const code=e?.code||e?.message||'unknown';
+        if(code==='SCHEDULE_FIELD_CONFLICT'){
+          try{
+            const refreshed=await getDoc(scheduleRef);
+            if(refreshed.exists()){
+              const data=refreshed.data()||{};
+              if(data.shifts&&typeof data.shifts==='object')remoteShiftMapByWeekRef.current[weekKeyAtSave]=data.shifts;
+              if(Object.prototype.hasOwnProperty.call(data,'config'))remoteWeekConfigByWeekRef.current[weekKeyAtSave]=data.config??null;
+              const stamp=data.updatedAt||refreshed.updatedAt;
+              cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=typeof stamp==='string'?(Date.parse(stamp)||null):(stamp?.toMillis?.()??null);
+            }
+          }catch(refreshError){
+            console.error('Nie udało się odświeżyć grafiku po konflikcie:',refreshError);
+          }
+          // Do not auto-retry a conflicting slot: that would silently overwrite
+          // the other device's newer value. Keep local dirty values for review.
+          cloudDirtyRef.current=false;
+          cloudSaveRetryAttemptRef.current=0;
+          setCloudError('Konflikt synchronizacji. Serwer ma nowszą zmianę w tym samym polu. Lokalna edycja pozostała na urządzeniu i nie została nadpisana. Zmień ją ponownie po sprawdzeniu grafiku.');
+          return;
+        }
+        setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + code);
         const delay = Math.min(30000,1000 * (2 ** Math.min(cloudSaveRetryAttemptRef.current,5)));
         cloudSaveRetryAttemptRef.current += 1;
         cloudSaveTimerRef.current = setTimeout(() => setCloudRetryTick(value => value + 1),delay);
@@ -1771,9 +1801,22 @@ export default function App() {
       if(CENTRAL_API_ENABLED && db) {
         const fromKey=`shift_${weekDateKey(proposalWeekKey,fromDay)}_${fromShift}`,toKey=`shift_${weekDateKey(proposalWeekKey,toDay)}_${toShift}`;
         const approval=await apiApproveProposal(proposal.id,{weekId:proposalWeekKey,fromKey,toKey});
-        const freshMap=approval?.schedule?.shifts&&typeof approval.schedule.shifts==='object'?approval.schedule.shifts:{};
-        const committedWeek=shiftMapToWeek(freshMap,proposalWeek,proposalWeekKey);
-        setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
+        const freshMap=approval?.schedule?.shifts&&typeof approval.schedule.shifts==='object'?approval.schedule.shifts:null;
+        if(!freshMap){
+          setCloudError('Serwer zatwierdził zamianę, ale nie zwrócił aktualnego grafiku. Odśwież grafik przed dalszą edycją.');
+        }else{
+          remoteShiftMapByWeekRef.current[proposalWeekKey]=freshMap;
+          if(Object.prototype.hasOwnProperty.call(approval.schedule,'config'))remoteWeekConfigByWeekRef.current[proposalWeekKey]=approval.schedule.config??null;
+          const stamp=approval.schedule.updatedAt||approval.updatedAt;
+          cloudUpdatedAtByWeekRef.current[proposalWeekKey]=typeof stamp==='string'?(Date.parse(stamp)||null):(stamp?.toMillis?.()??null);
+          const committedWeek=shiftMapToWeek(freshMap,proposalWeek,proposalWeekKey);
+          setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
+          const remaining=new Set(localDirtyShiftKeysRef.current[proposalWeekKey]||[]);
+          remaining.delete(fromKey);remaining.delete(toKey);
+          localDirtyShiftKeysRef.current[proposalWeekKey]=Array.from(remaining);
+          cloudDirtyRef.current=Object.values(localDirtyShiftKeysRef.current).some(keys=>keys.length>0)||Object.keys(localDirtyWeekConfigRef.current).length>0;
+        }
+        setProposals(p=>p.map(item=>item.id===proposal.id?{...item,status:'approved'}:item));
       } else {
         const source=weeks[proposalWeekKey];
         if(!source) throw new Error('schedule-missing');
@@ -1795,6 +1838,7 @@ export default function App() {
     try {
       if(CENTRAL_API_ENABLED && db) {
         await apiRejectProposal(id);
+        setProposals(p=>p.map(x=>x.id===id&&x.status==='pending'?{...x,status:'rejected'}:x));
       } else {
         setProposals(p=>p.map(x=>x.id===id && x.status==='pending'?{...x,status:'rejected'}:x));
       }
