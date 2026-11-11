@@ -492,6 +492,12 @@ async function bootstrap(){
   if(process.env.DATABASE_URL){
     const schema=await readFile(new URL('./schema.sql',import.meta.url),'utf8');
     for(const statement of schema.split(';').map(x=>x.trim()).filter(Boolean))await q(statement);
+    // One-way compatibility migration: import legacy schedule rows only when
+    // the canonical documents.schedules record does not already exist.
+    await q(`INSERT INTO documents(collection_name,doc_id,payload,revision,updated_at,updated_by)
+      SELECT 'schedules',week_id,payload,revision,updated_at,updated_by
+      FROM schedules
+      ON CONFLICT(collection_name,doc_id) DO NOTHING`);
     await cleanupGpsHistory();
   }
   app.listen(PORT,()=>console.log('Grafik Pracy central API listening on '+PORT));
