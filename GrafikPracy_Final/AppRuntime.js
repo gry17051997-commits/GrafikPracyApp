@@ -897,10 +897,11 @@ export default function App() {
         dirtyAtSave.forEach(key=>{slots[key]=Object.prototype.hasOwnProperty.call(localMap,key)?localMap[key]:null;if(Object.prototype.hasOwnProperty.call(remoteMap,key))expectedSlots[key]=remoteMap[key];});
         const patchPayload={slots,expectedSlots};
         if(configDirtyAtSave){patchPayload.config=config;patchPayload.expectedConfig=remoteWeekConfigByWeekRef.current[weekKeyAtSave]??null;}
-        await apiPatchSchedule(weekKeyAtSave,patchPayload);
+        const saved=await apiPatchSchedule(weekKeyAtSave,patchPayload);
 
-        const latest=await getDoc(scheduleRef);
-        const latestData=latest.exists()?latest.data():{};
+        // Use the committed transaction response as the new baseline. A second
+        // GET could fail after the write committed and cause an unsafe stale retry.
+        const latestData=saved?.data && typeof saved.data==='object' ? saved.data : {};
         remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
           ? latestData.shifts
           : localMap;
@@ -1769,8 +1770,8 @@ export default function App() {
     try {
       if(CENTRAL_API_ENABLED && db) {
         const fromKey=`shift_${weekDateKey(proposalWeekKey,fromDay)}_${fromShift}`,toKey=`shift_${weekDateKey(proposalWeekKey,toDay)}_${toShift}`;
-        await apiApproveProposal(proposal.id,{weekId:proposalWeekKey,fromKey,toKey});
-        const fresh=await getDoc(doc(db,'schedules',proposalWeekKey)),freshData=fresh.exists()?fresh.data():{},freshMap=freshData.shifts&&typeof freshData.shifts==='object'?freshData.shifts:{};
+        const approval=await apiApproveProposal(proposal.id,{weekId:proposalWeekKey,fromKey,toKey});
+        const freshMap=approval?.schedule?.shifts&&typeof approval.schedule.shifts==='object'?approval.schedule.shifts:{};
         const committedWeek=shiftMapToWeek(freshMap,proposalWeek,proposalWeekKey);
         setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
       } else {
