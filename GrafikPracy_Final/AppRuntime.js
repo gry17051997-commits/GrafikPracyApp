@@ -895,7 +895,7 @@ export default function App() {
 
         const slots={},expectedSlots={},remoteMap=remoteShiftMapByWeekRef.current[weekKeyAtSave]||{};
         dirtyAtSave.forEach(key=>{slots[key]=Object.prototype.hasOwnProperty.call(localMap,key)?localMap[key]:null;if(Object.prototype.hasOwnProperty.call(remoteMap,key))expectedSlots[key]=remoteMap[key];});
-        const patchPayload={slots,expectedSlots};
+        const patchPayload={slots,expectedSlots,createIfMissing:true};
         if(configDirtyAtSave){patchPayload.config=config;patchPayload.expectedConfig=remoteWeekConfigByWeekRef.current[weekKeyAtSave]??null;}
         const saved=await apiPatchSchedule(weekKeyAtSave,patchPayload);
 
