@@ -580,7 +580,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode) || !ready || !scheduleHydratedRef.current) return;
 
     const unsub = onSnapshot(
       collection(db,'schedules'),
@@ -685,7 +685,7 @@ export default function App() {
       err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany'))
     );
     return unsub;
-  },[cloudUser,guestMode,cloudRole]);
+  },[cloudUser,guestMode,cloudRole,ready]);
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode)) return;
     const unsub = onSnapshot(doc(db,'settings','main'), snap => {
