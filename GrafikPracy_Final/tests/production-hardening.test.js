@@ -151,19 +151,51 @@ test('shared ticker uses requestAnimationFrame and cancels on unmount', async ()
   assert.match(source, /cancelAnimationFrame\(/);
 });
 
-test('schedule cloud persistence uses a fresh transaction snapshot and updates only dirty shift fields', async () => {
+test('schedule cloud persistence sends dirty slot patches with base values to the atomic API', async () => {
   const fs = await import('node:fs/promises');
-  const source = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  const blockStart = source.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
-  const blockEnd = source.indexOf("    },250);", blockStart);
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const client = await fs.readFile(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const blockStart = app.indexOf("const scheduleRef=doc(db,'schedules',weekKeyAtSave);");
+  const blockEnd = app.indexOf("    },250);", blockStart);
   assert.ok(blockStart >= 0 && blockEnd > blockStart);
-  const block = source.slice(blockStart, blockEnd);
+  const block = app.slice(blockStart, blockEnd);
   assert.match(block, /const localMap=weekToShiftMap\(localWeek,weekKeyAtSave\)/);
-  assert.ok(block.includes('transactionUpdate[`shifts.${key}`]'));
-  assert.ok(block.includes('runTransaction(db, async tx =>'));
-  assert.ok(block.includes('tx.get(scheduleRef)'));
-  assert.ok(block.includes('tx.update(scheduleRef,transactionUpdate)'));
-  assert.doesNotMatch(block, /tx\.set\(settingsRef/);
+  assert.match(block, /expectedSlots/);
+  assert.match(block, /await apiPatchSchedule\(weekKeyAtSave,patchPayload\)/);
+  assert.match(client, /apiPatchSchedule\(w,p\)/);
+  assert.match(backend, /app\.patch\('\/api\/schedules\/:weekId\/patch'/);
+  assert.match(backend, /FOR UPDATE/);
+  assert.match(backend, /SCHEDULE_FIELD_CONFLICT/);
+  assert.match(backend, /createUserRateLimiter/);
+  assert.match(backend, /scheduleWriteLimit/);
+  assert.match(backend, /proposalWriteLimit/);
+  assert.match(backend, /await client\.query\('COMMIT'\)/);
+  assert.doesNotMatch(block, /runTransaction\(db, async tx =>/);
+});
+
+test('proposal approval updates schedule slots and proposal status in one PostgreSQL transaction', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const client = await fs.readFile(new URL('../apiClient.js', import.meta.url), 'utf8');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  assert.match(app, /await apiApproveProposal\(proposal\.id/);
+  assert.match(app, /await apiRejectProposal\(id\)/);
+  assert.match(client, /apiApproveProposal\(id,p\)/);
+  assert.match(client, /apiRejectProposal\(id\)/);
+  assert.match(backend, /app\.post\('\/api\/proposals\/:proposalId\/approve'/);
+  assert.match(backend, /app\.post\('\/api\/proposals\/:proposalId\/reject'/);
+  assert.match(backend, /PROPOSAL_STALE/);
+  assert.match(backend, /PROPOSAL_NOT_PENDING/);
+});
+
+test('atomic schedule API parses real ISO week identifiers and keeps config baseline after save', async () => {
+  const fs = await import('node:fs/promises');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.ok(backend.includes(String.raw`match(/^(\d{4})-(\d{2})-(\d{2})$/)`));
+  assert.ok(!backend.includes(String.raw`match(/^(\\d`));
+  assert.match(app, /remoteWeekConfigByWeekRef\.current\[weekKeyAtSave\]=serverData\.config\?\?null/);
 });
 
 test('schedule listener ignores optimistic local snapshots and hydrates flat shift maps', async () => {
@@ -347,4 +379,53 @@ test('central API client prefixes every endpoint with the backend /api mount', (
   assert.ok(client.includes("API_BASE_URL=API_ORIGIN ? API_ORIGIN+'/api' : ''"));
   assert.ok(client.includes("api('/auth/login'"));
   assert.ok(server.includes("app.post('/api/auth/login'"));
+});
+
+test('atomic schedule API uses one documents store for legacy and patch routes', async () => {
+  const fs = await import('node:fs/promises');
+  const backend = await fs.readFile(new URL('../../backend/server.js', import.meta.url), 'utf8');
+  const legacyStart = backend.indexOf("app.get('/api/schedules/:weekId'");
+  const legacyEnd = backend.indexOf("function jsonEqual", legacyStart);
+  const legacy = backend.slice(legacyStart, legacyEnd);
+  assert.match(legacy, /FROM documents WHERE collection_name=\$1 AND doc_id=\$2/);
+  assert.match(legacy, /INSERT INTO documents\(collection_name,doc_id,payload/);
+  assert.doesNotMatch(legacy, /FROM schedules|INTO schedules/);
+  assert.match(backend, /if\(!row&&b\.createIfMissing===true\)/);
+  assert.match(backend, /SCHEDULE_NOT_FOUND/);
+});
+
+test('schedule conflict refreshes baseline without silently retrying the conflicting edit', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const start = app.indexOf("if(code==='SCHEDULE_FIELD_CONFLICT')");
+  const end = app.indexOf("setCloudError('Nie udało się zapisać zmiany grafiku online.", start);
+  const block = app.slice(start, end);
+  assert.match(block, /await getDoc\(scheduleRef\)/);
+  assert.match(block, /remoteShiftMapByWeekRef\.current\[weekKeyAtSave\]=data\.shifts/);
+  assert.match(block, /cloudDirtyRef\.current=false/);
+  assert.match(block, /Do not auto-retry a conflicting slot/);
+});
+
+test('central API ISO timestamps are parsed and proposal state follows server writes', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const api = await fs.readFile(new URL('../apiClient.js', import.meta.url), 'utf8');
+  assert.match(app, /Date\.parse\(savedAt\)/);
+  assert.doesNotMatch(app, /latestData\.updatedAt\?\.toMillis\?\(\)\s*\?\?\s*null/);
+  assert.match(app, /setProposals\(p=>p\.map\(x=>x\.id===id&&x\.status==='pending'\?\{\.\.\.x,status:'rejected'\}:x\)\)/);
+  assert.match(api, /e\.conflicts=Array\.isArray\(data\?\.conflicts\)/);
+});
+
+
+test('schedule listener waits for local AsyncStorage hydration before applying remote weeks', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const listenerStart = app.indexOf("collection(db,'schedules')");
+  const effectStart = app.lastIndexOf('useEffect(() => {', listenerStart);
+  const effectEnd = app.indexOf('\n  useEffect(() => {', listenerStart);
+  assert.ok(listenerStart > effectStart && effectEnd > listenerStart);
+  const listener = app.slice(effectStart, effectEnd);
+  assert.match(listener, /!ready\s*\|\|\s*!scheduleHydratedRef\.current/);
+  assert.match(listener, /\},\[cloudUser,guestMode,cloudRole,ready\]\)/);
+  assert.match(app, /scheduleHydratedRef\.current = true;\s*setReady\(true\)/);
 });

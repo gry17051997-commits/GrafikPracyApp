@@ -27,7 +27,7 @@ import * as Location from 'expo-location';
 import LiveLocationDashboard from './LiveLocationDashboard';
 import {getVehicleLocationConfig, saveVehicleLocationAssignment, startVehicleLocationTracking, stopVehicleLocationTracking, ensureVehicleLocationTracking, normalizeVehicleId, getLocationDeviceToken, setLocationDeviceToken, getLocationDiagnostics, LOCATION_CONFIG_KEY} from './LocationService';
 import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
-import {apiLogin,apiLogout,apiMe,api,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
+import {apiLogin,apiLogout,apiMe,api,apiPatchSchedule,apiApproveProposal,apiRejectProposal,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
 import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
@@ -580,7 +580,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode)) return;
+    if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode) || !ready || !scheduleHydratedRef.current) return;
 
     const unsub = onSnapshot(
       collection(db,'schedules'),
@@ -685,7 +685,7 @@ export default function App() {
       err => setCloudError('Brak dostępu do wspólnego grafiku. Kod: ' + (err?.code || 'nieznany'))
     );
     return unsub;
-  },[cloudUser,guestMode,cloudRole]);
+  },[cloudUser,guestMode,cloudRole,ready]);
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || (!cloudUser && !guestMode)) return;
     const unsub = onSnapshot(doc(db,'settings','main'), snap => {
@@ -893,50 +893,29 @@ export default function App() {
           return;
         }
 
-        await runTransaction(db, async tx => {
-          const snap=await tx.get(scheduleRef);
-          if (!snap.exists()) {
-            tx.set(scheduleRef,{
-              weekId:weekKeyAtSave,
-              shifts:localMap,
-              config,
-              updatedAt:serverTimestamp(),
-              updatedBy:cloudUser.uid
-            });
-            return;
+        const slots={},expectedSlots={},remoteMap=remoteShiftMapByWeekRef.current[weekKeyAtSave]||{};
+        dirtyAtSave.forEach(key=>{slots[key]=Object.prototype.hasOwnProperty.call(localMap,key)?localMap[key]:null;if(Object.prototype.hasOwnProperty.call(remoteMap,key))expectedSlots[key]=remoteMap[key];});
+        const patchPayload={slots,expectedSlots,createIfMissing:true};
+        if(configDirtyAtSave){patchPayload.config=config;patchPayload.expectedConfig=remoteWeekConfigByWeekRef.current[weekKeyAtSave]??null;}
+        const saved=await apiPatchSchedule(weekKeyAtSave,patchPayload);
+
+        // Use the committed transaction response as the new baseline. A second
+        // GET could fail after the write committed and cause an unsafe stale retry.
+        const latestData=saved?.data && typeof saved.data==='object' ? saved.data : {};
+        let serverShifts=latestData.shifts && typeof latestData.shifts === 'object' ? latestData.shifts : null;
+        let serverData=latestData;
+        if(!serverShifts){
+          const refreshed=await getDoc(scheduleRef);
+          if(refreshed.exists()){
+            serverData=refreshed.data()||{};
+            serverShifts=serverData.shifts && typeof serverData.shifts==='object' ? serverData.shifts : null;
           }
-
-          const current=snap.data() || {};
-          const currentMap=current.shifts && typeof current.shifts === 'object'
-            ? current.shifts
-            : weekToShiftMap(current.week || [],weekKeyAtSave);
-
-          // Rebase only the locally dirty slots onto the transaction's fresh
-          // server snapshot. Changes made by another device are preserved.
-          const transactionUpdate={
-            updatedAt:serverTimestamp(),
-            updatedBy:cloudUser.uid
-          };
-          dirtyAtSave.forEach(key => {
-            if (Object.prototype.hasOwnProperty.call(localMap,key)) {
-              transactionUpdate[`shifts.${key}`]=localMap[key];
-            } else if (Object.prototype.hasOwnProperty.call(currentMap,key)) {
-              transactionUpdate[`shifts.${key}`]=deleteField();
-            }
-          });
-          if (configDirtyAtSave) transactionUpdate.config=config;
-
-          if (Object.keys(transactionUpdate).length > 2) {
-            tx.update(scheduleRef,transactionUpdate);
-          }
-        });
-
-        const latest=await getDoc(scheduleRef);
-        const latestData=latest.exists()?latest.data():{};
-        remoteShiftMapByWeekRef.current[weekKeyAtSave]=latestData.shifts && typeof latestData.shifts === 'object'
-          ? latestData.shifts
-          : localMap;
-        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=latestData.updatedAt?.toMillis?.() ?? null;
+        }
+        if(!serverShifts)throw new Error('SCHEDULE_SAVE_RESPONSE_INCOMPLETE');
+        remoteShiftMapByWeekRef.current[weekKeyAtSave]=serverShifts;
+        if(Object.prototype.hasOwnProperty.call(serverData,'config'))remoteWeekConfigByWeekRef.current[weekKeyAtSave]=serverData.config??null;
+        const savedAt=serverData.updatedAt||saved?.updatedAt;
+        cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=typeof savedAt==='string'?(Date.parse(savedAt)||null):(savedAt?.toMillis?.()??null);
 
         const currentMap=weekToShiftMap(
           weeksRef.current[weekKeyAtSave] || currentWeek,
@@ -956,7 +935,28 @@ export default function App() {
         cloudSaveRetryAttemptRef.current = 0;
         setCloudError('');
       } catch(e) {
-        setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + (e?.code || e?.message || 'unknown'));
+        const code=e?.code||e?.message||'unknown';
+        if(code==='SCHEDULE_FIELD_CONFLICT'){
+          try{
+            const refreshed=await getDoc(scheduleRef);
+            if(refreshed.exists()){
+              const data=refreshed.data()||{};
+              if(data.shifts&&typeof data.shifts==='object')remoteShiftMapByWeekRef.current[weekKeyAtSave]=data.shifts;
+              if(Object.prototype.hasOwnProperty.call(data,'config'))remoteWeekConfigByWeekRef.current[weekKeyAtSave]=data.config??null;
+              const stamp=data.updatedAt||refreshed.updatedAt;
+              cloudUpdatedAtByWeekRef.current[weekKeyAtSave]=typeof stamp==='string'?(Date.parse(stamp)||null):(stamp?.toMillis?.()??null);
+            }
+          }catch(refreshError){
+            console.error('Nie udało się odświeżyć grafiku po konflikcie:',refreshError);
+          }
+          // Do not auto-retry a conflicting slot: that would silently overwrite
+          // the other device's newer value. Keep local dirty values for review.
+          cloudDirtyRef.current=false;
+          cloudSaveRetryAttemptRef.current=0;
+          setCloudError('Konflikt synchronizacji. Serwer ma nowszą zmianę w tym samym polu. Lokalna edycja pozostała na urządzeniu i nie została nadpisana. Zmień ją ponownie po sprawdzeniu grafiku.');
+          return;
+        }
+        setCloudError('Nie udało się zapisać zmiany grafiku online. Kod: ' + code);
         const delay = Math.min(30000,1000 * (2 ** Math.min(cloudSaveRetryAttemptRef.current,5)));
         cloudSaveRetryAttemptRef.current += 1;
         cloudSaveTimerRef.current = setTimeout(() => setCloudRetryTick(value => value + 1),delay);
@@ -1799,34 +1799,24 @@ export default function App() {
     }
     try {
       if(CENTRAL_API_ENABLED && db) {
-        const proposalRef=doc(db,'proposals',proposal.id);
-        const scheduleRef=doc(db,'schedules',proposalWeekKey);
-        const committedWeek=await runTransaction(db,async tx=>{
-          const proposalSnap=await tx.get(proposalRef);
-          if(!proposalSnap.exists() || proposalSnap.data()?.status !== 'pending') {
-            throw new Error('proposal-not-pending');
-          }
-          const scheduleSnap=await tx.get(scheduleRef);
-          if(!scheduleSnap.exists()) throw new Error('schedule-missing');
-          const scheduleData=scheduleSnap.data() || {};
-          const currentMap=scheduleData.shifts && typeof scheduleData.shifts === 'object'
-            ? scheduleData.shifts
-            : weekToShiftMap(scheduleData.week || [],proposalWeekKey);
-          const source=shiftMapToWeek(currentMap,proposalWeek,proposalWeekKey);
-          const x=source?.[fromDay]?.shifts?.[fromShift-1];
-          const y=source?.[toDay]?.shifts?.[toShift-1];
-          if(!x || !y || x.person!==expectedA || y.person!==expectedB || x.locked || y.locked) {
-            throw new Error('proposal-stale');
-          }
-          const next=cloneWeek(source);
-          const nx=next[fromDay].shifts[fromShift-1], ny=next[toDay].shifts[toShift-1];
-          const xp=nx.person; nx.person=ny.person; ny.person=xp; nx.manual=true; ny.manual=true;
-          const nextMap=weekToShiftMap(next,proposalWeekKey);
-          tx.update(scheduleRef,{shifts:nextMap,updatedAt:serverTimestamp(),updatedBy:cloudUser?.uid||null});
-          tx.update(proposalRef,{status:'approved',approvedAt:new Date().toISOString(),approvedBy:cloudUser?.uid||null});
-          return next;
-        });
-        setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
+        const fromKey=`shift_${weekDateKey(proposalWeekKey,fromDay)}_${fromShift}`,toKey=`shift_${weekDateKey(proposalWeekKey,toDay)}_${toShift}`;
+        const approval=await apiApproveProposal(proposal.id,{weekId:proposalWeekKey,fromKey,toKey});
+        const freshMap=approval?.schedule?.shifts&&typeof approval.schedule.shifts==='object'?approval.schedule.shifts:null;
+        if(!freshMap){
+          setCloudError('Serwer zatwierdził zamianę, ale nie zwrócił aktualnego grafiku. Odśwież grafik przed dalszą edycją.');
+        }else{
+          remoteShiftMapByWeekRef.current[proposalWeekKey]=freshMap;
+          if(Object.prototype.hasOwnProperty.call(approval.schedule,'config'))remoteWeekConfigByWeekRef.current[proposalWeekKey]=approval.schedule.config??null;
+          const stamp=approval.schedule.updatedAt||approval.updatedAt;
+          cloudUpdatedAtByWeekRef.current[proposalWeekKey]=typeof stamp==='string'?(Date.parse(stamp)||null):(stamp?.toMillis?.()??null);
+          const committedWeek=shiftMapToWeek(freshMap,proposalWeek,proposalWeekKey);
+          setWeeks(prev=>({...prev,[proposalWeekKey]:committedWeek}));
+          const remaining=new Set(localDirtyShiftKeysRef.current[proposalWeekKey]||[]);
+          remaining.delete(fromKey);remaining.delete(toKey);
+          localDirtyShiftKeysRef.current[proposalWeekKey]=Array.from(remaining);
+          cloudDirtyRef.current=Object.values(localDirtyShiftKeysRef.current).some(keys=>keys.length>0)||Object.keys(localDirtyWeekConfigRef.current).length>0;
+        }
+        setProposals(p=>p.map(item=>item.id===proposal.id?{...item,status:'approved'}:item));
       } else {
         const source=weeks[proposalWeekKey];
         if(!source) throw new Error('schedule-missing');
@@ -1847,12 +1837,8 @@ export default function App() {
     if (readOnly) return;
     try {
       if(CENTRAL_API_ENABLED && db) {
-        const proposalRef=doc(db,'proposals',id);
-        await runTransaction(db,async tx=>{
-          const snap=await tx.get(proposalRef);
-          if(!snap.exists() || snap.data()?.status !== 'pending') throw new Error('proposal-not-pending');
-          tx.update(proposalRef,{status:'rejected',rejectedAt:new Date().toISOString(),rejectedBy:cloudUser?.uid||null});
-        });
+        await apiRejectProposal(id);
+        setProposals(p=>p.map(x=>x.id===id&&x.status==='pending'?{...x,status:'rejected'}:x));
       } else {
         setProposals(p=>p.map(x=>x.id===id && x.status==='pending'?{...x,status:'rejected'}:x));
       }

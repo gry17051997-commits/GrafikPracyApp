@@ -19,6 +19,8 @@ concurrency:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  # Public central API endpoint must be embedded into the Android JS bundle.
+  EXPO_PUBLIC_API_URL: "https://grafik-pracy-api-fra.onrender.com"
 
 jobs:
   validate:
@@ -45,6 +47,19 @@ jobs:
         run: npm install --ignore-scripts
       - name: Production hardening tests
         run: npm test
+      - name: Validate central API configuration
+        run: node -e "const u=process.env.EXPO_PUBLIC_API_URL; if (u !== \"https://grafik-pracy-api-fra.onrender.com\") process.exit(1); console.log(\"Central API URL configured:\", u)"
+      - name: Smoke test live central API and login route
+        env:
+          API_ORIGIN: "https://grafik-pracy-api-fra.onrender.com"
+        run: |
+          set -euo pipefail
+          echo "Checking central API health (Render may need a cold start)..."
+          curl --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 15 --max-time 120 --fail --silent --show-error "$API_ORIGIN/api/health" | tee /tmp/api-health.json
+          node -e "const x=require('/tmp/api-health.json'); if(x.ok!==true || x.backend!=='central-api') process.exit(1); console.log('API health and database check: OK')"
+          code=$(curl --retry 3 --retry-all-errors --retry-delay 10 --connect-timeout 15 --max-time 120 --silent --show-error -o /tmp/api-login-probe.json -w '%{http_code}' -H 'Content-Type: application/json' -d '{"email":"ci-invalid-user@example.invalid","password":"not-a-real-password"}' "$API_ORIGIN/api/auth/login")
+          test "$code" = "401"
+          node -e "const x=require('/tmp/api-login-probe.json'); if(x.error!=='INVALID_CREDENTIALS') process.exit(1); console.log('Login endpoint rejects invalid credentials correctly: OK')"
       - name: Validate project configuration
         run: npx expo config --type public
       - name: Validate build-fix scripts
@@ -81,7 +96,9 @@ jobs:
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: Grafik-Pracy-Standalone-APK
+          name: Grafik-Pracy-Standard-APK
           path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+# Re-run validation for the atomic schedule persistence changes.
