@@ -20,6 +20,7 @@ jobs:
       EXPO_NO_DOCTOR: "1"
       CI: "1"
       EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_MAPTILER_KEY: ${{ secrets.EXPO_PUBLIC_MAPTILER_KEY }}
 
     defaults:
       run:
@@ -48,7 +49,8 @@ jobs:
       - name: Verify central API URL
         run: |
           test -n "$EXPO_PUBLIC_API_URL"
-          echo "Central API URL configured."
+          test -n "$EXPO_PUBLIC_MAPTILER_KEY"
+          echo "Central API URL and MapTiler key configured."
 
       - name: Apply deterministic build fixes
         run: |
