@@ -422,7 +422,7 @@ test('schedule listener waits for local AsyncStorage hydration before applying r
   const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
   const listenerStart = app.indexOf("collection(db,'schedules')");
   const effectStart = app.lastIndexOf('useEffect(() => {', listenerStart);
-  const effectEnd = app.indexOf("collection(db,'settings','main')", listenerStart);
+  const effectEnd = app.indexOf('\n  useEffect(() => {', listenerStart);
   assert.ok(listenerStart > effectStart && effectEnd > listenerStart);
   const listener = app.slice(effectStart, effectEnd);
   assert.match(listener, /!ready\s*\|\|\s*!scheduleHydratedRef\.current/);
