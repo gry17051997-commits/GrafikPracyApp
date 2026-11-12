@@ -415,3 +415,17 @@ test('central API ISO timestamps are parsed and proposal state follows server wr
   assert.match(app, /setProposals\(p=>p\.map\(x=>x\.id===id&&x\.status==='pending'\?\{\.\.\.x,status:'rejected'\}:x\)\)/);
   assert.match(api, /e\.conflicts=Array\.isArray\(data\?\.conflicts\)/);
 });
+
+
+test('schedule listener waits for local AsyncStorage hydration before applying remote weeks', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const listenerStart = app.indexOf("collection(db,'schedules')");
+  const effectStart = app.lastIndexOf('useEffect(() => {', listenerStart);
+  const effectEnd = app.indexOf("collection(db,'settings','main')", listenerStart);
+  assert.ok(listenerStart > effectStart && effectEnd > listenerStart);
+  const listener = app.slice(effectStart, effectEnd);
+  assert.match(listener, /!ready\s*\|\|\s*!scheduleHydratedRef\.current/);
+  assert.match(listener, /\},\[cloudUser,guestMode,cloudRole,ready\]\)/);
+  assert.match(app, /scheduleHydratedRef\.current = true;\s*setReady\(true\)/);
+});
