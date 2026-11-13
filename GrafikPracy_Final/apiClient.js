@@ -14,6 +14,7 @@ export async function apiPatchSchedule(w,p){return api('/schedules/'+encodeURICo
 export async function apiApproveProposal(id,p){return api('/proposals/'+encodeURIComponent(id)+'/approve',{method:'POST',body:p});}
 export async function apiRejectProposal(id){return api('/proposals/'+encodeURIComponent(id)+'/reject',{method:'POST',body:{}});}
 export async function apiGetGps(){return (await api('/gps/vehicles')).vehicles;}
+export async function apiGetMatchedHistory(vehicleId){return api('/gps/'+encodeURIComponent(vehicleId)+'/history?matched=1');}
 export async function apiGetMyGps(){return (await api('/gps/mine')).vehicle;}
 export async function apiPostGps(payload,deviceToken){
   if(!API_BASE_URL)throw new Error('Brak centralnego API.');

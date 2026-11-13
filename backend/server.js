@@ -1,4 +1,5 @@
 import express from 'express';
+import {matchGpsPoints} from './mapMatching.js';
 import cors from 'cors';
 import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
@@ -290,11 +291,6 @@ app.get('/api/gps/vehicles',auth,async(_req,res)=>{
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
   res.json({vehicles:r.rows});
 });
-app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
-  const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
-  res.json({history:r.rows});
-});
-
 app.get('/api/gps/:vehicleId/trips',auth,async(req,res)=>{
   const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
   const {buildTrips}=await import('./tripHistory.js');
@@ -305,10 +301,18 @@ app.get('/api/gps/:vehicleId/trips/:tripId',auth,async(req,res)=>{
   const {buildTrips}=await import('./tripHistory.js');
   const trip=buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:true}).find(x=>x.id===req.params.tripId);
   if(!trip)return res.status(404).json({error:'TRIP_NOT_FOUND'});
+  if(req.query.matched==='1'){
+    const matching=await matchGpsPoints(trip.points.map(point=>({...point,observed_at:point.observedAt})),{vehicleId:req.params.vehicleId,tripId:req.params.tripId});
+    return res.json({trip,matchedSegments:matching.matchedSegments,matched:matching.matched});
+  }
   res.json({trip});
 });
 app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
-  const r=await q("SELECT latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
+  const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
+  if(req.query.matched==='1'){
+    const matching=await matchGpsPoints(r.rows,{vehicleId:req.params.vehicleId,tripId:'history'});
+    return res.json({history:r.rows,matchedSegments:matching.matchedSegments,matched:matching.matched});
+  }
   res.json({history:r.rows});
 });
 

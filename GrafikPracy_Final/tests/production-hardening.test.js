@@ -429,3 +429,15 @@ test('schedule listener waits for local AsyncStorage hydration before applying r
   assert.match(listener, /\},\[cloudUser,guestMode,cloudRole,ready\]\)/);
   assert.match(app, /scheduleHydratedRef\.current = true;\s*setReady\(true\)/);
 });
+
+
+test('live GPS route map uses hardware WebView and the Leaflet canvas renderer', async () => {
+  const fs = await import('node:fs/promises');
+  const dashboard = await fs.readFile(new URL('../LiveLocationDashboard.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(dashboard, /androidLayerType="software"/);
+  assert.match(dashboard, /androidLayerType="hardware"[^>]*nestedScrollEnabled/);
+  assert.match(dashboard, /preferCanvas:true/);
+  assert.match(dashboard, /renderer=L\.canvas\(\{padding:0\.5\}\)/);
+  assert.match(dashboard, /window\.setMapSize=function/);
+  assert.match(dashboard, /vehicleChanged=!!d\.vehicleId/);
+});
