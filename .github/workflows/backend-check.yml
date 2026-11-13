@@ -22,3 +22,5 @@ jobs:
           node-version: 20
       - run: npm install --ignore-scripts
       - run: node --check server.js
+      - run: node --check mapMatching.js
+      - run: node --test

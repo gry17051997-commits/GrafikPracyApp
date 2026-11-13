@@ -52,8 +52,8 @@ jobs:
           node --check scripts/fix-chat-build.js
           node --check scripts/fix-rotation-switch.js
 
-      - name: Run regression tests
-        run: npm test
+      - name: Run all frontend tests
+        run: node --test
 
       - name: Validate Expo configuration
         run: npx expo config --type public
