@@ -29,7 +29,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
  const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
  const [nativeMapUrl,setNativeMapUrl]=useState(null);
  const nativeMapRef=useRef(null),nativeMapLoaded=useRef(false);
- const updateNativeMapCenter=()=>{const lat=Number(location?.latitude),lon=Number(location?.longitude);if(!nativeMapLoaded.current||!nativeMapRef.current||!Number.isFinite(lat)||!Number.isFinite(lon))return;nativeMapRef.current.injectJavaScript("window.location.hash='#15/"+lat+"/"+lon+"'; true;");};
+ const updateNativeMapCenter=()=>{const lat=Number(location?.latitude),lon=Number(location?.longitude);if(!nativeMapLoaded.current||!nativeMapRef.current||!Number.isFinite(lat)||!Number.isFinite(lon))return;nativeMapRef.current.injectJavaScript("var z=parseFloat(window.location.hash.split('/')[0].replace('#',''))||15;window.location.hash='#'+z+'/'+lat+'/'+lon+'; true;");};
  useEffect(()=>{if(location&&!nativeMapUrl){const url=mapUrl(location);if(url)setNativeMapUrl(url);}},[location?.latitude,location?.longitude,nativeMapUrl]);
  useEffect(()=>{updateNativeMapCenter();},[location?.latitude,location?.longitude,nativeMapUrl]);
  useSecondTicker(1000);
