@@ -328,19 +328,19 @@ test('central document store rejects arbitrary collection names', () => {
   assert.match(server, /!STORE_COLLECTIONS\.has\(name\)/);
 });
 
-test('Android GPS mini map uses the same MapTiler page as web and updates its center without remounting', async () => {
+test('Android GPS mini map uses Leaflet and the same OpenStreetMap tiles as the working live map', async () => {
   const fs = await import('node:fs/promises');
   const dashboard = await fs.readFile(new URL('../NowDashboard.js', import.meta.url), 'utf8');
-  assert.match(dashboard, /const mapUrl=loc=>[\s\S]*www\.maptiler\.com\/maps\/streets-v4/);
-  assert.match(dashboard, /Platform\.OS==='web'\?<iframe[\s\S]*src=\{mapUrl\(location\)\}/);
+  assert.match(dashboard, /const MINI_MAP_HTML=/);
+  assert.match(dashboard, /tile\.openstreetmap\.org\/\{z\}\/\{x\}\/\{y\}\.png/);
+  assert.match(dashboard, /window\.updateMiniMapPoint=function/);
+  assert.match(dashboard, /window\.setMiniMapSize=function/);
+  assert.match(dashboard, /source=\{\{html:MINI_MAP_HTML,baseUrl:'https:\/\/www\.openstreetmap\.org\/'\}\}/);
   assert.match(dashboard, /key="gps-mini-map"/);
-  assert.match(dashboard, /source=\{\{uri:nativeMapUrl\}\}/);
-  assert.match(dashboard, /if\(location&&!nativeMapUrl\)/);
-  assert.match(dashboard, /window\.location\.hash='#'\+z\+'\/'/);
-  assert.doesNotMatch(dashboard, /const miniMapHtml=/);
-  assert.doesNotMatch(dashboard, /key=\{Math\.round\(Number\(location\.latitude\)\*10000\)/);
+  assert.match(dashboard, /window\.updateMiniMapPoint&&window\.updateMiniMapPoint/);
+  assert.doesNotMatch(dashboard, /source=\{\{uri:nativeMapUrl\}\}/);
+  assert.doesNotMatch(dashboard, /nativeMapUrl/);
 });
-
 test('live GPS map keeps its WebView mounted and updates map data without reloading HTML', async () => {
   const fs = await import('node:fs/promises');
   const dashboard = await fs.readFile(new URL('../LiveLocationDashboard.js', import.meta.url), 'utf8');
