@@ -434,8 +434,12 @@ test('schedule listener waits for local AsyncStorage hydration before applying r
 test('live GPS route map uses hardware WebView and the Leaflet canvas renderer', async () => {
   const fs = await import('node:fs/promises');
   const dashboard = await fs.readFile(new URL('../LiveLocationDashboard.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(dashboard, /androidLayerType="software"/);
-  assert.match(dashboard, /androidLayerType="hardware"[^>]*nestedScrollEnabled/);
+  const mapStart = dashboard.indexOf('key="gps-live-map"');
+  const mapEnd = dashboard.indexOf('/>', mapStart);
+  const mapWebView = dashboard.slice(mapStart, mapEnd);
+  assert.ok(mapStart >= 0 && mapEnd > mapStart);
+  assert.doesNotMatch(mapWebView, /androidLayerType="software"/);
+  assert.match(mapWebView, /androidLayerType="hardware"[^>]*nestedScrollEnabled/);
   assert.match(dashboard, /preferCanvas:true/);
   assert.match(dashboard, /renderer=L\.canvas\(\{padding:0\.5\}\)/);
   assert.match(dashboard, /window\.setMapSize=function/);
