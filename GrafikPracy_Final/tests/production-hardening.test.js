@@ -336,7 +336,7 @@ test('Android GPS mini map uses the same MapTiler page as web and updates its ce
   assert.match(dashboard, /key="gps-mini-map"/);
   assert.match(dashboard, /source=\{\{uri:nativeMapUrl\}\}/);
   assert.match(dashboard, /if\(location&&!nativeMapUrl\)/);
-  assert.match(dashboard, /window\.location\.hash='#15\//);
+  assert.match(dashboard, /window\.location\.hash='#'\+z\+'\/'/);
   assert.doesNotMatch(dashboard, /const miniMapHtml=/);
   assert.doesNotMatch(dashboard, /key=\{Math\.round\(Number\(location\.latitude\)\*10000\)/);
 });
