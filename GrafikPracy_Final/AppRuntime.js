@@ -369,6 +369,34 @@ export default function App() {
   const currentWeekTimes = currentWeekConfig.times || DEFAULT_TIMES[currentWeekHours] || times;
   const currentWeekWarehouse = currentWeekConfig.warehouse || warehouse;
   const currentWeek = weeks[wkKey] || emptyWeek(currentWeekWarehouse);
+  const openEmployeeEditor = key => {
+    setEmployeeEditor(key || 'new');
+    setEmployeeNameDraft(key ? (PEOPLE[key]?.name || '') : '');
+  };
+  const saveEmployee = () => {
+    const name=employeeNameDraft.trim().replace(/\\s+/g,' ');
+    if(name.length<2 || name.length>60){Alert.alert('Pracownik','Wpisz imię i nazwisko (2–60 znaków).');return;}
+    if(employeeEditor==='new'){
+      const key='E_'+Date.now().toString(36);
+      const color=COLOR_PALETTE[(PERSON_KEYS.length+5)%COLOR_PALETTE.length];
+      setCustomPeople(prev=>({...prev,[key]:{name}}));
+      setPersonColors(prev=>({...prev,[key]:color}));
+    }else{
+      setCustomPeople(prev=>({...prev,[employeeEditor]:{...(prev[employeeEditor]||{}),name}}));
+    }
+    setEmployeeEditor(null);
+    setEmployeeNameDraft('');
+  };
+  const deleteEmployee = key => {
+    if(!String(key).startsWith('E_')){Alert.alert('Pracownik','Paweł, Mateusz i Łukasz są pracownikami bazowymi. Możesz zmienić ich nazwiska, ale nie usunąć ich identyfikatorów ze starych grafików.');return;}
+    const used=Object.values(weeks).some(week=>Array.isArray(week)&&week.some(day=>(day.shifts||[]).some(shift=>shift.person===key)));
+    if(used){Alert.alert('Nie można usunąć','Ten pracownik występuje w zapisanym grafiku. Najpierw usuń jego przydziały lub przenieś je na inną osobę.');return;}
+    Alert.alert('Usunąć pracownika?',PEOPLE[key]?.name||key,[{text:'Anuluj',style:'cancel'},{text:'Usuń',style:'destructive',onPress:()=>{
+      setCustomPeople(prev=>{const next={...prev};delete next[key];return next;});
+      setPersonColors(prev=>{const next={...prev};delete next[key];return next;});
+      setConditions(prev=>prev.filter(condition=>condition.person!==key));
+    }}]);
+  };
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
   const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
   const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
@@ -2645,6 +2673,16 @@ const settings = (
         </View>)}
       </>}
 
+      {(cloudRole==='admin' || !CENTRAL_API_ENABLED) && <>
+        <Text style={S.section}>👥 Pracownicy wpisywani do grafiku</Text>
+        <Text style={S.helpLine}>Możesz zmieniać nazwiska obecnych osób oraz dodawać i usuwać dodatkowych pracowników. Osoba użyta w zapisanym grafiku nie może zostać usunięta.</Text>
+        {PERSON_KEYS.map(key=><View key={key} style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>{PEOPLE[key].name}</Text><Text style={S.muted}>{key.startsWith('E_')?'Dodatkowy pracownik':'Pracownik bazowy'}</Text></View>
+          <TouchableOpacity style={S.btn} onPress={()=>openEmployeeEditor(key)}><Text style={S.btnText}>EDYTUJ</Text></TouchableOpacity>
+          {key.startsWith('E_')&&<TouchableOpacity style={[S.btn,{marginLeft:6}]} onPress={()=>deleteEmployee(key)}><Text style={S.btnText}>USUŃ</Text></TouchableOpacity>}
+        </View>)}
+        <TouchableOpacity style={S.generateFull} onPress={()=>openEmployeeEditor(null)}><Text style={S.btnText}>➕ DODAJ PRACOWNIKA</Text></TouchableOpacity>
+      </>}
       <Text style={S.section}>Kolory pracowników</Text>
       <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
       {PERSON_KEYS.map(k => (
@@ -3016,6 +3054,18 @@ const settings = (
     </Modal>
   );
 
+  const employeeDialog = (
+    <Modal visible={!!employeeEditor} transparent animationType="slide" onRequestClose={()=>setEmployeeEditor(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>{employeeEditor==='new'?'Dodaj pracownika':'Edytuj pracownika'}</Text>
+        <Text style={S.section}>Imię i nazwisko</Text>
+        <TextInput value={employeeNameDraft} onChangeText={setEmployeeNameDraft} autoCapitalize="words" placeholder="Np. Jan Kowalski" placeholderTextColor="#777" style={S.input} maxLength={60}/>
+        <TouchableOpacity style={S.generateFull} onPress={saveEmployee}><Text style={S.btnText}>ZAPISZ</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>{setEmployeeEditor(null);setEmployeeNameDraft('');}}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
   const exportModalDialog = (
     <Modal visible={exportModal} transparent animationType="slide" onRequestClose={()=>setExportModal(false)}>
       <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
@@ -3233,6 +3283,7 @@ const settings = (
           {colorModal}
           {helpModal}
           {exportModalDialog}
+          {employeeDialog}
           {conditionModalDialog}
           {offModalDialog}
           {swapModalDialog}
