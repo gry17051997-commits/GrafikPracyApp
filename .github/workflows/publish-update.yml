@@ -11,6 +11,7 @@ permissions:
 env:
   EXPO_NO_DOCTOR: "1"
   CI: "1"
+  EXPO_PUBLIC_API_URL: https://grafik-pracy-api-fra.onrender.com
 
 jobs:
   release:
