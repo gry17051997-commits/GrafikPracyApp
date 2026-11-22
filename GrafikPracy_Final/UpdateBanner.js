@@ -32,7 +32,7 @@ export default function UpdateBanner(){
       if(!response.ok)return;
       const data=await response.json();
       await AsyncStorage.setItem(LAST_CHECK_KEY,String(Date.now()));
-      const version=(String(data.name||'')+' '+String(data.tag_name||'')).match(/\\d+\\.\\d+\\.\\d+/)?.[0] || '';
+      const version=(String(data.name||'')+' '+String(data.tag_name||'')).match(/\d+\.\d+\.\d+/)?.[0] || '';
       const apk=(data.assets||[]).find(asset=>asset.name===APK_NAME&&asset.browser_download_url);
       if(version&&apk&&isNewer(version,currentVersion))setRelease({version,apk,notes:String(data.body||'').trim()});
       else setRelease(null);
