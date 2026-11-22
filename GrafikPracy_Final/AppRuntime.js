@@ -19,6 +19,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sharing from 'expo-sharing';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Notifications from 'expo-notifications';
 import * as Clipboard from 'expo-clipboard';
@@ -2085,6 +2087,42 @@ export default function App() {
 
   const escapeHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
 
+  const saveJpgToGallery = async () => {
+    try {
+      if (!exportRef.current) return;
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) { Alert.alert('Galeria','Zezwól aplikacji na dodawanie zdjęć do galerii, aby zapisać grafik.'); return; }
+      const uri = await captureRef(exportRef, {format:'jpg',quality:0.95,result:'tmpfile',width:Math.min(Dimensions.get('window').width * 3, 1440)});
+      await MediaLibrary.saveToLibraryAsync(uri);
+      Alert.alert('Zapisano','Grafik JPG został zapisany w galerii telefonu.');
+    } catch(e) { console.log(e); Alert.alert('Błąd','Nie udało się zapisać grafiku w galerii.'); }
+  };
+
+  const savePdfToPhone = async () => {
+    try {
+      const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
+      const personLabel=sharePerson==='all'?'CAŁY GRAFIK':selectedKeys.map(k=>PEOPLE[k].name).join(', ');
+      const rows=currentWeek.map((d,i)=>{
+        const date=addDays(weekStart,i);
+        const cells=d.shifts.map((sh,si)=>{
+          const visible=sh.person && (sharePerson==='all'||sh.person===sharePerson);
+          const name=visible?PEOPLE[sh.person].name:'WOLNA';
+          const wh=visible?(sh.warehouse||d.warehouse||currentWeekWarehouse):'';
+          return '<td><b>'+escapeHtml(name)+'</b><br><span>'+escapeHtml(wh)+'</span><br><span>'+(visible?escapeHtml(shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1)):'')+'</span></td>';
+        }).join('');
+        return '<tr><td><b>'+dayDateLabel(DAYS[i],date)+'</b></td>'+cells+'</tr>';
+      }).join('');
+      const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>'+escapeHtml(dayDateLabel(DAYS[0],weekStart)+' – '+dayDateLabel(DAYS[6],addDays(weekStart,6))+' · '+currentWeekHours+' h · '+personLabel)+'</p><table><thead><tr><th>Dzień</th><th>I · '+escapeHtml(currentWeekTimes.s1)+'–'+escapeHtml(currentWeekTimes.e1)+'</th><th>II · '+escapeHtml(currentWeekTimes.s2)+'–'+escapeHtml(currentWeekTimes.e2)+'</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+      const {uri}=await Print.printToFileAsync({html,width:842,height:595});
+      const permission=await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if(!permission.granted) return;
+      const target=await FileSystem.StorageAccessFramework.createFileAsync(permission.directoryUri,'Grafik_'+iso(weekStart)+'.pdf','application/pdf');
+      const base64=await FileSystem.readAsStringAsync(uri,{encoding:FileSystem.EncodingType.Base64});
+      await FileSystem.writeAsStringAsync(target,base64,{encoding:FileSystem.EncodingType.Base64});
+      Alert.alert('Zapisano','PDF grafiku zapisano w wybranym folderze telefonu.');
+    } catch(e) { console.log(e); Alert.alert('Błąd','Nie udało się zapisać PDF w pamięci telefonu.'); }
+  };
+
   const exportPdf = async () => {
     try {
       const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
@@ -2985,6 +3023,7 @@ const settings = (
           {shareFormat==='table'?compactTable(true,sharePerson):listExport(true)}
         </ScrollView>
         <View style={S.row}><TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity></View>
+        <View style={S.row}><TouchableOpacity style={S.generate} onPress={saveJpgToGallery}><Text style={S.btnText}>🖼️ ZAPISZ W GALERII</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={savePdfToPhone}><Text style={S.btnText}>📁 ZAPISZ PDF W TELEFONIE</Text></TouchableOpacity></View>
         <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
       </View></View>
     </Modal>
