@@ -20,3 +20,10 @@ test('unknown and guest roles are denied',()=>{
   assert.equal(canReadVehicleTelemetry({role:'guest',userId:'guest-1'}),false);
   assert.equal(canReadVehicleTelemetry({role:'unknown',userId:'user-1'}),false);
 });
+
+test('stale GPS observations cannot replace the current vehicle position', async()=>{
+  const fs=await import('node:fs/promises');
+  const server=await fs.readFile(new URL('./server.js',import.meta.url),'utf8');
+  assert.match(server,/WHERE gps_current\.observed_at < EXCLUDED\.observed_at/);
+  assert.match(server,/currentUpdated:Number\(currentResult\.rowCount\)>0/);
+});
