@@ -19,6 +19,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sharing from 'expo-sharing';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Notifications from 'expo-notifications';
 import * as Clipboard from 'expo-clipboard';
@@ -30,6 +32,7 @@ import {CENTRAL_API_ENABLED, db} from './firebaseConfig';
 import {apiLogin,apiLogout,apiMe,api,apiPatchSchedule,apiApproveProposal,apiRejectProposal,collection,doc,setDoc,getDoc,onSnapshot,serverTimestamp,addDoc,query,where,updateDoc,deleteField,orderBy,limit,runTransaction} from './apiClient';
 import NowDashboard from './NowDashboard';
 import AdminUsersPanel from './AdminUsersPanel';
+import UpdateBanner from './UpdateBanner';
 import {canAssignPersonToDay, isValidScheduleConditions, isValidScheduleWeekMap, isValidWeekIdMap, maxAdditionalAssignments} from './scheduleEngine';
 
 const KEY = 'grafik-pracy-v5';
@@ -42,10 +45,10 @@ const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
-const PEOPLE = {
-  P: {name: 'Paweł', color: '#4f8cff'},
-  M: {name: 'Mateusz', color: '#8f6cff'},
-  L: {name: 'Łukasz', color: '#35c98a'}
+const DEFAULT_PEOPLE = {
+  P: {name: 'Paweł Błoński', color: '#4f8cff'},
+  M: {name: 'Mateusz Liber', color: '#8f6cff'},
+  L: {name: 'Łukasz Kołodziej', color: '#35c98a'}
 };
 const COLOR_PALETTE = [
   '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
@@ -53,7 +56,6 @@ const COLOR_PALETTE = [
   '#f43f5e','#fb7185','#a16207','#65a30d','#15803d','#0f766e','#0369a1','#1d4ed8',
   '#4338ca','#7e22ce','#be185d','#78716c','#64748b','#334155'
 ];
-const PERSON_KEYS = Object.keys(PEOPLE);
 const WAREHOUSES = ['PNT B','PNT C','UNICO','SP3','DC2','DC1','ECE','PNT A','GLP B','GLP C'];
 const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
 const RATES = {10: 300, 12: 360};
@@ -77,6 +79,7 @@ const addDays = (d,n) => {
 const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const shortDate = d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`;
 const fullDate = d => `${shortDate(d)}.${d.getFullYear()}`;
+const dayDateLabel = (dayName, date) => `${dayName} ${shortDate(date)}`;
 
 function emptyWeek(warehouse='PNT B') {
   return DAYS.map((_,i) => ({
@@ -151,6 +154,11 @@ function contrastText(hex) {
 }
 
 export default function App() {
+  const [customPeople,setCustomPeople] = useState({});
+  const PEOPLE = useMemo(()=>({...DEFAULT_PEOPLE,...customPeople}),[customPeople]);
+  const PERSON_KEYS = Object.keys(PEOPLE);
+  const [employeeEditor,setEmployeeEditor] = useState(null);
+  const [employeeNameDraft,setEmployeeNameDraft] = useState('');
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
   const [hours,setHours] = useState(10);
@@ -176,7 +184,7 @@ export default function App() {
   const [backupModal,setBackupModal] = useState(false);
   const [backupText,setBackupText] = useState('');
   const [dark,setDark] = useState(true);
-  const [personColors,setPersonColors] = useState({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+  const [personColors,setPersonColors] = useState({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
   const [colorPerson,setColorPerson] = useState(null);
   const [summaryPerson,setSummaryPerson] = useState('all');
   const [viewMode,setViewMode] = useState('cards');
@@ -362,6 +370,34 @@ export default function App() {
   const currentWeekTimes = currentWeekConfig.times || DEFAULT_TIMES[currentWeekHours] || times;
   const currentWeekWarehouse = currentWeekConfig.warehouse || warehouse;
   const currentWeek = weeks[wkKey] || emptyWeek(currentWeekWarehouse);
+  const openEmployeeEditor = key => {
+    setEmployeeEditor(key || 'new');
+    setEmployeeNameDraft(key ? (PEOPLE[key]?.name || '') : '');
+  };
+  const saveEmployee = () => {
+    const name=employeeNameDraft.trim().replace(/\\s+/g,' ');
+    if(name.length<2 || name.length>60){Alert.alert('Pracownik','Wpisz imię i nazwisko (2–60 znaków).');return;}
+    if(employeeEditor==='new'){
+      const key='E_'+Date.now().toString(36);
+      const color=COLOR_PALETTE[(PERSON_KEYS.length+5)%COLOR_PALETTE.length];
+      setCustomPeople(prev=>({...prev,[key]:{name}}));
+      setPersonColors(prev=>({...prev,[key]:color}));
+    }else{
+      setCustomPeople(prev=>({...prev,[employeeEditor]:{...(prev[employeeEditor]||{}),name}}));
+    }
+    setEmployeeEditor(null);
+    setEmployeeNameDraft('');
+  };
+  const deleteEmployee = key => {
+    if(!String(key).startsWith('E_')){Alert.alert('Pracownik','Paweł, Mateusz i Łukasz są pracownikami bazowymi. Możesz zmienić ich nazwiska, ale nie usunąć ich identyfikatorów ze starych grafików.');return;}
+    const used=Object.values(weeks).some(week=>Array.isArray(week)&&week.some(day=>(day.shifts||[]).some(shift=>shift.person===key)));
+    if(used){Alert.alert('Nie można usunąć','Ten pracownik występuje w zapisanym grafiku. Najpierw usuń jego przydziały lub przenieś je na inną osobę.');return;}
+    Alert.alert('Usunąć pracownika?',PEOPLE[key]?.name||key,[{text:'Anuluj',style:'cancel'},{text:'Usuń',style:'destructive',onPress:()=>{
+      setCustomPeople(prev=>{const next={...prev};delete next[key];return next;});
+      setPersonColors(prev=>{const next={...prev};delete next[key];return next;});
+      setConditions(prev=>prev.filter(condition=>condition.person!==key));
+    }}]);
+  };
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
   const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
   const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
@@ -383,7 +419,8 @@ export default function App() {
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
-          setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+          setCustomPeople(data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {});
+          setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
           const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
           const hasSundayL1 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
           const hasSundayL2 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -419,7 +456,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,customPeople,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -431,7 +468,7 @@ export default function App() {
         console.error('Nie udało się zapisać lokalnego grafiku:', error);
         setLocalStorageError('Nie udało się zapisać grafiku na tym urządzeniu.');
       });
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger,customPeople]);
 
   const normalizeVehicleAssignment = value => String(value || '').trim().toUpperCase();
 
@@ -612,7 +649,8 @@ export default function App() {
                 autoGenerateWeeks:!!data.autoGenerateWeeks,
                 allow24h:!!data.allow24h,
                 times:data.times || DEFAULT_TIMES,
-                personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
+                personColors:data.personColors || {P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},
+                customPeople:data.customPeople || {},
                 conditions:data.conditions || [],
                 recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
                 recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
@@ -704,6 +742,7 @@ export default function App() {
       if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
       if (data.personColors) setPersonColors(data.personColors);
+      if (data.customPeople && typeof data.customPeople==='object') setCustomPeople(data.customPeople);
       if (data.conditions) setConditions(data.conditions);
       if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
       if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
@@ -777,7 +816,7 @@ export default function App() {
     }
     cloudSettingsDirtyRef.current = true;
     cloudSettingsRevisionRef.current += 1;
-  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
@@ -789,7 +828,7 @@ export default function App() {
       const settings = {
         hours,rotation,warehouse,autoGenerateWeeks,allow24h,
         times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
-        personColors,
+        personColors,customPeople,
         conditions,recoveryBalances,recoveryLedger,
         updatedAt:serverTimestamp(),
         updatedBy:cloudUser.uid
@@ -820,7 +859,7 @@ export default function App() {
         cloudSettingsSaveTimerRef.current = null;
       }
     };
-  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
@@ -1424,22 +1463,22 @@ export default function App() {
       if (!forcedOff) slots.push({di,si,offOriginalPerson:s.offOriginalPerson || s.recoverPerson || null});
     }));
 
-    const counts={P:0,M:0,L:0};
+    const counts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
 
     // Targets must describe the intended clean week, not the current mutable state.
     // Otherwise a locked/historical recovery shift becomes part of the next target
     // and the same recover debt gets added again on every regeneration.
     const baseWeek=generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
-    const baseTargetCounts={P:0,M:0,L:0};
+    const baseTargetCounts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     baseWeek.forEach(d=>d.shifts.forEach(s=>{if(s.person) baseTargetCounts[s.person]++;}));
 
-    const targets={P:null,M:null,L:null};
+    const targets=Object.fromEntries(PERSON_KEYS.map(key=>[key,null]));
     conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
     // Recovery debt is an independent business ledger. The generator is strictly
     // read-only: it may consume the balance when calculating targets, but never
     // creates, settles, clears or edits ledger entries.
-    const recoveryBalancesSnapshot={P:0,M:0,L:0,...recoveryBalances};
+    const recoveryBalancesSnapshot={...Object.fromEntries(PERSON_KEYS.map(key=>[key,0])),...recoveryBalances};
     PERSON_KEYS.forEach(p=>{
       const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
       const recoveryTarget=Math.max(0,Number(recoveryBalancesSnapshot[p])||0);
@@ -1622,6 +1661,12 @@ export default function App() {
         setWeek(generated);
       }}
     ]);
+  };
+
+  const updateDayTimes = (dayIndex, patch) => {
+    if (readOnly) return;
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({...day,times:{...(day.times || currentWeekConfig.dayTimes?.[dayIndex] || currentWeekTimes),...patch},manualTimes:true})));
+    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),dayTimes:{...(prev[wkKey]?.dayTimes||{}),[dayIndex]:{...(prev[wkKey]?.dayTimes?.[dayIndex]||currentWeekTimes),...patch}}}}));
   };
 
   const updateShift = (dayIndex,shiftIndex,patch) => {
@@ -1948,7 +1993,8 @@ export default function App() {
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
         setDark(true);
-        setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+        setCustomPeople({});
+        setPersonColors({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
         setConditions([...DEFAULT_BUSINESS_CONDITIONS]);
         setProposals([]);
         setMyPerson('P');
@@ -1972,7 +2018,7 @@ export default function App() {
     version:5,
     exportedAt:new Date().toISOString(),
     hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,
-    times,personColors,conditions,proposals,myPerson,
+    times,personColors,customPeople,conditions,proposals,myPerson,
     vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
     recoveryBalances,recoveryLedger,chatMessages
   });
@@ -2005,6 +2051,7 @@ export default function App() {
           && ['s1','e1','s2','e2'].every(field => typeof config.times[field] === 'string' && /^\d{2}:\d{2}$/.test(config.times[field]))
         ))
       ));
+      const validCustomPeople = value => value === undefined || (value && typeof value === 'object' && !Array.isArray(value) && Object.entries(value).every(([key,person]) => /^(?:P|M|L|E_[a-z0-9]+)$/.test(key) && person && typeof person.name === 'string' && person.name.trim().length>=2 && person.name.trim().length<=60));
       const validBalances = value => value && typeof value === 'object'
         && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
       const validLedger = value => Array.isArray(value) && value.length <= 500
@@ -2015,7 +2062,7 @@ export default function App() {
           && typeof entry.reason === 'string'
           && String(entry.id || '').length > 0);
       if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
-      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !validCustomPeople(data.customPeople) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
         throw new Error('bad-schema');
       }
       setHours(data.hours);
@@ -2028,7 +2075,8 @@ export default function App() {
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
-      setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+      setCustomPeople(data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {});
+      setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
       const restoredConditions = Array.isArray(data.conditions) ? data.conditions : [];
       const hasSundayL1 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
       const hasSundayL2 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -2078,6 +2126,52 @@ export default function App() {
 
   const escapeHtml = value => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');
 
+  const saveJpgToGallery = async () => {
+    try {
+      if (!exportRef.current) return;
+      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      if (!permission.granted) { Alert.alert('Galeria','Zezwól aplikacji na dodawanie zdjęć do galerii, aby zapisać grafik.'); return; }
+      const uri = await captureRef(exportRef, {format:'jpg',quality:0.95,result:'tmpfile',width:Math.min(Dimensions.get('window').width * 3, 1440)});
+      await MediaLibrary.saveToLibraryAsync(uri);
+      Alert.alert('Zapisano','Grafik JPG został zapisany w galerii telefonu.');
+    } catch(e) { console.log(e); Alert.alert('Błąd','Nie udało się zapisać grafiku w galerii.'); }
+  };
+
+  const savePdfToPhone = async () => {
+    try {
+      const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
+      const personLabel=sharePerson==='all'?'CAŁY GRAFIK':selectedKeys.map(k=>PEOPLE[k].name).join(', ');
+      const rows=currentWeek.map((d,i)=>{
+        const date=addDays(weekStart,i);
+        const cells=d.shifts.map((sh,si)=>{
+          const visible=sh.person && (sharePerson==='all'||sh.person===sharePerson);
+          const name=visible?PEOPLE[sh.person].name:'WOLNA';
+          const wh=visible?(sh.warehouse||d.warehouse||currentWeekWarehouse):'';
+          return '<td><b>'+escapeHtml(name)+'</b><br><span>'+escapeHtml(wh)+'</span><br><span>'+(visible?escapeHtml(shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1)):'')+'</span></td>';
+        }).join('');
+        return '<tr><td><b>'+dayDateLabel(DAYS[i],date)+'</b></td>'+cells+'</tr>';
+      }).join('');
+      let body;
+      if(shareFormat==='list'){
+        body=currentWeek.map((d,i)=>{
+          const date=addDays(weekStart,i);
+          const items=d.shifts.filter(sh=>sh.person&&(sharePerson==='all'||sh.person===sharePerson)).map(sh=>escapeHtml(PEOPLE[sh.person].name+' · '+shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,sh.shift)+' · '+(sh.warehouse||d.warehouse||currentWeekWarehouse)));
+          return '<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>'+dayDateLabel(DAYS[i],date)+'</b><br>'+(items.length?items.join('<br>'):'WOLNE')+'</div>';
+        }).join('');
+      }else{
+        body='<table><thead><tr><th>Dzień</th><th>I zmiana</th><th>II zmiana</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      }
+      const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>'+escapeHtml(dayDateLabel(DAYS[0],weekStart)+' – '+dayDateLabel(DAYS[6],addDays(weekStart,6))+' · '+currentWeekHours+' h · '+personLabel)+'</p>'+body+'</body></html>';
+      const {uri}=await Print.printToFileAsync({html,width:842,height:595});
+      const permission=await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if(!permission.granted) return;
+      const target=await FileSystem.StorageAccessFramework.createFileAsync(permission.directoryUri,'Grafik_'+iso(weekStart)+'.pdf','application/pdf');
+      const base64=await FileSystem.readAsStringAsync(uri,{encoding:FileSystem.EncodingType.Base64});
+      await FileSystem.writeAsStringAsync(target,base64,{encoding:FileSystem.EncodingType.Base64});
+      Alert.alert('Zapisano','PDF grafiku zapisano w wybranym folderze telefonu.');
+    } catch(e) { console.log(e); Alert.alert('Błąd','Nie udało się zapisać PDF w pamięci telefonu.'); }
+  };
+
   const exportPdf = async () => {
     try {
       const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
@@ -2088,20 +2182,20 @@ export default function App() {
           const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
           const name=visible?PEOPLE[s.person].name:'WOLNA';
           const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
-          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(currentWeekTimes,si+1)):''}</span></td>`;
+          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1)):''}</span></td>`;
         }).join('');
-        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
+        return `<tr><td><b>${dayDateLabel(DAYS[i],date)}</b></td>${cells}</tr>`;
       }).join('');
       let body;
       if(shareFormat==='list'){
         body=currentWeek.map((d,i)=>{
           const date=addDays(weekStart,i);
-          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(currentWeekTimes,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
+          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
           return `<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>${DAYS[i]} ${shortDate(date)}</b><br>${items.length?items.map(escapeHtml).join('<br>'):'WOLNE'}</div>`;
         }).join('');
         body=`<div style="font-size:12px">${body}</div>`;
       } else {
-        body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(currentWeekTimes.s1)}–${escapeHtml(currentWeekTimes.e1)}</th><th>II · ${escapeHtml(currentWeekTimes.s2)}–${escapeHtml(currentWeekTimes.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
+        body=`<table><thead><tr><th>Dzień</th><th>I zmiana</th><th>II zmiana</th></tr></thead><tbody>${rows}</tbody></table>`;
       }
       const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
       const {uri}=await Print.printToFileAsync({html,width:842,height:595});
@@ -2112,11 +2206,11 @@ export default function App() {
   const listExport = (forExport=false) => (
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
       <Text style={S.tableTitle}>GRAFIK — {sharePerson==='all'?'WSZYSCY':PEOPLE[sharePerson]?.name}</Text>
-      <Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text>
+      <Text style={S.tableSubtitle}>{dayDateLabel(DAYS[0],weekStart)} – {dayDateLabel(DAYS[6],addDays(weekStart,6))} · {currentWeekHours} h</Text>
       {currentWeek.map((d,i)=>{
         const date=addDays(weekStart,i);
         const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
-        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(times,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
+        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{dayDateLabel(DAYS[i],date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
       })}
     </View>
   );
@@ -2124,7 +2218,7 @@ export default function App() {
   const compactTable = (forExport=false, personFilter='all') => (
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
       <View style={S.tableTitleRow}>
-        <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text></View>
+        <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{dayDateLabel(DAYS[0],weekStart)} – {dayDateLabel(DAYS[6],addDays(weekStart,6))} · {currentWeekHours} h</Text></View>
         <Text style={S.tableWarehouse}>{currentWeekWarehouse}</Text>
       </View>
       <View style={S.tableHeader}>
@@ -2135,11 +2229,11 @@ export default function App() {
       {currentWeek.map((d,i) => {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
-          <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
+          <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{dayDateLabel(DAYS[i],date)}</Text>
           {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>!readOnly && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
             <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
-            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(currentWeekTimes,si+1) : ''}</Text>
+            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1) : ''}</Text>
           </TouchableOpacity>; })}
         </View>;
       })}
@@ -2167,7 +2261,7 @@ export default function App() {
     <View style={S.header}>
       <View style={{flex:1}}>
         <Text style={S.title}>GRAFIK PRACY</Text>
-        <Text style={S.muted}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))}</Text>
+        <Text style={S.muted}>{dayDateLabel(DAYS[0],weekStart)} – {dayDateLabel(DAYS[6],addDays(weekStart,6))}</Text>
       </View>
       <TouchableOpacity style={S.help} onPress={()=>setHelp(true)}>
         <Text style={S.helpText}>?</Text>
@@ -2192,6 +2286,7 @@ export default function App() {
       <View style={S.row}>
         <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
         <TouchableOpacity style={[S.btn,viewMode==='cards'&&S.active]} onPress={()=>setViewMode('cards')}><Text style={S.btnText}>☰ KARTY</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,viewMode==='list'&&S.active]} onPress={()=>setViewMode('list')}><Text style={S.btnText}>☷ LISTA</Text></TouchableOpacity>
         <TouchableOpacity style={S.generate} onPress={()=>setExportModal(true)}><Text style={S.btnText}>📤 UDOSTĘPNIJ GRAFIK</Text></TouchableOpacity>
       </View>
 
@@ -2213,14 +2308,14 @@ export default function App() {
         <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
       </TouchableOpacity>
 
-      {viewMode==='table' ? compactTable(false) : currentWeek.map((d,di) => {
+      {viewMode==='table' ? compactTable(false) : viewMode==='list' ? listExport(false) : currentWeek.map((d,di) => {
         const dateObj = addDays(weekStart,di);
         return (
           <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
             <View style={S.between}>
               <View>
-                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
-                <Text style={S.muted}>{shortDate(dateObj)} · {d.warehouse || warehouse}</Text>
+                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{dayDateLabel(DAYS[di],dateObj)}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
+                <Text style={S.muted}>{d.warehouse || currentWeekWarehouse}</Text>
               </View>
               <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
             </View>
@@ -2232,7 +2327,7 @@ export default function App() {
                   <View style={S.between}>
                     <View>
                       <Text style={S.shiftTitle}>Zmiana {s.shift}</Text>
-                      <Text style={S.time}>{shiftTime(times,s.shift)}</Text>
+                      <Text style={S.time}>{shiftTime(d.times || currentWeekTimes,s.shift)}</Text>
                     </View>
                     <Text style={S.lockText}>{s.locked?'🔒':' '}</Text>
                   </View>
@@ -2590,6 +2685,16 @@ const settings = (
         </View>)}
       </>}
 
+      {(cloudRole==='admin' || !CENTRAL_API_ENABLED) && <>
+        <Text style={S.section}>👥 Pracownicy wpisywani do grafiku</Text>
+        <Text style={S.helpLine}>Możesz zmieniać nazwiska obecnych osób oraz dodawać i usuwać dodatkowych pracowników. Osoba użyta w zapisanym grafiku nie może zostać usunięta.</Text>
+        {PERSON_KEYS.map(key=><View key={key} style={S.option}>
+          <View style={{flex:1}}><Text style={S.optionText}>{PEOPLE[key].name}</Text><Text style={S.muted}>{key.startsWith('E_')?'Dodatkowy pracownik':'Pracownik bazowy'}</Text></View>
+          <TouchableOpacity style={S.btn} onPress={()=>openEmployeeEditor(key)}><Text style={S.btnText}>EDYTUJ</Text></TouchableOpacity>
+          {key.startsWith('E_')&&<TouchableOpacity style={[S.btn,{marginLeft:6}]} onPress={()=>deleteEmployee(key)}><Text style={S.btnText}>USUŃ</Text></TouchableOpacity>}
+        </View>)}
+        <TouchableOpacity style={S.generateFull} onPress={()=>openEmployeeEditor(null)}><Text style={S.btnText}>➕ DODAJ PRACOWNIKA</Text></TouchableOpacity>
+      </>}
       <Text style={S.section}>Kolory pracowników</Text>
       <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
       {PERSON_KEYS.map(k => (
@@ -2915,6 +3020,12 @@ const settings = (
             <Text style={S.delete}>WOLNA ZMIANA</Text>
           </TouchableOpacity>
 
+          <Text style={S.section}>Godziny pracy tego dnia</Text>
+          {(() => { const dayTimes=currentWeek[edit?.dayIndex]?.times || currentWeekConfig.dayTimes?.[edit?.dayIndex] || currentWeekTimes; return <View style={S.timeBox}>
+            {['s1','e1','s2','e2'].map((field,index)=><View key={field} style={S.timeRow}><Text style={S.white}>{['I od','I do','II od','II do'][index]}</Text><TextInput value={dayTimes[field]} onChangeText={value=>updateDayTimes(edit.dayIndex,{[field]:value})} style={S.input} placeholder="06:00" placeholderTextColor="#777"/></View>)}
+            <Text style={S.muted}>Zmiana godzin dotyczy tylko tego dnia. Pozostałe dni tygodnia pozostają bez zmian.</Text>
+          </View>; })()}
+
           <Text style={S.section}>Magazyn</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
             {WAREHOUSES.map(w=>
@@ -2955,6 +3066,18 @@ const settings = (
     </Modal>
   );
 
+  const employeeDialog = (
+    <Modal visible={!!employeeEditor} transparent animationType="slide" onRequestClose={()=>setEmployeeEditor(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>{employeeEditor==='new'?'Dodaj pracownika':'Edytuj pracownika'}</Text>
+        <Text style={S.section}>Imię i nazwisko</Text>
+        <TextInput value={employeeNameDraft} onChangeText={setEmployeeNameDraft} autoCapitalize="words" placeholder="Np. Jan Kowalski" placeholderTextColor="#777" style={S.input} maxLength={60}/>
+        <TouchableOpacity style={S.generateFull} onPress={saveEmployee}><Text style={S.btnText}>ZAPISZ</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>{setEmployeeEditor(null);setEmployeeNameDraft('');}}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
   const exportModalDialog = (
     <Modal visible={exportModal} transparent animationType="slide" onRequestClose={()=>setExportModal(false)}>
       <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
@@ -2971,6 +3094,7 @@ const settings = (
           {shareFormat==='table'?compactTable(true,sharePerson):listExport(true)}
         </ScrollView>
         <View style={S.row}><TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity></View>
+        <View style={S.row}><TouchableOpacity style={S.generate} onPress={saveJpgToGallery}><Text style={S.btnText}>🖼️ ZAPISZ W GALERII</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={savePdfToPhone}><Text style={S.btnText}>📁 ZAPISZ PDF W TELEFONIE</Text></TouchableOpacity></View>
         <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
       </View></View>
     </Modal>
@@ -3150,6 +3274,7 @@ const settings = (
     <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
+          <UpdateBanner />
           {cloudUpdated && <View pointerEvents="none" style={S.cloudBannerOverlay}><View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View></View>}
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
@@ -3171,6 +3296,7 @@ const settings = (
           {colorModal}
           {helpModal}
           {exportModalDialog}
+          {employeeDialog}
           {conditionModalDialog}
           {offModalDialog}
           {swapModalDialog}
