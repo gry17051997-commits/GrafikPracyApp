@@ -1,5 +1,6 @@
 import express from 'express';
 import {matchGpsPoints} from './mapMatching.js';
+import {canReadVehicleTelemetry} from './gpsAccess.js';
 import cors from 'cors';
 import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
@@ -51,6 +52,12 @@ async function auth(req,res,next){
   }catch(e){next(e);}
 }
 function admin(req,res,next){if(req.user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});next();}
+
+async function canReadGpsVehicle(user,vehicleId){
+  if(user.role==='admin'||user.role==='employee')return true;
+  const assignment=await q('SELECT user_id FROM assignments WHERE vehicle_id=$1 AND active=true LIMIT 1',[vehicleId]);
+  return canReadVehicleTelemetry({role:user.role,userId:user.id,assignedUserId:assignment.rows[0]?.user_id});
+}
 function createUserRateLimiter({windowMs,max}) {
   const buckets = new Map();
   return (req,res,next) => {
@@ -288,16 +295,23 @@ app.get('/api/gps/mine',auth,async(req,res)=>{
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY a.updated_at DESC LIMIT 1',[req.user.id]);
   res.json({vehicle:r.rows[0]||null});
 });
-app.get('/api/gps/vehicles',auth,async(_req,res)=>{
-  const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
+app.get('/api/gps/vehicles',auth,async(req,res)=>{
+  let r;
+  if(req.user.role==='admin'||req.user.role==='employee'){
+    r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
+  }else if(req.user.role==='locator'){
+    r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY v.registration',[req.user.id]);
+  }else return res.status(403).json({error:'GPS_ACCESS_FORBIDDEN'});
   res.json({vehicles:r.rows});
 });
 app.get('/api/gps/:vehicleId/trips',auth,async(req,res)=>{
+  if(!await canReadGpsVehicle(req.user,req.params.vehicleId))return res.status(403).json({error:'GPS_VEHICLE_FORBIDDEN'});
   const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
   const {buildTrips}=await import('./tripHistory.js');
   res.json({trips:buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:false})});
 });
 app.get('/api/gps/:vehicleId/trips/:tripId',auth,async(req,res)=>{
+  if(!await canReadGpsVehicle(req.user,req.params.vehicleId))return res.status(403).json({error:'GPS_VEHICLE_FORBIDDEN'});
   const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 60000",[req.params.vehicleId]);
   const {buildTrips}=await import('./tripHistory.js');
   const trip=buildTrips(r.rows,{vehicleId:req.params.vehicleId,includePoints:true}).find(x=>x.id===req.params.tripId);
@@ -309,6 +323,7 @@ app.get('/api/gps/:vehicleId/trips/:tripId',auth,async(req,res)=>{
   res.json({trip});
 });
 app.get('/api/gps/:vehicleId/history',auth,async(req,res)=>{
+  if(!await canReadGpsVehicle(req.user,req.params.vehicleId))return res.status(403).json({error:'GPS_VEHICLE_FORBIDDEN'});
   const r=await q("SELECT id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at FROM gps_history WHERE vehicle_id=$1 AND observed_at>=NOW()-INTERVAL '7 days' ORDER BY observed_at DESC LIMIT 5000",[req.params.vehicleId]);
   if(req.query.matched==='1'){
     const matching=await matchGpsPoints(r.rows,{vehicleId:req.params.vehicleId,tripId:'history'});
