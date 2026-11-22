@@ -43,9 +43,9 @@ const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
 const PEOPLE = {
-  P: {name: 'Paweł', color: '#4f8cff'},
-  M: {name: 'Mateusz', color: '#8f6cff'},
-  L: {name: 'Łukasz', color: '#35c98a'}
+  P: {name: 'Paweł Błoński', color: '#4f8cff'},
+  M: {name: 'Mateusz Liber', color: '#8f6cff'},
+  L: {name: 'Łukasz Kołodziej', color: '#35c98a'}
 };
 const COLOR_PALETTE = [
   '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
@@ -77,6 +77,7 @@ const addDays = (d,n) => {
 const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const shortDate = d => `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`;
 const fullDate = d => `${shortDate(d)}.${d.getFullYear()}`;
+const dayDateLabel = (dayName, date) => `${dayName} ${shortDate(date)}`;
 
 function emptyWeek(warehouse='PNT B') {
   return DAYS.map((_,i) => ({
@@ -1624,6 +1625,11 @@ export default function App() {
     ]);
   };
 
+  const updateDayTimes = (dayIndex, patch) => {
+    if (readOnly) return;
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({...day,times:{...(day.times || currentWeekTimes),...patch},manualTimes:true})));
+  };
+
   const updateShift = (dayIndex,shiftIndex,patch) => {
     if (readOnly) return;
     setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({
@@ -2112,11 +2118,11 @@ export default function App() {
   const listExport = (forExport=false) => (
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
       <Text style={S.tableTitle}>GRAFIK — {sharePerson==='all'?'WSZYSCY':PEOPLE[sharePerson]?.name}</Text>
-      <Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text>
+      <Text style={S.tableSubtitle}>{dayDateLabel(DAYS[0],weekStart)} – {dayDateLabel(DAYS[6],addDays(weekStart,6))} · {currentWeekHours} h</Text>
       {currentWeek.map((d,i)=>{
         const date=addDays(weekStart,i);
         const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
-        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(times,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
+        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(d.times || currentWeekTimes,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
       })}
     </View>
   );
@@ -2167,7 +2173,7 @@ export default function App() {
     <View style={S.header}>
       <View style={{flex:1}}>
         <Text style={S.title}>GRAFIK PRACY</Text>
-        <Text style={S.muted}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))}</Text>
+        <Text style={S.muted}>{dayDateLabel(DAYS[0],weekStart)} – {dayDateLabel(DAYS[6],addDays(weekStart,6))}</Text>
       </View>
       <TouchableOpacity style={S.help} onPress={()=>setHelp(true)}>
         <Text style={S.helpText}>?</Text>
@@ -2220,7 +2226,7 @@ export default function App() {
             <View style={S.between}>
               <View>
                 <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
-                <Text style={S.muted}>{shortDate(dateObj)} · {d.warehouse || warehouse}</Text>
+                <Text style={S.muted}>{d.warehouse || currentWeekWarehouse}</Text>
               </View>
               <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
             </View>
@@ -2232,7 +2238,7 @@ export default function App() {
                   <View style={S.between}>
                     <View>
                       <Text style={S.shiftTitle}>Zmiana {s.shift}</Text>
-                      <Text style={S.time}>{shiftTime(times,s.shift)}</Text>
+                      <Text style={S.time}>{shiftTime(d.times || currentWeekTimes,s.shift)}</Text>
                     </View>
                     <Text style={S.lockText}>{s.locked?'🔒':' '}</Text>
                   </View>
@@ -2914,6 +2920,12 @@ const settings = (
           <TouchableOpacity style={S.modalOpt} onPress={()=>{removeShift(edit.dayIndex,edit.shiftIndex);setEdit(null)}}>
             <Text style={S.delete}>WOLNA ZMIANA</Text>
           </TouchableOpacity>
+
+          <Text style={S.section}>Godziny pracy tego dnia</Text>
+          {(() => { const dayTimes=currentWeek[edit?.dayIndex]?.times || currentWeekTimes; return <View style={S.timeBox}>
+            {['s1','e1','s2','e2'].map((field,index)=><View key={field} style={S.timeRow}><Text style={S.white}>{['I od','I do','II od','II do'][index]}</Text><TextInput value={dayTimes[field]} onChangeText={value=>updateDayTimes(edit.dayIndex,{[field]:value})} style={S.input} placeholder="06:00" placeholderTextColor="#777"/></View>)}
+            <Text style={S.muted}>Zmiana godzin dotyczy tylko tego dnia. Pozostałe dni tygodnia pozostają bez zmian.</Text>
+          </View>; })()}
 
           <Text style={S.section}>Magazyn</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
