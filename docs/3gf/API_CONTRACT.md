@@ -72,6 +72,7 @@ Nowe endpointy można wprowadzać pod `/api/v1/telematics`, ale nie usuwać istn
 - Nie przyjmować identyfikatora pojazdu z klienta jako dowodu uprawnień.
 - Backend ustala pojazd na podstawie tokenu urządzenia.
 - Backend sprawdza prawo użytkownika do odczytu pojazdu i historii.
+- Obecna polityka: `admin` i `employee` mają dostęp do floty zgodnie z aktualnym UI; `locator` tylko do pojazdu przypisanego do jego konta; nieznane role są odrzucane.
 - Token urządzenia nie może być używany jako token użytkownika.
 - Nie przesyłać sekretów w deep linkach.
 - Błędy sieci nie mogą automatycznie usuwać przypisania urządzenia.
