@@ -2209,7 +2209,7 @@ export default function App() {
       {currentWeek.map((d,i)=>{
         const date=addDays(weekStart,i);
         const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
-        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(d.times || currentWeekTimes,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
+        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{dayDateLabel(DAYS[i],date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
       })}
     </View>
   );
