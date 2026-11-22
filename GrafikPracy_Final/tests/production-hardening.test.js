@@ -448,3 +448,11 @@ test('live GPS route map uses hardware WebView and the Leaflet canvas renderer',
   assert.match(dashboard, /window\.setMapSize=function/);
   assert.match(dashboard, /vehicleChanged=!!d\.vehicleId/);
 });
+
+test('live location dashboard can open the selected vehicle in the separate 3gf app', async () => {
+  const fs = await import('node:fs/promises');
+  const dashboard = await fs.readFile(new URL('../LiveLocationDashboard.js', import.meta.url), 'utf8');
+  assert.match(dashboard, /grafikpracy3gf:\/\/vehicle\//);
+  assert.match(dashboard, /OTWÓRZ POJAZD W 3GF/);
+  assert.match(dashboard, /Linking\.openURL/);
+});
