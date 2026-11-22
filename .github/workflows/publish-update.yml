@@ -93,7 +93,7 @@ jobs:
           repository: gry17051997-commits/3gf
           token: ${{ secrets.PUBLIC_RELEASE_TOKEN }}
           tag_name: grafik-latest
-          name: Grafik Pracy latest
+          name: Grafik Pracy ${{ github.ref_name }}
           body: "Automatyczna paczka aktualizacji aplikacji Grafik Pracy. Pobieraj wyłącznie przez aplikację."
           files: GrafikPracy_Final/GrafikPracy.apk
           overwrite_files: true
