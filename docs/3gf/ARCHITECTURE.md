@@ -122,13 +122,13 @@ Nie tworzyć równoległych tabel z innymi nazwami dla tych samych danych. Nowe 
 
 ## 10. Odczyt map i uprawnienia
 
-- Kierowca: tylko własne przypisane auto i jego trasy.
-- Dyspozytor/locator: pojazdy objęte jego zakresem.
-- Admin: wszystkie pojazdy.
-- Gość: brak lokalizacji.
+- `locator`: tylko własne przypisane auto i jego trasy. Tak działa już ekran „Teraz” dla lokalizatora.
+- `employee`: obecny ekran floty pobiera dla tej roli wszystkie pojazdy. Zachowujemy to zachowanie, aby nie wprowadzić regresji; zakres tej roli wymaga potwierdzenia właściciela przed dalszym zaostrzeniem.
+- `admin`: wszystkie pojazdy.
+- Inne role, w tym gość: brak dostępu do telemetrii.
 - Backend egzekwuje uprawnienia przy każdym żądaniu; ukrycie przycisku w UI nie jest zabezpieczeniem.
 
-Obecny backend używa ról `employee`, `locator`, `admin`. Należy mapować je na role produktowe bez zmiany istniejących kont.
+W tej gałęzi dodano kontrolę po stronie API: `locator` widzi tylko pojazd przypisany do jego konta, również przy bezpośrednim wywołaniu endpointów historii. Polityka jest testowana w `backend/gpsAccess.test.js`.
 
 ## 11. Mapy
 
