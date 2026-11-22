@@ -1627,7 +1627,8 @@ export default function App() {
 
   const updateDayTimes = (dayIndex, patch) => {
     if (readOnly) return;
-    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({...day,times:{...(day.times || currentWeekConfig.dayTimes?.[dayIndex] || currentWeekTimes),...patch},manualTimes:true})));\n    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),dayTimes:{...(prev[wkKey]?.dayTimes||{}),[dayIndex]:{...(prev[wkKey]?.dayTimes?.[dayIndex]||currentWeekTimes),...patch}}}}));
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({...day,times:{...(day.times || currentWeekConfig.dayTimes?.[dayIndex] || currentWeekTimes),...patch},manualTimes:true})));
+    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),dayTimes:{...(prev[wkKey]?.dayTimes||{}),[dayIndex]:{...(prev[wkKey]?.dayTimes?.[dayIndex]||currentWeekTimes),...patch}}}}));
   };
 
   const updateShift = (dayIndex,shiftIndex,patch) => {
