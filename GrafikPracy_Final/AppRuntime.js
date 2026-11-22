@@ -2050,6 +2050,7 @@ export default function App() {
           && ['s1','e1','s2','e2'].every(field => typeof config.times[field] === 'string' && /^\d{2}:\d{2}$/.test(config.times[field]))
         ))
       ));
+      const validCustomPeople = value => value === undefined || (value && typeof value === 'object' && !Array.isArray(value) && Object.entries(value).every(([key,person]) => /^(?:P|M|L|E_[a-z0-9]+)$/.test(key) && person && typeof person.name === 'string' && person.name.trim().length>=2 && person.name.trim().length<=60));
       const validBalances = value => value && typeof value === 'object'
         && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
       const validLedger = value => Array.isArray(value) && value.length <= 500
@@ -2060,7 +2061,7 @@ export default function App() {
           && typeof entry.reason === 'string'
           && String(entry.id || '').length > 0);
       if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
-      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !validCustomPeople(data.customPeople) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
         throw new Error('bad-schema');
       }
       setHours(data.hours);
