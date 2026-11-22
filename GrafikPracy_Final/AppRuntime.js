@@ -2150,7 +2150,17 @@ export default function App() {
         }).join('');
         return '<tr><td><b>'+dayDateLabel(DAYS[i],date)+'</b></td>'+cells+'</tr>';
       }).join('');
-      const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>'+escapeHtml(dayDateLabel(DAYS[0],weekStart)+' – '+dayDateLabel(DAYS[6],addDays(weekStart,6))+' · '+currentWeekHours+' h · '+personLabel)+'</p><table><thead><tr><th>Dzień</th><th>I zmiana</th><th>II zmiana</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+      let body;
+      if(shareFormat==='list'){
+        body=currentWeek.map((d,i)=>{
+          const date=addDays(weekStart,i);
+          const items=d.shifts.filter(sh=>sh.person&&(sharePerson==='all'||sh.person===sharePerson)).map(sh=>escapeHtml(PEOPLE[sh.person].name+' · '+shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,sh.shift)+' · '+(sh.warehouse||d.warehouse||currentWeekWarehouse)));
+          return '<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>'+dayDateLabel(DAYS[i],date)+'</b><br>'+(items.length?items.join('<br>'):'WOLNE')+'</div>';
+        }).join('');
+      }else{
+        body='<table><thead><tr><th>Dzień</th><th>I zmiana</th><th>II zmiana</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      }
+      const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>'+escapeHtml(dayDateLabel(DAYS[0],weekStart)+' – '+dayDateLabel(DAYS[6],addDays(weekStart,6))+' · '+currentWeekHours+' h · '+personLabel)+'</p>'+body+'</body></html>';
       const {uri}=await Print.printToFileAsync({html,width:842,height:595});
       const permission=await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if(!permission.granted) return;
@@ -2173,7 +2183,7 @@ export default function App() {
           const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
           return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1)):''}</span></td>`;
         }).join('');
-        return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
+        return `<tr><td><b>${dayDateLabel(DAYS[i],date)}</b></td>${cells}</tr>`;
       }).join('');
       let body;
       if(shareFormat==='list'){
@@ -2303,7 +2313,7 @@ export default function App() {
           <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
             <View style={S.between}>
               <View>
-                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
+                <View style={S.dayTitleRow}><Text style={S.dayTitle}>{dayDateLabel(DAYS[di],dateObj)}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
                 <Text style={S.muted}>{d.warehouse || currentWeekWarehouse}</Text>
               </View>
               <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
