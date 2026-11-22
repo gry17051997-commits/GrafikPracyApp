@@ -467,7 +467,7 @@ export default function App() {
         console.error('Nie udało się zapisać lokalnego grafiku:', error);
         setLocalStorageError('Nie udało się zapisać grafiku na tym urządzeniu.');
       });
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger,customPeople]);
 
   const normalizeVehicleAssignment = value => String(value || '').trim().toUpperCase();
 
