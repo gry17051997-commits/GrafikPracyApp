@@ -2198,6 +2198,7 @@ export default function App() {
       <View style={S.row}>
         <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
         <TouchableOpacity style={[S.btn,viewMode==='cards'&&S.active]} onPress={()=>setViewMode('cards')}><Text style={S.btnText}>☰ KARTY</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,viewMode==='list'&&S.active]} onPress={()=>setViewMode('list')}><Text style={S.btnText}>☷ LISTA</Text></TouchableOpacity>
         <TouchableOpacity style={S.generate} onPress={()=>setExportModal(true)}><Text style={S.btnText}>📤 UDOSTĘPNIJ GRAFIK</Text></TouchableOpacity>
       </View>
 
@@ -2219,7 +2220,7 @@ export default function App() {
         <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
       </TouchableOpacity>
 
-      {viewMode==='table' ? compactTable(false) : currentWeek.map((d,di) => {
+      {viewMode==='table' ? compactTable(false) : viewMode==='list' ? listExport(false) : currentWeek.map((d,di) => {
         const dateObj = addDays(weekStart,di);
         return (
           <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
