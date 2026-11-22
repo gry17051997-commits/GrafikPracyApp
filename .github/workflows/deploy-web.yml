@@ -24,7 +24,7 @@ jobs:
 
       - name: Zainstaluj zależności
         working-directory: GrafikPracy_Final
-        run: npm ci
+        run: npm install
 
       - name: Zweryfikuj konfigurację centralnego API
         run: |
