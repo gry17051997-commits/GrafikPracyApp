@@ -51,6 +51,16 @@ test('week documents are isolated by weekId', () => {
   assert.equal(Object.hasOwn(weekB, 'weeks'), false);
 });
 
+test('dynamic employee identifiers are accepted in schedules and conditions', () => {
+  const week = Array.from({length:7},(_,dayIndex)=>({
+    dayIndex,
+    shifts:[{shift:1,person:dayIndex===0?'E_m8x4k2':null},{shift:2,person:null}]
+  }));
+  assert.equal(isValidScheduleWeekMap({'2026-11-23':week}), true);
+  assert.equal(isValidScheduleConditions([{type:'must',person:'E_m8x4k2',dayIndex:0,shift:1}]), true);
+  assert.equal(isValidScheduleConditions([{type:'must',person:'E_invalid id',dayIndex:0,shift:1}]), false);
+});
+
 test('backup schedule validation rejects malformed week shapes and unknown assignees', () => {
   const emptyWeek = Array.from({length:7},(_,dayIndex)=>({
     dayIndex,
