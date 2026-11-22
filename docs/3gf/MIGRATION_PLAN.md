@@ -96,9 +96,10 @@
 1. Sprawdzić autoryzację wszystkich endpointów lokalizacji i historii.
 2. `locator` ograniczyć do własnego przypisanego pojazdu. W tej gałęzi dodano już kontrolę API i testy.
 3. Zachować obecne zachowanie `employee` (widok całej floty) do czasu potwierdzenia docelowego zakresu tej roli.
-4. Sprawdzić pierwszą rejestrację admina i ochronę endpointu rejestracji.
-5. Dodać automatyczne czyszczenie danych starszych niż 7 dni, jeżeli nie jest już realizowane.
-6. Dodać audyt przypisań urządzeń i zmian uprawnień.
+4. Zabezpieczyć bootstrap admina: pierwszy publiczny użytkownik otrzymuje obecnie rolę `admin`, gdy baza jest pusta. Wdrożyć kontrolowany bootstrap lub wyłączyć publiczną rejestrację po konfiguracji.
+5. Ograniczyć CORS do znanych domen web, bez blokowania natywnych żądań bez `Origin`, i dodać limit prób logowania/rejestracji.
+6. Dodać automatyczne czyszczenie danych starszych niż 7 dni, jeżeli nie jest już realizowane.
+7. Dodać audyt przypisań urządzeń i zmian uprawnień.
 
 **Kryterium:** brak nieautoryzowanego odczytu lokalizacji.
 
