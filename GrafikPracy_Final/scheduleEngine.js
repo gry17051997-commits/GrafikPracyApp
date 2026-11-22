@@ -28,6 +28,8 @@ function isValidWeekId(value) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+function isValidPersonKey(value) { return typeof value === 'string' && /^(?:P|M|L|E_[a-z0-9]+)$/.test(value); }
+
 function isValidScheduleWeekMap(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   return Object.entries(value).every(([weekId, week]) => (
@@ -43,7 +45,7 @@ function isValidScheduleWeekMap(value) {
       && day.shifts.every((shift, shiftIndex) => (
         shift
         && typeof shift === 'object'
-        && (shift.person == null || ['P', 'M', 'L'].includes(shift.person))
+        && (shift.person == null || isValidPersonKey(shift.person))
         && (shift.shift === undefined || shift.shift === shiftIndex + 1)
         && (shift.manual === undefined || typeof shift.manual === 'boolean')
         && (shift.locked === undefined || typeof shift.locked === 'boolean')
@@ -64,7 +66,7 @@ function isValidScheduleConditions(value) {
   return value.every(condition => {
     if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return false;
     if (!['count', 'must', 'off', 'forbid', 'prefer'].includes(condition.type)) return false;
-    if (!['P', 'M', 'L'].includes(condition.person) && !(condition.type === 'off' && condition.person == null)) return false;
+    if (!isValidPersonKey(condition.person) && !(condition.type === 'off' && condition.person == null)) return false;
     if (condition.type === 'count') {
       const count = Number(condition.value);
       return Number.isInteger(count) && count >= 0 && count <= 14;
@@ -94,6 +96,7 @@ module.exports = {
   isValidWeekIdMap,
   isValidScheduleWeekMap,
   isValidScheduleConditions,
+  isValidPersonKey,
   serverTimestampMillis,
   addHourEpoch
 };
