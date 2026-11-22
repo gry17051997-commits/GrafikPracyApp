@@ -94,8 +94,8 @@
 
 ## Etap 7: bezpieczeństwo i retencja
 1. Sprawdzić autoryzację wszystkich endpointów lokalizacji i historii.
-2. Ograniczyć pracownika do własnego pojazdu.
-3. Ograniczyć dyspozytora do przydzielonego zakresu.
+2. `locator` ograniczyć do własnego przypisanego pojazdu. W tej gałęzi dodano już kontrolę API i testy.
+3. Zachować obecne zachowanie `employee` (widok całej floty) do czasu potwierdzenia docelowego zakresu tej roli.
 4. Sprawdzić pierwszą rejestrację admina i ochronę endpointu rejestracji.
 5. Dodać automatyczne czyszczenie danych starszych niż 7 dni, jeżeli nie jest już realizowane.
 6. Dodać audyt przypisań urządzeń i zmian uprawnień.
