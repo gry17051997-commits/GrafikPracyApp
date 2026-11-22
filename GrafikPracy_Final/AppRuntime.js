@@ -2112,7 +2112,7 @@ export default function App() {
         }).join('');
         return '<tr><td><b>'+dayDateLabel(DAYS[i],date)+'</b></td>'+cells+'</tr>';
       }).join('');
-      const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>'+escapeHtml(dayDateLabel(DAYS[0],weekStart)+' – '+dayDateLabel(DAYS[6],addDays(weekStart,6))+' · '+currentWeekHours+' h · '+personLabel)+'</p><table><thead><tr><th>Dzień</th><th>I · '+escapeHtml(currentWeekTimes.s1)+'–'+escapeHtml(currentWeekTimes.e1)+'</th><th>II · '+escapeHtml(currentWeekTimes.s2)+'–'+escapeHtml(currentWeekTimes.e2)+'</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
+      const html='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>'+escapeHtml(dayDateLabel(DAYS[0],weekStart)+' – '+dayDateLabel(DAYS[6],addDays(weekStart,6))+' · '+currentWeekHours+' h · '+personLabel)+'</p><table><thead><tr><th>Dzień</th><th>I zmiana</th><th>II zmiana</th></tr></thead><tbody>'+rows+'</tbody></table></body></html>';
       const {uri}=await Print.printToFileAsync({html,width:842,height:595});
       const permission=await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if(!permission.granted) return;
@@ -2141,12 +2141,12 @@ export default function App() {
       if(shareFormat==='list'){
         body=currentWeek.map((d,i)=>{
           const date=addDays(weekStart,i);
-          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(currentWeekTimes,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
+          const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson)).map(s=>`${PEOPLE[s.person].name} · ${shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,s.shift)} · ${s.warehouse||d.warehouse||warehouse}`);
           return `<div style="border-bottom:1px solid #ccc;padding:7px 0"><b>${DAYS[i]} ${shortDate(date)}</b><br>${items.length?items.map(escapeHtml).join('<br>'):'WOLNE'}</div>`;
         }).join('');
         body=`<div style="font-size:12px">${body}</div>`;
       } else {
-        body=`<table><thead><tr><th>Dzień</th><th>I · ${escapeHtml(currentWeekTimes.s1)}–${escapeHtml(currentWeekTimes.e1)}</th><th>II · ${escapeHtml(currentWeekTimes.s2)}–${escapeHtml(currentWeekTimes.e2)}</th></tr></thead><tbody>${rows}</tbody></table>`;
+        body=`<table><thead><tr><th>Dzień</th><th>I zmiana</th><th>II zmiana</th></tr></thead><tbody>${rows}</tbody></table>`;
       }
       const html=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@page{size:A4 landscape;margin:18px}body{font-family:Arial,sans-serif;color:#111;margin:0}h1{font-size:22px;margin:0 0 4px}p{margin:0 0 14px;color:#555;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #555;padding:8px;text-align:center;font-size:11px;vertical-align:middle}th{background:#222;color:#fff}td:first-child{width:14%;text-align:left}td{height:55px}span{color:#666}</style></head><body><h1>GRAFIK PRACY</h1><p>${fullDate(weekStart)} – ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h · ${escapeHtml(personLabel)}</p>${body}</body></html>`;
       const {uri}=await Print.printToFileAsync({html,width:842,height:595});
@@ -2184,7 +2184,7 @@ export default function App() {
           {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>!readOnly && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
             <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
-            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(currentWeekTimes,si+1) : ''}</Text>
+            <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1) : ''}</Text>
           </TouchableOpacity>; })}
         </View>;
       })}
