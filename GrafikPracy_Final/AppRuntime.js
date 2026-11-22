@@ -2094,7 +2094,7 @@ export default function App() {
           const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
           const name=visible?PEOPLE[s.person].name:'WOLNA';
           const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
-          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(currentWeekTimes,si+1)):''}</span></td>`;
+          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(d.times || currentWeekTimes,si+1)):''}</span></td>`;
         }).join('');
         return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
       }).join('');
@@ -2130,7 +2130,7 @@ export default function App() {
   const compactTable = (forExport=false, personFilter='all') => (
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
       <View style={S.tableTitleRow}>
-        <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text></View>
+        <View style={{flex:1}}><Text style={S.tableTitle}>GRAFIK PRACY</Text><Text style={S.tableSubtitle}>{dayDateLabel(DAYS[0],weekStart)} – {dayDateLabel(DAYS[6],addDays(weekStart,6))} · {currentWeekHours} h</Text></View>
         <Text style={S.tableWarehouse}>{currentWeekWarehouse}</Text>
       </View>
       <View style={S.tableHeader}>
@@ -2141,7 +2141,7 @@ export default function App() {
       {currentWeek.map((d,i) => {
         const date = addDays(weekStart,i);
         return <View key={d.dayIndex} style={S.tableRow}>
-          <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{DAYS[i]}\n{shortDate(date)}</Text>
+          <Text style={[S.tableCell,S.tableDayCell,S.tableDay]}>{dayDateLabel(DAYS[i],date)}</Text>
           {[0,1].map(si => { const sh=d.shifts[si]; const p=sh.person ? PEOPLE[sh.person] : null; return <TouchableOpacity key={si} disabled={forExport} onPress={()=>!readOnly && setEdit({dayIndex:i,shiftIndex:si})} style={[S.tableCell,S.tableShiftCell,S.tableShift,sh.person===personFilter||personFilter==='all'?{backgroundColor:personColor(sh.person)}:{}]}>
             <Text style={[S.tablePerson,p&&{color:contrastText(personColor(sh.person))}]}>{p ? p.name : 'WOLNA'}</Text>
             <Text style={[S.tableMeta,p&&{color:contrastText(personColor(sh.person)),opacity:0.78}]}>{p ? (sh.warehouse || d.warehouse || warehouse) : ''}</Text>
