@@ -55,8 +55,8 @@ function admin(req,res,next){if(req.user.role!=='admin')return res.status(403).j
 
 async function canReadGpsVehicle(user,vehicleId){
   if(user.role==='admin'||user.role==='employee')return true;
-  const assignment=await q('SELECT user_id FROM assignments WHERE vehicle_id=$1 AND active=true LIMIT 1',[vehicleId]);
-  return canReadVehicleTelemetry({role:user.role,userId:user.id,assignedUserId:assignment.rows[0]?.user_id});
+  const assignment=await q('SELECT 1 FROM assignments WHERE vehicle_id=$1 AND user_id=$2 AND active=true LIMIT 1',[vehicleId,user.id]);
+  return canReadVehicleTelemetry({role:user.role,userId:user.id,assignedUserId:assignment.rows[0]?user.id:null});
 }
 function createUserRateLimiter({windowMs,max}) {
   const buckets = new Map();
@@ -300,7 +300,7 @@ app.get('/api/gps/vehicles',auth,async(req,res)=>{
   if(req.user.role==='admin'||req.user.role==='employee'){
     r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM vehicles v LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE v.active=true ORDER BY v.registration');
   }else if(req.user.role==='locator'){
-    r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY v.registration',[req.user.id]);
+    r=await q('SELECT DISTINCT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY v.registration',[req.user.id]);
   }else return res.status(403).json({error:'GPS_ACCESS_FORBIDDEN'});
   res.json({vehicles:r.rows});
 });
