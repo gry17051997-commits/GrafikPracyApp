@@ -44,7 +44,7 @@ const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
-const PEOPLE = {
+const DEFAULT_PEOPLE = {
   P: {name: 'Paweł Błoński', color: '#4f8cff'},
   M: {name: 'Mateusz Liber', color: '#8f6cff'},
   L: {name: 'Łukasz Kołodziej', color: '#35c98a'}
@@ -55,7 +55,6 @@ const COLOR_PALETTE = [
   '#f43f5e','#fb7185','#a16207','#65a30d','#15803d','#0f766e','#0369a1','#1d4ed8',
   '#4338ca','#7e22ce','#be185d','#78716c','#64748b','#334155'
 ];
-const PERSON_KEYS = Object.keys(PEOPLE);
 const WAREHOUSES = ['PNT B','PNT C','UNICO','SP3','DC2','DC1','ECE','PNT A','GLP B','GLP C'];
 const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
 const RATES = {10: 300, 12: 360};
@@ -154,6 +153,11 @@ function contrastText(hex) {
 }
 
 export default function App() {
+  const [customPeople,setCustomPeople] = useState({});
+  const PEOPLE = useMemo(()=>({...DEFAULT_PEOPLE,...customPeople}),[customPeople]);
+  const PERSON_KEYS = Object.keys(PEOPLE);
+  const [employeeEditor,setEmployeeEditor] = useState(null);
+  const [employeeNameDraft,setEmployeeNameDraft] = useState('');
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
   const [hours,setHours] = useState(10);
@@ -179,7 +183,7 @@ export default function App() {
   const [backupModal,setBackupModal] = useState(false);
   const [backupText,setBackupText] = useState('');
   const [dark,setDark] = useState(true);
-  const [personColors,setPersonColors] = useState({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+  const [personColors,setPersonColors] = useState({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
   const [colorPerson,setColorPerson] = useState(null);
   const [summaryPerson,setSummaryPerson] = useState('all');
   const [viewMode,setViewMode] = useState('cards');
@@ -386,7 +390,8 @@ export default function App() {
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
-          setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+          setCustomPeople(data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {});
+          setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
           const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
           const hasSundayL1 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
           const hasSundayL2 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -422,7 +427,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,customPeople,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -615,7 +620,8 @@ export default function App() {
                 autoGenerateWeeks:!!data.autoGenerateWeeks,
                 allow24h:!!data.allow24h,
                 times:data.times || DEFAULT_TIMES,
-                personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
+                personColors:data.personColors || {P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},
+                customPeople:data.customPeople || {},
                 conditions:data.conditions || [],
                 recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
                 recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
@@ -707,6 +713,7 @@ export default function App() {
       if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
       if (data.personColors) setPersonColors(data.personColors);
+      if (data.customPeople && typeof data.customPeople==='object') setCustomPeople(data.customPeople);
       if (data.conditions) setConditions(data.conditions);
       if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
       if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
@@ -780,7 +787,7 @@ export default function App() {
     }
     cloudSettingsDirtyRef.current = true;
     cloudSettingsRevisionRef.current += 1;
-  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
@@ -792,7 +799,7 @@ export default function App() {
       const settings = {
         hours,rotation,warehouse,autoGenerateWeeks,allow24h,
         times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
-        personColors,
+        personColors,customPeople,
         conditions,recoveryBalances,recoveryLedger,
         updatedAt:serverTimestamp(),
         updatedBy:cloudUser.uid
@@ -823,7 +830,7 @@ export default function App() {
         cloudSettingsSaveTimerRef.current = null;
       }
     };
-  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
@@ -1427,22 +1434,22 @@ export default function App() {
       if (!forcedOff) slots.push({di,si,offOriginalPerson:s.offOriginalPerson || s.recoverPerson || null});
     }));
 
-    const counts={P:0,M:0,L:0};
+    const counts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
 
     // Targets must describe the intended clean week, not the current mutable state.
     // Otherwise a locked/historical recovery shift becomes part of the next target
     // and the same recover debt gets added again on every regeneration.
     const baseWeek=generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
-    const baseTargetCounts={P:0,M:0,L:0};
+    const baseTargetCounts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     baseWeek.forEach(d=>d.shifts.forEach(s=>{if(s.person) baseTargetCounts[s.person]++;}));
 
-    const targets={P:null,M:null,L:null};
+    const targets=Object.fromEntries(PERSON_KEYS.map(key=>[key,null]));
     conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
     // Recovery debt is an independent business ledger. The generator is strictly
     // read-only: it may consume the balance when calculating targets, but never
     // creates, settles, clears or edits ledger entries.
-    const recoveryBalancesSnapshot={P:0,M:0,L:0,...recoveryBalances};
+    const recoveryBalancesSnapshot={...Object.fromEntries(PERSON_KEYS.map(key=>[key,0])),...recoveryBalances};
     PERSON_KEYS.forEach(p=>{
       const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
       const recoveryTarget=Math.max(0,Number(recoveryBalancesSnapshot[p])||0);
@@ -1957,7 +1964,8 @@ export default function App() {
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
         setDark(true);
-        setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+        setCustomPeople({});
+        setPersonColors({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
         setConditions([...DEFAULT_BUSINESS_CONDITIONS]);
         setProposals([]);
         setMyPerson('P');
@@ -1981,7 +1989,7 @@ export default function App() {
     version:5,
     exportedAt:new Date().toISOString(),
     hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,
-    times,personColors,conditions,proposals,myPerson,
+    times,personColors,customPeople,conditions,proposals,myPerson,
     vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
     recoveryBalances,recoveryLedger,chatMessages
   });
@@ -2037,7 +2045,8 @@ export default function App() {
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
-      setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+      setCustomPeople(data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {});
+      setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
       const restoredConditions = Array.isArray(data.conditions) ? data.conditions : [];
       const hasSundayL1 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
       const hasSundayL2 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
