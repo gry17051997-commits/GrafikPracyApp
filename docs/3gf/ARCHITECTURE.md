@@ -130,6 +130,12 @@ Nie tworzyć równoległych tabel z innymi nazwami dla tych samych danych. Nowe 
 
 W tej gałęzi dodano kontrolę po stronie API: `locator` widzi tylko pojazd przypisany do jego konta, również przy bezpośrednim wywołaniu endpointów historii. Polityka jest testowana w `backend/gpsAccess.test.js`.
 
+Dodatkowe blokery bezpieczeństwa wykryte w obecnym backendzie:
+- Endpoint rejestracji nadaje pierwszemu użytkownikowi rolę `admin`, gdy tabela użytkowników jest pusta. Bootstrap administratora musi być kontrolowany, a publiczna rejestracja zabezpieczona po konfiguracji.
+- `cors()` obecnie dopuszcza wszystkie originy. Przed szerszym wdrożeniem trzeba ustawić allowlistę domen web, nie blokując natywnych żądań bez nagłówka `Origin`.
+- Logowanie nie ma osobnego limitera prób. Należy dodać ochronę przed próbami brute force.
+
+
 ## 11. Mapy
 
 - Zachować aktualną implementację Leaflet/WebView i obecny MapTiler/OSM fallback.
