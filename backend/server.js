@@ -278,10 +278,11 @@ app.post('/api/gps',async(req,res)=>{
   const altitude=Number.isFinite(Number(b.altitude))?Number(b.altitude):null;
   const speed=Number.isFinite(Number(b.speed))?Number(b.speed):null;
   const heading=Number.isFinite(Number(b.heading))?Number(b.heading):null;
-  await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW()',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
+  // Nie pozwól, aby opóźniony punkt z kolejki offline cofnął bieżącą pozycję pojazdu.
+  const currentResult=await q('INSERT INTO gps_current(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at,received_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT(vehicle_id) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,accuracy=EXCLUDED.accuracy,altitude=EXCLUDED.altitude,speed=EXCLUDED.speed,heading=EXCLUDED.heading,observed_at=EXCLUDED.observed_at,received_at=NOW() WHERE gps_current.observed_at < EXCLUDED.observed_at',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('INSERT INTO gps_history(vehicle_id,latitude,longitude,accuracy,altitude,speed,heading,observed_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[v.id,lat,lon,accuracy,altitude,speed,heading,observed]);
   await q('UPDATE phones p SET last_seen_at=NOW(),updated_at=NOW() FROM assignments a WHERE a.phone_id=p.id AND a.vehicle_id=$1 AND a.active=true',[v.id]);
-  res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString()});
+  res.json({ok:true,vehicleId:v.id,registration:v.registration,observedAt:observed.toISOString(),currentUpdated:Number(currentResult.rowCount)>0});
 });
 app.get('/api/gps/mine',auth,async(req,res)=>{
   const r=await q('SELECT v.id,v.registration,v.name,g.latitude,g.longitude,g.accuracy,g.altitude,g.speed,g.heading,g.observed_at,g.received_at FROM assignments a JOIN vehicles v ON v.id=a.vehicle_id AND v.active=true LEFT JOIN gps_current g ON g.vehicle_id=v.id WHERE a.user_id=$1 AND a.active=true ORDER BY a.updated_at DESC LIMIT 1',[req.user.id]);
