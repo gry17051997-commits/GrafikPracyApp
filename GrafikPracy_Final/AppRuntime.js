@@ -1627,7 +1627,7 @@ export default function App() {
 
   const updateDayTimes = (dayIndex, patch) => {
     if (readOnly) return;
-    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({...day,times:{...(day.times || currentWeekTimes),...patch},manualTimes:true})));
+    setWeek(w => w.map((day,di) => di !== dayIndex ? day : ({...day,times:{...(day.times || currentWeekConfig.dayTimes?.[dayIndex] || currentWeekTimes),...patch},manualTimes:true})));\n    setWeekConfigs(prev=>({...prev,[wkKey]:{...(prev[wkKey]||{}),dayTimes:{...(prev[wkKey]?.dayTimes||{}),[dayIndex]:{...(prev[wkKey]?.dayTimes?.[dayIndex]||currentWeekTimes),...patch}}}}));
   };
 
   const updateShift = (dayIndex,shiftIndex,patch) => {
@@ -2094,7 +2094,7 @@ export default function App() {
           const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
           const name=visible?PEOPLE[s.person].name:'WOLNA';
           const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
-          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(d.times || currentWeekTimes,si+1)):''}</span></td>`;
+          return `<td><b>${escapeHtml(name)}</b><br><span>${escapeHtml(wh)}</span><br><span>${visible?escapeHtml(shiftTime(d.times || currentWeekConfig.dayTimes?.[d.dayIndex] || currentWeekTimes,si+1)):''}</span></td>`;
         }).join('');
         return `<tr><td><b>${DAYS[i]}</b><br><span>${shortDate(date)}</span></td>${cells}</tr>`;
       }).join('');
@@ -2923,7 +2923,7 @@ const settings = (
           </TouchableOpacity>
 
           <Text style={S.section}>Godziny pracy tego dnia</Text>
-          {(() => { const dayTimes=currentWeek[edit?.dayIndex]?.times || currentWeekTimes; return <View style={S.timeBox}>
+          {(() => { const dayTimes=currentWeek[edit?.dayIndex]?.times || currentWeekConfig.dayTimes?.[edit?.dayIndex] || currentWeekTimes; return <View style={S.timeBox}>
             {['s1','e1','s2','e2'].map((field,index)=><View key={field} style={S.timeRow}><Text style={S.white}>{['I od','I do','II od','II do'][index]}</Text><TextInput value={dayTimes[field]} onChangeText={value=>updateDayTimes(edit.dayIndex,{[field]:value})} style={S.input} placeholder="06:00" placeholderTextColor="#777"/></View>)}
             <Text style={S.muted}>Zmiana godzin dotyczy tylko tego dnia. Pozostałe dni tygodnia pozostają bez zmian.</Text>
           </View>; })()}
