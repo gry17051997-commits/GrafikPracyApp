@@ -3150,7 +3150,7 @@ const settings = (
     <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
-          {cloudUpdated && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View>}
+          {cloudUpdated && <View pointerEvents="none" style={S.cloudBannerOverlay}><View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View></View>}
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
             <Text style={S.cloudStatusText}>☁️ {cloudRole==='admin'?'Administrator':cloudRole==='locator'?'Lokalizator':'Pracownik'} · {cloudUser.email}</Text>
@@ -3368,7 +3368,8 @@ const S = StyleSheet.create({
   colorSwatch:{width:44,height:44,borderRadius:22,margin:7,alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'transparent'},
   colorSelected:{borderColor:'#fff',transform:[{scale:1.12}]},
   colorCheck:{fontSize:24,fontWeight:'900'},
-  cloudBanner:{backgroundColor:'#1d6b45',padding:9,marginHorizontal:14,borderRadius:10,marginBottom:7},
+  cloudBannerOverlay:{position:'absolute',top:8,left:0,right:0,alignItems:'center',zIndex:1000,elevation:1000},
+  cloudBanner:{backgroundColor:'#1d6b45',padding:9,marginHorizontal:14,borderRadius:10,maxWidth:520,width:'92%'},
   cloudBannerText:{color:'#fff',fontWeight:'900',textAlign:'center'},
   cloudStatus:{backgroundColor:'rgba(25,29,38,0.94)',padding:7,marginHorizontal:14,borderRadius:9,marginBottom:7,borderWidth:1,borderColor:'#2b3240'},
   swapMini:{marginTop:6,paddingVertical:4},

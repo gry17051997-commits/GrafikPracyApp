@@ -456,3 +456,11 @@ test('live location dashboard can open the selected vehicle in the separate 3gf 
   assert.match(dashboard, /OTWÓRZ POJAZD W 3GF/);
   assert.match(dashboard, /Linking\.openURL/);
 });
+
+test('cloud update banner is an absolute overlay and cannot shift the active dashboard', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(app, /cloudUpdated\s*&&\s*<View pointerEvents="none" style=\{S\.cloudBannerOverlay\}/);
+  assert.match(app, /cloudBannerOverlay:\{position:'absolute',top:8,left:0,right:0,[^}]*zIndex:1000/);
+  assert.match(app, /cloudBanner:\{backgroundColor:'#1d6b45'[^}]*width:'92%'/);
+});
