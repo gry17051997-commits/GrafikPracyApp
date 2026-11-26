@@ -18,6 +18,7 @@ import {
   Vibration
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import appConfig from './app.json';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import * as Notifications from 'expo-notifications';
@@ -112,7 +113,7 @@ function generateWeek(rotation='P', warehouse='PNT B') {
 }
 
 
-const APP_VERSION = '1.0.8';
+const APP_VERSION = appConfig.expo.version;
 const APP_UPDATE_CHECK_KEY = 'grafik-pracy-app-update-check-v1';
 const APP_UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 
