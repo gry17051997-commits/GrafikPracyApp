@@ -2310,13 +2310,13 @@ export default function App() {
     } catch(e){console.log(e);Alert.alert('Błąd','Nie udało się przygotować grafiku PDF.');}
   };
 
-  const listExport = (forExport=false) => (
+  const listExport = (forExport=false, personFilter='all') => (
     <View ref={forExport ? exportRef : undefined} collapsable={false} style={[S.tableCard,forExport&&S.exportCard]}>
-      <Text style={S.tableTitle}>GRAFIK — {sharePerson==='all'?'WSZYSCY':PEOPLE[sharePerson]?.name}</Text>
+      <Text style={S.tableTitle}>GRAFIK — {personFilter==='all'?'WSZYSCY':PEOPLE[personFilter]?.name}</Text>
       <Text style={S.tableSubtitle}>{fullDate(weekStart)} – {fullDate(addDays(weekStart,6))} · {currentWeekHours} h</Text>
       {currentWeek.map((d,i)=>{
         const date=addDays(weekStart,i);
-        const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
+        const items=d.shifts.filter(s=>s.person && (personFilter==='all'||s.person===personFilter));
         return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(currentWeekTimes,s.shift)} · {s.warehouse||d.warehouse||currentWeekWarehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
       })}
     </View>
@@ -2376,6 +2376,36 @@ export default function App() {
     </View>
   );
 
+  const scheduleListView = (
+    <View style={{marginTop:8}}>
+      {currentWeek.map((d,di)=>{
+        const date=addDays(weekStart,di);
+        return <View key={d.dayIndex} style={[S.day,isTodayDay(di)&&S.dayToday]}>
+          <View style={S.between}>
+            <View>
+              <View style={S.dayTitleRow}><Text style={S.dayTitle}>{DAYS[di]}</Text>{isTodayDay(di)&&<Text style={S.todayBadge}>DZISIAJ</Text>}</View>
+              <Text style={S.muted}>{shortDate(date)} · {d.warehouse||currentWeekWarehouse}</Text>
+            </View>
+            <Text style={S.dayBadge}>{d.shifts.filter(s=>s.person).length}/2</Text>
+          </View>
+          {d.shifts.map((s,si)=>{
+            const person=s.person?PEOPLE[s.person]:null;
+            return <TouchableOpacity key={s.id} disabled={readOnly} onPress={()=>setEdit({dayIndex:di,shiftIndex:si})} style={[S.shift,{marginTop:8},s.locked&&S.locked]}>
+              <View style={S.between}>
+                <View style={{flex:1}}>
+                  <Text style={S.shiftTitle}>Zmiana {s.shift} · {shiftTime(currentWeekTimes,s.shift)}</Text>
+                  <Text style={[S.personText,person&&{color:personColor(s.person)}]}>{person?person.name:'WOLNA ZMIANA'}</Text>
+                  <Text style={S.personSub}>{s.warehouse||d.warehouse||currentWeekWarehouse}</Text>
+                </View>
+                <Text style={S.lockText}>{s.locked?'🔒':'›'}</Text>
+              </View>
+            </TouchableOpacity>;
+          })}
+        </View>;
+      })}
+    </View>
+  );
+
   const schedule = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
@@ -2416,6 +2446,7 @@ export default function App() {
       <View style={S.row}>
         <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
         <TouchableOpacity style={[S.btn,viewMode==='cards'&&S.active]} onPress={()=>setViewMode('cards')}><Text style={S.btnText}>☰ KARTY</Text></TouchableOpacity>
+        <TouchableOpacity style={[S.btn,viewMode==='list'&&S.active]} onPress={()=>setViewMode('list')}><Text style={S.btnText}>📋 LISTA</Text></TouchableOpacity>
         <TouchableOpacity style={S.generate} onPress={()=>setExportModal(true)}><Text style={S.btnText}>📤 UDOSTĘPNIJ GRAFIK</Text></TouchableOpacity>
       </View>
 
@@ -2437,7 +2468,7 @@ export default function App() {
         <Text style={S.btnText}>🔄 Zamiana i edycja zmian</Text>
       </TouchableOpacity>
 
-      {viewMode==='table' ? compactTable(false) : currentWeek.map((d,di) => {
+      {viewMode==='table' ? compactTable(false) : viewMode==='list' ? scheduleListView : currentWeek.map((d,di) => {
         const dateObj = addDays(weekStart,di);
         return (
           <View style={[S.day,isTodayDay(di)&&S.dayToday]} key={d.dayIndex}>
@@ -3213,6 +3244,26 @@ const settings = (
     </Modal>
   );
 
+  const exportTextList = async () => {
+    try {
+      const selectedKeys=sharePerson==='all'?PERSON_KEYS:[sharePerson];
+      const personLabel=sharePerson==='all'?'CAŁY GRAFIK':selectedKeys.map(k=>PEOPLE[k].name).join(', ');
+      const lines=['GRAFIK PRACY',`${fullDate(weekStart)} - ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h`,personLabel,''];
+      currentWeek.forEach((d,i)=>{
+        lines.push(`${DAYS[i]} · ${shortDate(addDays(weekStart,i))}`);
+        d.shifts.forEach((s,si)=>{
+          const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
+          const name=visible?PEOPLE[s.person].name:'WOLNA';
+          const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
+          lines.push(`Zmiana ${si+1} (${shiftTime(currentWeekTimes,si+1)}): ${name}${wh?' · '+wh:''}`);
+        });
+        lines.push('');
+      });
+      await Share.share({title:'Grafik pracy',message:lines.join('\n')});
+    } catch(error) {
+      Alert.alert('Błąd','Nie udało się udostępnić grafiku jako tekst.');
+    }
+  };
   const exportModalDialog = (
     <Modal visible={exportModal} transparent animationType="slide" onRequestClose={()=>setExportModal(false)}>
       <View style={S.overlay}><View style={[S.modal,{maxHeight:'94%'}]}>
@@ -3226,9 +3277,9 @@ const settings = (
         <Text style={S.section}>Forma</Text>
         <View style={S.row}><TouchableOpacity style={[S.btn,shareFormat==='table'&&S.active]} onPress={()=>setShareFormat('table')}><Text style={S.btnText}>📊 Tabela</Text></TouchableOpacity><TouchableOpacity style={[S.btn,shareFormat==='list'&&S.active]} onPress={()=>setShareFormat('list')}><Text style={S.btnText}>📋 Lista</Text></TouchableOpacity></View>
         <ScrollView style={{maxHeight:400}} contentContainerStyle={{paddingBottom:4}}>
-          {shareFormat==='table'?compactTable(true,sharePerson):listExport(true)}
+          {shareFormat==='table'?compactTable(true,sharePerson):listExport(true,sharePerson)}
         </ScrollView>
-        <View style={S.row}><TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity></View>
+        <View style={S.row}><TouchableOpacity style={S.generate} onPress={exportJpg}><Text style={S.btnText}>🖼️ JPG</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportPdf}><Text style={S.btnText}>📄 PDF</Text></TouchableOpacity><TouchableOpacity style={S.btn} onPress={exportTextList}><Text style={S.btnText}>📝 TEKST</Text></TouchableOpacity></View>
         <TouchableOpacity style={S.closeBtn} onPress={()=>setExportModal(false)}><Text style={S.btnText}>ZAMKNIJ</Text></TouchableOpacity>
       </View></View>
     </Modal>
