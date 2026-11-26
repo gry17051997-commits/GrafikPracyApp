@@ -2198,6 +2198,7 @@ export default function App() {
   const schedule = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
+      <Text style={S.section}>Godziny pracy w całym tygodniu</Text>
       <View style={S.row}>
         {[10,12].map(h=>
           <TouchableOpacity key={h} style={[S.btn,currentWeekHours===h&&S.active]} onPress={()=>changeHours(h)}>
