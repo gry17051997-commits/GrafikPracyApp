@@ -500,3 +500,15 @@ test('cloud update banner is an absolute overlay and cannot shift the active das
   assert.match(app, /cloudBannerOverlay:\{position:'absolute',top:8,left:0,right:0,[^}]*zIndex:1000/);
   assert.match(app, /cloudBanner:\{backgroundColor:'#1d6b45'[^}]*width:'92%'/);
 });
+
+
+test('schedule list view and text sharing are wired into the weekly schedule', () => {
+  const app = fs.readFileSync(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  assert.match(app, /const scheduleListView = \\(/);
+  assert.match(app, /viewMode==='list' \\? scheduleListView/);
+  assert.match(app, /setViewMode\\('list'\\)/);
+  assert.match(app, /const exportTextList = async \\(\\) =>/);
+  assert.match(app, /Share\\.share\\(\\{title:'Grafik pracy',message:lines\\.join\\(/);
+  assert.match(app, /listExport\\(true,sharePerson\\)/);
+  assert.match(app, /personFilter==='all'\\|\\|s\\.person===personFilter/);
+});
