@@ -48,7 +48,7 @@ jobs:
 
       - name: Read app version
         id: app_version
-        run: echo "value=$(node -p "require('./app.json').expo.version")" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(node -p 'require("./app.json").expo.version')" >> "$GITHUB_OUTPUT"
 
       - name: Verify central API URL
         run: |
