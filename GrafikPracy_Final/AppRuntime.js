@@ -43,10 +43,10 @@ const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
-const PEOPLE = {
-  P: {name: 'Paweł', color: '#4f8cff'},
-  M: {name: 'Mateusz', color: '#8f6cff'},
-  L: {name: 'Łukasz', color: '#35c98a'}
+const DEFAULT_PEOPLE = {
+  P: {name: 'Paweł Błoński', color: '#4f8cff'},
+  M: {name: 'Mateusz Liber', color: '#8f6cff'},
+  L: {name: 'Łukasz Kołodziej', color: '#35c98a'}
 };
 const COLOR_PALETTE = [
   '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
@@ -54,7 +54,6 @@ const COLOR_PALETTE = [
   '#f43f5e','#fb7185','#a16207','#65a30d','#15803d','#0f766e','#0369a1','#1d4ed8',
   '#4338ca','#7e22ce','#be185d','#78716c','#64748b','#334155'
 ];
-const PERSON_KEYS = Object.keys(PEOPLE);
 const WAREHOUSES = ['PNT B','PNT C','UNICO','SP3','DC2','DC1','ECE','PNT A','GLP B','GLP C'];
 const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
 const RATES = {10: 300, 12: 360};
@@ -192,9 +191,43 @@ function contrastText(hex) {
 }
 
 export default function App() {
+  const [customPeople,setCustomPeople] = useState({});
+  const PEOPLE = useMemo(()=>({...DEFAULT_PEOPLE,...customPeople}),[customPeople]);
+  const PERSON_KEYS = Object.keys(PEOPLE);
+  const [employeeEditor,setEmployeeEditor] = useState(null);
+  const [employeeNameDraft,setEmployeeNameDraft] = useState('');
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
   const [appUpdate,setAppUpdate] = useState(null);
+  const [updateCheckBusy,setUpdateCheckBusy] = useState(false);
+  const [updateCheckMessage,setUpdateCheckMessage] = useState('');
+  const checkForAppUpdateNow = async () => {
+    if (Platform.OS !== 'android') return;
+    setUpdateCheckBusy(true);
+    setUpdateCheckMessage('');
+    try {
+      const response=await fetch('https://api.github.com/repos/gry17051997-commits/GrafikPracyApp/releases/latest',{
+        headers:{Accept:'application/vnd.github+json'}
+      });
+      if(!response.ok) throw new Error('GitHub HTTP '+response.status);
+      const release=await response.json();
+      const version=String(release.tag_name||'').replace(/^v/i,'');
+      const apk=(release.assets||[]).find(asset=>/\.apk$/i.test(asset.name||''));
+      if(!version||!apk?.browser_download_url) throw new Error('Brak pliku APK w najnowszym wydaniu.');
+      await AsyncStorage.setItem(APP_UPDATE_CHECK_KEY,String(Date.now()));
+      if(isNewerAppVersion(version,APP_VERSION)){
+        setAppUpdate({version,url:apk.browser_download_url});
+        setUpdateCheckMessage('Znaleziono aktualizację v'+version+'.');
+      }else{
+        setAppUpdate(null);
+        setUpdateCheckMessage('Masz najnowszą wersję aplikacji ('+APP_VERSION+').');
+      }
+    }catch(error){
+      setUpdateCheckMessage('Nie udało się sprawdzić aktualizacji. Spróbuj ponownie za chwilę.');
+    }finally{
+      setUpdateCheckBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
@@ -237,6 +270,7 @@ export default function App() {
   const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');
   const [weeks,setWeeks] = useState({});
   const [times,setTimes] = useState(DEFAULT_TIMES[10]);
+  const [weekTimesDraft,setWeekTimesDraft] = useState({...DEFAULT_TIMES[10]});
   const [edit,setEdit] = useState(null);
   const [help,setHelp] = useState(false);
   const [pinModal,setPinModal] = useState(false);
@@ -246,7 +280,7 @@ export default function App() {
   const [backupModal,setBackupModal] = useState(false);
   const [backupText,setBackupText] = useState('');
   const [dark,setDark] = useState(true);
-  const [personColors,setPersonColors] = useState({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+  const [personColors,setPersonColors] = useState({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
   const [colorPerson,setColorPerson] = useState(null);
   const [summaryPerson,setSummaryPerson] = useState('all');
   const [viewMode,setViewMode] = useState('cards');
@@ -341,19 +375,19 @@ export default function App() {
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
   const [guestMode,setGuestMode] = useState(false);
-  const normalizeRecoveryBalances = value => {
+  const normalizeRecoveryBalances = (value, keys=PERSON_KEYS) => {
     const source = value && typeof value === 'object' ? value : {};
-    return Object.fromEntries(PERSON_KEYS.map(key => {
+    return Object.fromEntries(keys.map(key => {
       const n = Number(source[key] ?? 0);
       return [key, Number.isFinite(n) && n >= 0 ? n : 0];
     }));
   };
 
-  const normalizeRecoveryLedger = value => {
+  const normalizeRecoveryLedger = (value, keys=PERSON_KEYS) => {
     if (!Array.isArray(value)) return [];
     return value.filter(entry =>
       entry && typeof entry === 'object'
-      && PERSON_KEYS.includes(entry.person)
+      && keys.includes(entry.person)
       && Number.isFinite(Number(entry.delta))
       && Number(entry.delta) !== 0
       && typeof entry.reason === 'string'
@@ -432,7 +466,48 @@ export default function App() {
   const currentWeekTimes = currentWeekConfig.times || DEFAULT_TIMES[currentWeekHours] || times;
   const currentWeekWarehouse = currentWeekConfig.warehouse || warehouse;
   const currentWeek = weeks[wkKey] || emptyWeek(currentWeekWarehouse);
+  useEffect(() => {
+    setWeekTimesDraft({...currentWeekTimes});
+  },[wkKey,currentWeekHours,currentWeekTimes.s1,currentWeekTimes.e1,currentWeekTimes.s2,currentWeekTimes.e2]);
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
+
+  const openEmployeeEditor = key => {
+    setEmployeeEditor(key || 'new');
+    setEmployeeNameDraft(key ? (PEOPLE[key]?.name || '') : '');
+  };
+  const saveEmployee = () => {
+    const name=employeeNameDraft.trim().replace(/\s+/g,' ');
+    if(name.length<2 || name.length>60){Alert.alert('Pracownik','Wpisz imię i nazwisko (2–60 znaków).');return;}
+    if(employeeEditor==='new'){
+      const key='E_'+Date.now().toString(36);
+      const color=COLOR_PALETTE[(PERSON_KEYS.length+5)%COLOR_PALETTE.length];
+      setCustomPeople(prev=>({...prev,[key]:{name}}));
+      setPersonColors(prev=>({...prev,[key]:color}));
+      setRecoveryBalances(prev=>({...prev,[key]:0}));
+    }else{
+      setCustomPeople(prev=>({...prev,[employeeEditor]:{...(prev[employeeEditor]||{}),name}}));
+    }
+    setEmployeeEditor(null);
+    setEmployeeNameDraft('');
+  };
+  const deleteEmployee = key => {
+    if(!String(key).startsWith('E_')){Alert.alert('Pracownik','Pracownicy bazowi zachowują stałe identyfikatory, aby nie uszkodzić starych grafików i rozliczeń.');return;}
+    const usedInSchedule=Object.values(weeks).some(week=>Array.isArray(week)&&week.some(day=>(day.shifts||[]).some(shift=>shift.person===key)));
+    const usedInConditions=conditions.some(condition=>condition.person===key);
+    const usedInLedger=recoveryLedger.some(entry=>entry.person===key);
+    const hasBalance=(Number(recoveryBalances[key])||0)>0;
+    const usedInProposals=proposals.some(proposal=>proposal.status==='pending'&&(proposal.fromPerson===key||proposal.toPerson===key));
+    if(usedInSchedule||usedInConditions||usedInLedger||hasBalance||usedInProposals){
+      Alert.alert('Nie można usunąć','Ten pracownik jest używany w grafiku, warunkach, rozliczeniach lub oczekującej zamianie. Najpierw usuń powiązania.');
+      return;
+    }
+    Alert.alert('Usunąć pracownika?',PEOPLE[key]?.name||key,[{text:'Anuluj',style:'cancel'},{text:'Usuń',style:'destructive',onPress:()=>{
+      setCustomPeople(prev=>{const next={...prev};delete next[key];return next;});
+      setPersonColors(prev=>{const next={...prev};delete next[key];return next;});
+      setRecoveryBalances(prev=>{const next={...prev};delete next[key];return next;});
+      setConditions(prev=>prev.filter(condition=>condition.person!==key));
+    }}]);
+  };
   const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
   const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
   const freeShifts = Math.max(0,14 - occupiedShifts);
@@ -453,7 +528,10 @@ export default function App() {
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
-          setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+           const savedPeople=data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {};
+           setCustomPeople(savedPeople);
+           const savedPersonKeys=Object.keys({...DEFAULT_PEOPLE,...savedPeople});
+           setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
           const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
           const hasSundayL1 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
           const hasSundayL2 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -462,8 +540,8 @@ export default function App() {
             ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
             ...savedConditions
           ]);
-          setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
-          setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+          setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances,savedPersonKeys));
+           setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger,savedPersonKeys));
           setProposals(data.proposals || []);
           setMyPerson(data.myPerson || 'P');
           setVehicleRegistration(data.vehicleRegistration || '');
@@ -489,7 +567,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,customPeople,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -501,7 +579,7 @@ export default function App() {
         console.error('Nie udało się zapisać lokalnego grafiku:', error);
         setLocalStorageError('Nie udało się zapisać grafiku na tym urządzeniu.');
       });
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,customPeople,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
 
   const normalizeVehicleAssignment = value => String(value || '').trim().toUpperCase();
 
@@ -682,10 +760,11 @@ export default function App() {
                 autoGenerateWeeks:!!data.autoGenerateWeeks,
                 allow24h:!!data.allow24h,
                 times:data.times || DEFAULT_TIMES,
-                personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
-                conditions:data.conditions || [],
-                recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
-                recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
+                personColors:data.personColors || {P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},
+                 customPeople:data.customPeople || {},
+                 conditions:data.conditions || [],
+                 recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances,Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})})),
+                 recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger,Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})})),
                 migratedFromLegacyAt:serverTimestamp(),
                 migratedBy:cloudUser.uid
               }, {merge:true});
@@ -774,9 +853,11 @@ export default function App() {
       if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
       if (data.personColors) setPersonColors(data.personColors);
+      if (data.customPeople && typeof data.customPeople==='object') setCustomPeople(data.customPeople);
+      const remotePersonKeys=Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})});
       if (data.conditions) setConditions(data.conditions);
-      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
-      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances,remotePersonKeys));
+      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger,remotePersonKeys));
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       settingsHydratedRef.current = true;
       setCloudSettingsReady(true);
@@ -847,7 +928,7 @@ export default function App() {
     }
     cloudSettingsDirtyRef.current = true;
     cloudSettingsRevisionRef.current += 1;
-  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
@@ -859,7 +940,7 @@ export default function App() {
       const settings = {
         hours,rotation,warehouse,autoGenerateWeeks,allow24h,
         times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
-        personColors,
+        personColors,customPeople,
         conditions,recoveryBalances,recoveryLedger,
         updatedAt:serverTimestamp(),
         updatedBy:cloudUser.uid
@@ -890,7 +971,7 @@ export default function App() {
         cloudSettingsSaveTimerRef.current = null;
       }
     };
-  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
@@ -1456,6 +1537,32 @@ export default function App() {
       rotation:prev[wkKey]?.rotation||rotation,
       warehouse:prev[wkKey]?.warehouse||currentWeekWarehouse
     }}));
+    setWeekTimesDraft({...DEFAULT_TIMES[h]});
+  };
+
+  const changeWeekTimes = () => {
+    if (readOnly) return;
+    const next={...weekTimesDraft};
+    const validTime=value=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value||''));
+    if(!['s1','e1','s2','e2'].every(field=>validTime(next[field]))){
+      Alert.alert('Nieprawidłowe godziny','Wpisz wszystkie godziny w formacie HH:MM, np. 06:00.');
+      return;
+    }
+    const minutes=value=>Number(value.slice(0,2))*60+Number(value.slice(3,5));
+    const duration=(start,end)=>(minutes(end)-minutes(start)+1440)%1440;
+    if([['s1','e1'],['s2','e2']].some(([start,end])=>duration(next[start],next[end])<60||duration(next[start],next[end])>16*60)){
+      Alert.alert('Nieprawidłowy przedział','Każda zmiana musi trwać od 1 do 16 godzin.');
+      return;
+    }
+    setWeekConfigs(prev=>({...prev,[wkKey]:{
+      ...(prev[wkKey]||{}),
+      hours:currentWeekHours,
+      times:next,
+      rotation:prev[wkKey]?.rotation||rotation,
+      warehouse:prev[wkKey]?.warehouse||currentWeekWarehouse
+    }}));
+    setWeekTimesDraft(next);
+    Alert.alert('Zapisano','Godziny obu zmian zostały zastosowane do całego tygodnia. Obsada i blokady pozostały bez zmian.');
   };
 
   // Zmiana magazynu tygodnia nie ingeruje w obsadę ani blokady zmian.
@@ -1514,22 +1621,22 @@ export default function App() {
       if (!forcedOff) slots.push({di,si,offOriginalPerson:s.offOriginalPerson || s.recoverPerson || null});
     }));
 
-    const counts={P:0,M:0,L:0};
+    const counts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
 
     // Targets must describe the intended clean week, not the current mutable state.
     // Otherwise a locked/historical recovery shift becomes part of the next target
     // and the same recover debt gets added again on every regeneration.
     const baseWeek=generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
-    const baseTargetCounts={P:0,M:0,L:0};
+    const baseTargetCounts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     baseWeek.forEach(d=>d.shifts.forEach(s=>{if(s.person) baseTargetCounts[s.person]++;}));
 
-    const targets={P:null,M:null,L:null};
+    const targets=Object.fromEntries(PERSON_KEYS.map(key=>[key,null]));
     conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
     // Recovery debt is an independent business ledger. The generator is strictly
     // read-only: it may consume the balance when calculating targets, but never
     // creates, settles, clears or edits ledger entries.
-    const recoveryBalancesSnapshot={P:0,M:0,L:0,...recoveryBalances};
+    const recoveryBalancesSnapshot={...Object.fromEntries(PERSON_KEYS.map(key=>[key,0])),...recoveryBalances};
     PERSON_KEYS.forEach(p=>{
       const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
       const recoveryTarget=Math.max(0,Number(recoveryBalancesSnapshot[p])||0);
@@ -2038,7 +2145,8 @@ export default function App() {
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
         setDark(true);
-        setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+        setCustomPeople({});
+         setPersonColors({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
         setConditions([...DEFAULT_BUSINESS_CONDITIONS]);
         setProposals([]);
         setMyPerson('P');
@@ -2062,7 +2170,7 @@ export default function App() {
     version:5,
     exportedAt:new Date().toISOString(),
     hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,
-    times,personColors,conditions,proposals,myPerson,
+    times,personColors,customPeople,conditions,proposals,myPerson,
     vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
     recoveryBalances,recoveryLedger,chatMessages
   });
@@ -2095,17 +2203,19 @@ export default function App() {
           && ['s1','e1','s2','e2'].every(field => typeof config.times[field] === 'string' && /^\d{2}:\d{2}$/.test(config.times[field]))
         ))
       ));
+      const validCustomPeople = value => value === undefined || (value && typeof value === 'object' && !Array.isArray(value) && Object.entries(value).every(([key,person]) => /^(?:P|M|L|E_[a-z0-9]+)$/.test(key) && person && typeof person.name === 'string' && person.name.trim().length>=2 && person.name.trim().length<=60));
+      const backupPersonKeys = Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})});
       const validBalances = value => value && typeof value === 'object'
-        && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
+        && backupPersonKeys.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
       const validLedger = value => Array.isArray(value) && value.length <= 500
         && value.every(entry => entry && typeof entry === 'object'
-          && PERSON_KEYS.includes(entry.person)
+          && backupPersonKeys.includes(entry.person)
           && Number.isFinite(Number(entry.delta))
           && Number(entry.delta) !== 0
           && typeof entry.reason === 'string'
           && String(entry.id || '').length > 0);
       if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
-      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !validCustomPeople(data.customPeople) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
         throw new Error('bad-schema');
       }
       setHours(data.hours);
@@ -2118,7 +2228,8 @@ export default function App() {
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
-      setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+      setCustomPeople(data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {});
+      setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
       const restoredConditions = Array.isArray(data.conditions) ? data.conditions : [];
       const hasSundayL1 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
       const hasSundayL2 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -2134,8 +2245,8 @@ export default function App() {
       setReportsEnabled(data.reportsEnabled !== false);
       setReportHistory(Array.isArray(data.reportHistory) ? data.reportHistory : []);
       setWarehouseGeo(data.warehouseGeo || {});
-      setRecoveryBalances({...{P:0,M:0,L:0},...(data.recoveryBalances || {})});
-      setRecoveryLedger(Array.isArray(data.recoveryLedger) ? data.recoveryLedger : []);
+      setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances,backupPersonKeys));
+      setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger,backupPersonKeys));
       setChatMessages(Array.isArray(data.chatMessages) ? data.chatMessages : []);
       setTimes(data.times?.[data.hours || 10] || DEFAULT_TIMES[data.hours || 10]);
       setBackupModal(false);
@@ -2268,6 +2379,23 @@ export default function App() {
   const schedule = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
+      <Text style={S.section}>Przedziały godzinowe całego tygodnia</Text>
+      <Text style={S.helpLine}>Zmień godziny obu zmian dla wszystkich 7 dni. Nie wymaga to ponownego generowania grafiku i nie zmienia obsady.</Text>
+      <View style={S.timeBox}>
+        {[
+          {label:'I zmiana',start:'s1',end:'e1'},
+          {label:'II zmiana',start:'s2',end:'e2'}
+        ].map(item=><View key={item.label} style={S.timeRow}>
+          <Text style={S.white}>{item.label}</Text>
+          <TextInput value={weekTimesDraft[item.start]} onChangeText={value=>setWeekTimesDraft(prev=>({...prev,[item.start]:value.replace(/[^0-9:]/g,'').slice(0,5)}))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="06:00" placeholderTextColor="#777" style={[S.input,{flex:1}]}/>
+          <Text style={S.sep}>→</Text>
+          <TextInput value={weekTimesDraft[item.end]} onChangeText={value=>setWeekTimesDraft(prev=>({...prev,[item.end]:value.replace(/[^0-9:]/g,'').slice(0,5)}))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="16:00" placeholderTextColor="#777" style={[S.input,{flex:1}]}/>
+        </View>)}
+      </View>
+      <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={changeWeekTimes}>
+        <Text style={S.btnText}>ZAPISZ GODZINY CAŁEGO TYGODNIA</Text>
+      </TouchableOpacity>
+
       <Text style={S.section}>Godziny pracy w całym tygodniu</Text>
       <View style={S.row}>
         {[10,12].map(h=>
@@ -2686,6 +2814,19 @@ const settings = (
         </View>)}
       </>}
 
+      {(cloudRole==='admin' || !CENTRAL_API_ENABLED) && <>
+        <Text style={S.section}>👥 Pracownicy wpisywani do grafiku</Text>
+        <Text style={S.helpLine}>Edytuj nazwiska obecnych osób oraz dodawaj i usuwaj dodatkowych pracowników. Pracownik użyty w grafiku lub rozliczeniach nie może zostać usunięty.</Text>
+        {PERSON_KEYS.map(key=><View key={key} style={S.option}>
+          <View style={{flex:1}}>
+            <Text style={S.optionText}>{PEOPLE[key].name}</Text>
+            <Text style={S.muted}>{key.startsWith('E_')?'Dodatkowy pracownik':'Pracownik bazowy'}</Text>
+          </View>
+          <TouchableOpacity style={S.btn} onPress={()=>openEmployeeEditor(key)}><Text style={S.btnText}>EDYTUJ</Text></TouchableOpacity>
+          {key.startsWith('E_')&&<TouchableOpacity style={[S.btn,{marginLeft:6}]} onPress={()=>deleteEmployee(key)}><Text style={S.btnText}>USUŃ</Text></TouchableOpacity>}
+        </View>)}
+        <TouchableOpacity style={S.generateFull} onPress={()=>openEmployeeEditor(null)}><Text style={S.btnText}>➕ DODAJ PRACOWNIKA</Text></TouchableOpacity>
+      </>}
       <Text style={S.section}>Kolory pracowników</Text>
       <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
       {PERSON_KEYS.map(k => (
@@ -2702,6 +2843,15 @@ const settings = (
         <Text style={S.section}>Wspólny grafik online</Text>
         <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
         <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
+      </>}
+
+      {Platform.OS==='android' && <>
+        <Text style={S.section}>Aktualizacje aplikacji</Text>
+        <TouchableOpacity disabled={updateCheckBusy} style={[S.option,updateCheckBusy&&{opacity:0.55}]} onPress={checkForAppUpdateNow}>
+          <Text style={S.optionText}>🔄 Sprawdź aktualizacje teraz</Text>
+          <Text style={S.muted}>{updateCheckBusy?'Sprawdzanie…':'v'+APP_VERSION}</Text>
+        </TouchableOpacity>
+        {!!updateCheckMessage && <Text style={S.helpLine}>{updateCheckMessage}</Text>}
       </>}
 
       <Text style={S.section}>Bezpieczeństwo i dane</Text>
@@ -2964,6 +3114,18 @@ const settings = (
         <View style={S.row}>{[1,2].map(x=><TouchableOpacity key={x} style={[S.btn,swapTargetShift===x&&S.active]} onPress={()=>setSwapTargetShift(x)}><Text style={S.btnText}>Zmiana {x}</Text></TouchableOpacity>)}</View>
         <TouchableOpacity style={S.generateFull} onPress={submitSwap}><Text style={S.btnText}>📨 WYŚLIJ PROPOZYCJĘ</Text></TouchableOpacity>
         <TouchableOpacity style={S.closeBtn} onPress={()=>setSwapModal(null)}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
+  const employeeDialog = (
+    <Modal visible={!!employeeEditor} transparent animationType="slide" onRequestClose={()=>setEmployeeEditor(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>{employeeEditor==='new'?'Dodaj pracownika':'Edytuj pracownika'}</Text>
+        <Text style={S.section}>Imię i nazwisko</Text>
+        <TextInput value={employeeNameDraft} onChangeText={setEmployeeNameDraft} autoCapitalize="words" placeholder="Np. Jan Kowalski" placeholderTextColor="#777" style={S.input} maxLength={60}/>
+        <TouchableOpacity style={S.generateFull} onPress={saveEmployee}><Text style={S.btnText}>ZAPISZ</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>{setEmployeeEditor(null);setEmployeeNameDraft('');}}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
       </View></View>
     </Modal>
   );
@@ -3264,8 +3426,9 @@ const settings = (
               </TouchableOpacity>
             )}
           </View>}
-          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
+          {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration} people={PEOPLE}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
           {editModal}
+          {employeeDialog}
           {colorModal}
           {helpModal}
           {exportModalDialog}

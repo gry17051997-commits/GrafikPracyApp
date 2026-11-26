@@ -6,7 +6,7 @@ import {WebView} from 'react-native-webview';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
 
-const PEOPLE={P:'Paweł',M:'Mateusz',L:'Łukasz'};
+const DEFAULT_PEOPLE={P:'Paweł Błoński',M:'Mateusz Liber',L:'Łukasz Kołodziej'};
 const DAYS=['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
 
 const monday=d=>{const x=new Date(d),n=x.getDay();x.setDate(x.getDate()+(n===0?-6:1-n));x.setHours(0,0,0,0);return x;};
@@ -24,7 +24,8 @@ const reverseGeocode=async loc=>{const lat=Number(loc?.latitude),lon=Number(loc?
 const mapUrl=loc=>{const lat=Number(loc?.latitude),lon=Number(loc?.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;return 'https://www.maptiler.com/maps/streets-v4/?key='+encodeURIComponent(MAPTILER_KEY)+'#15/'+lat+'/'+lon;};
 const MINI_MAP_HTML=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;min-height:100%;margin:0;padding:0;background:#101722;overflow:hidden}.leaflet-control-attribution{font-size:8px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map("map",{zoomControl:false,attributionControl:true,preferCanvas:true}).setView([51,16.8],15);let tileUrl="https://tile.openstreetmap.org/{z}/{x}/{y}.png";let tiles=L.tileLayer(tileUrl,{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);let fallback=false;tiles.on("tileerror",function(){if(!fallback){fallback=true;map.removeLayer(tiles);tileUrl="https://a.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png";tiles=L.tileLayer(tileUrl,{maxZoom:20,attribution:"© OpenStreetMap"}).addTo(map)}});let marker=null;function resize(){requestAnimationFrame(()=>map.invalidateSize(true))}window.setMiniMapSize=function(w,h){const el=document.getElementById("map");if(el&&w>0&&h>0){el.style.width=Math.round(w)+"px";el.style.height=Math.round(h)+"px";resize();setTimeout(resize,150)}};window.updateMiniMapPoint=function(lat,lon){lat=Number(lat);lon=Number(lon);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;if(marker)marker.setLatLng([lat,lon]);else marker=L.circleMarker([lat,lon],{radius:8,color:"#fff",weight:3,fillColor:"#2878ff",fillOpacity:1}).addTo(map);map.setView([lat,lon],map.getZoom()||15,{animate:false});resize()};map.whenReady(()=>{resize();setTimeout(resize,250)});window.addEventListener("resize",resize);</script></body></html>`;
 
-export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration}) {
+export default function NowDashboard({weeks,rotation,warehouse,times,personColors,weekConfigs,cloudUser,vehicleRegistration,people}) {
+  const personName=key=>people?.[key]?.name||people?.[key]||DEFAULT_PEOPLE[key]||key||'Nieznany pracownik';
  const [location,setLocation]=useState(null);
  const [locationError,setLocationError]=useState('');
  const [locationAddress,setLocationAddress]=useState('Ustalanie adresu…');
@@ -94,7 +95,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    <View style={S.hero}>
      <View style={S.liveRow}><View style={S.liveDot}/><Text style={S.eyebrow}>TERAZ</Text></View>
      {active ? <>
-       <Text style={S.heroName}>{PEOPLE[active.person]||active.person||'Nieznany pracownik'}</Text>
+       <Text style={S.heroName}>{personName(active.person)}</Text>
        <Text style={S.heroMeta}>📦 {active.warehouse}  ·  Zmiana {active.shift}</Text>
        <Text style={S.heroTime}>{fmt(active.start)} – {fmt(active.end)}</Text>
        <View style={S.timer}><Text style={S.timerLabel}>DO KOŃCA ZMIANY</Text><Text style={S.timerValue}>{countdown(active.end)}</Text></View>
@@ -106,7 +107,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
 
    <View style={S.sectionHeader}><Text style={S.sectionTitle}>⏭️ Następna zmiana</Text></View>
    {next ? <View style={[S.nextCard,{borderLeftColor:color(next.person)}]}>
-      <View style={S.nextTop}><Text style={S.nextName}>{PEOPLE[next.person]||next.person||'Nieznany pracownik'}</Text><Text style={[S.personDot,{color:color(next.person)}]}>●</Text></View>
+      <View style={S.nextTop}><Text style={S.nextName}>{personName(next.person)}</Text><Text style={[S.personDot,{color:color(next.person)}]}>●</Text></View>
       <Text style={S.nextMeta}>📅 {DAYS[next.dayIndex]}, {dateLabel(next.day)}</Text>
       <Text style={S.nextMeta}>🕐 {fmt(next.start)} – {fmt(next.end)}</Text>
       <Text style={S.nextMeta}>📦 {next.warehouse}  ·  Zmiana {next.shift}</Text>
@@ -116,7 +117,7 @@ export default function NowDashboard({weeks,rotation,warehouse,times,personColor
    {later.length>0 && <>
      <View style={S.sectionHeader}><Text style={S.sectionTitle}>📋 Kolejne</Text></View>
      {later.map((x,i)=><View key={x.start.toISOString()+i} style={S.smallCard}>
-       <View style={{flex:1}}><Text style={S.smallName}>{PEOPLE[x.person]}</Text><Text style={S.smallMeta}>{DAYS[x.dayIndex]}, {dateLabel(x.day)} · {fmt(x.start)} · {x.warehouse}</Text></View>
+       <View style={{flex:1}}><Text style={S.smallName}>{personName(x.person)}</Text><Text style={S.smallMeta}>{DAYS[x.dayIndex]}, {dateLabel(x.day)} · {fmt(x.start)} · {x.warehouse}</Text></View>
        <Text style={S.smallShift}>ZM. {x.shift}</Text>
      </View>)}
    </>}
