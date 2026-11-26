@@ -3251,12 +3251,18 @@ const settings = (
       const lines=['GRAFIK PRACY',`${fullDate(weekStart)} - ${fullDate(addDays(weekStart,6))} · ${currentWeekHours} h`,personLabel,''];
       currentWeek.forEach((d,i)=>{
         lines.push(`${DAYS[i]} · ${shortDate(addDays(weekStart,i))}`);
-        d.shifts.forEach((s,si)=>{
-          const visible=s.person && (sharePerson==='all'||s.person===sharePerson);
-          const name=visible?PEOPLE[s.person].name:'WOLNA';
-          const wh=visible?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
-          lines.push(`Zmiana ${si+1} (${shiftTime(currentWeekTimes,si+1)}): ${name}${wh?' · '+wh:''}`);
-        });
+        const shifts=sharePerson==='all'
+          ? d.shifts.map((s,si)=>({s,si}))
+          : d.shifts.map((s,si)=>({s,si})).filter(({s})=>s.person===sharePerson);
+        if(sharePerson!=='all' && shifts.length===0) {
+          lines.push('WOLNE');
+        } else {
+          shifts.forEach(({s,si})=>{
+            const name=s.person?PEOPLE[s.person].name:'WOLNA';
+            const wh=s.person?(s.warehouse||d.warehouse||currentWeekWarehouse):'';
+            lines.push(`Zmiana ${si+1} (${shiftTime(currentWeekTimes,si+1)}): ${name}${wh?' · '+wh:''}`);
+          });
+        }
         lines.push('');
       });
       await Share.share({title:'Grafik pracy',message:lines.join('\n')});
