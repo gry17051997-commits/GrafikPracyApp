@@ -43,10 +43,10 @@ const REMEMBER_LOGIN_KEY = 'grafik-pracy-remember-login-v1';
 const CHAT_LOCAL_KEY = 'grafik-pracy-chat-v1';
 const REPORT_HISTORY_KEY = 'grafik-pracy-whatsapp-reports-v1';
 
-const PEOPLE = {
-  P: {name: 'Paweł', color: '#4f8cff'},
-  M: {name: 'Mateusz', color: '#8f6cff'},
-  L: {name: 'Łukasz', color: '#35c98a'}
+const DEFAULT_PEOPLE = {
+  P: {name: 'Paweł Błoński', color: '#4f8cff'},
+  M: {name: 'Mateusz Liber', color: '#8f6cff'},
+  L: {name: 'Łukasz Kołodziej', color: '#35c98a'}
 };
 const COLOR_PALETTE = [
   '#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6',
@@ -54,7 +54,6 @@ const COLOR_PALETTE = [
   '#f43f5e','#fb7185','#a16207','#65a30d','#15803d','#0f766e','#0369a1','#1d4ed8',
   '#4338ca','#7e22ce','#be185d','#78716c','#64748b','#334155'
 ];
-const PERSON_KEYS = Object.keys(PEOPLE);
 const WAREHOUSES = ['PNT B','PNT C','UNICO','SP3','DC2','DC1','ECE','PNT A','GLP B','GLP C'];
 const DAYS = ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'];
 const RATES = {10: 300, 12: 360};
@@ -192,6 +191,11 @@ function contrastText(hex) {
 }
 
 export default function App() {
+  const [customPeople,setCustomPeople] = useState({});
+  const PEOPLE = useMemo(()=>({...DEFAULT_PEOPLE,...customPeople}),[customPeople]);
+  const PERSON_KEYS = Object.keys(PEOPLE);
+  const [employeeEditor,setEmployeeEditor] = useState(null);
+  const [employeeNameDraft,setEmployeeNameDraft] = useState('');
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
   const [appUpdate,setAppUpdate] = useState(null);
@@ -237,6 +241,7 @@ export default function App() {
   const [weekSetupWarehouse,setWeekSetupWarehouse] = useState('PNT B');
   const [weeks,setWeeks] = useState({});
   const [times,setTimes] = useState(DEFAULT_TIMES[10]);
+  const [weekTimesDraft,setWeekTimesDraft] = useState({...DEFAULT_TIMES[10]});
   const [edit,setEdit] = useState(null);
   const [help,setHelp] = useState(false);
   const [pinModal,setPinModal] = useState(false);
@@ -246,7 +251,7 @@ export default function App() {
   const [backupModal,setBackupModal] = useState(false);
   const [backupText,setBackupText] = useState('');
   const [dark,setDark] = useState(true);
-  const [personColors,setPersonColors] = useState({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+  const [personColors,setPersonColors] = useState({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
   const [colorPerson,setColorPerson] = useState(null);
   const [summaryPerson,setSummaryPerson] = useState('all');
   const [viewMode,setViewMode] = useState('cards');
@@ -341,19 +346,19 @@ export default function App() {
   const [proposals,setProposals] = useState([]);
   const [myPerson,setMyPerson] = useState('P');
   const [guestMode,setGuestMode] = useState(false);
-  const normalizeRecoveryBalances = value => {
+  const normalizeRecoveryBalances = (value, keys=PERSON_KEYS) => {
     const source = value && typeof value === 'object' ? value : {};
-    return Object.fromEntries(PERSON_KEYS.map(key => {
+    return Object.fromEntries(keys.map(key => {
       const n = Number(source[key] ?? 0);
       return [key, Number.isFinite(n) && n >= 0 ? n : 0];
     }));
   };
 
-  const normalizeRecoveryLedger = value => {
+  const normalizeRecoveryLedger = (value, keys=PERSON_KEYS) => {
     if (!Array.isArray(value)) return [];
     return value.filter(entry =>
       entry && typeof entry === 'object'
-      && PERSON_KEYS.includes(entry.person)
+      && keys.includes(entry.person)
       && Number.isFinite(Number(entry.delta))
       && Number(entry.delta) !== 0
       && typeof entry.reason === 'string'
@@ -432,7 +437,48 @@ export default function App() {
   const currentWeekTimes = currentWeekConfig.times || DEFAULT_TIMES[currentWeekHours] || times;
   const currentWeekWarehouse = currentWeekConfig.warehouse || warehouse;
   const currentWeek = weeks[wkKey] || emptyWeek(currentWeekWarehouse);
+  useEffect(() => {
+    setWeekTimesDraft({...currentWeekTimes});
+  },[wkKey,currentWeekHours,currentWeekTimes.s1,currentWeekTimes.e1,currentWeekTimes.s2,currentWeekTimes.e2]);
   const personColor = k => personColors[k] || PEOPLE[k]?.color || '#64748b';
+
+  const openEmployeeEditor = key => {
+    setEmployeeEditor(key || 'new');
+    setEmployeeNameDraft(key ? (PEOPLE[key]?.name || '') : '');
+  };
+  const saveEmployee = () => {
+    const name=employeeNameDraft.trim().replace(/\s+/g,' ');
+    if(name.length<2 || name.length>60){Alert.alert('Pracownik','Wpisz imię i nazwisko (2–60 znaków).');return;}
+    if(employeeEditor==='new'){
+      const key='E_'+Date.now().toString(36);
+      const color=COLOR_PALETTE[(PERSON_KEYS.length+5)%COLOR_PALETTE.length];
+      setCustomPeople(prev=>({...prev,[key]:{name}}));
+      setPersonColors(prev=>({...prev,[key]:color}));
+      setRecoveryBalances(prev=>({...prev,[key]:0}));
+    }else{
+      setCustomPeople(prev=>({...prev,[employeeEditor]:{...(prev[employeeEditor]||{}),name}}));
+    }
+    setEmployeeEditor(null);
+    setEmployeeNameDraft('');
+  };
+  const deleteEmployee = key => {
+    if(!String(key).startsWith('E_')){Alert.alert('Pracownik','Pracownicy bazowi zachowują stałe identyfikatory, aby nie uszkodzić starych grafików i rozliczeń.');return;}
+    const usedInSchedule=Object.values(weeks).some(week=>Array.isArray(week)&&week.some(day=>(day.shifts||[]).some(shift=>shift.person===key)));
+    const usedInConditions=conditions.some(condition=>condition.person===key);
+    const usedInLedger=recoveryLedger.some(entry=>entry.person===key);
+    const hasBalance=(Number(recoveryBalances[key])||0)>0;
+    const usedInProposals=proposals.some(proposal=>proposal.status==='pending'&&(proposal.fromPerson===key||proposal.toPerson===key));
+    if(usedInSchedule||usedInConditions||usedInLedger||hasBalance||usedInProposals){
+      Alert.alert('Nie można usunąć','Ten pracownik jest używany w grafiku, warunkach, rozliczeniach lub oczekującej zamianie. Najpierw usuń powiązania.');
+      return;
+    }
+    Alert.alert('Usunąć pracownika?',PEOPLE[key]?.name||key,[{text:'Anuluj',style:'cancel'},{text:'Usuń',style:'destructive',onPress:()=>{
+      setCustomPeople(prev=>{const next={...prev};delete next[key];return next;});
+      setPersonColors(prev=>{const next={...prev};delete next[key];return next;});
+      setRecoveryBalances(prev=>{const next={...prev};delete next[key];return next;});
+      setConditions(prev=>prev.filter(condition=>condition.person!==key));
+    }}]);
+  };
   const isTodayDay = di => iso(addDays(weekStart,di)) === iso(new Date());
   const occupiedShifts = currentWeek.reduce((sum,d)=>sum + (d.shifts || []).filter(s=>s.person).length,0);
   const freeShifts = Math.max(0,14 - occupiedShifts);
@@ -1456,6 +1502,32 @@ export default function App() {
       rotation:prev[wkKey]?.rotation||rotation,
       warehouse:prev[wkKey]?.warehouse||currentWeekWarehouse
     }}));
+    setWeekTimesDraft({...DEFAULT_TIMES[h]});
+  };
+
+  const changeWeekTimes = () => {
+    if (readOnly) return;
+    const next={...weekTimesDraft};
+    const validTime=value=>/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(value||''));
+    if(!['s1','e1','s2','e2'].every(field=>validTime(next[field]))){
+      Alert.alert('Nieprawidłowe godziny','Wpisz wszystkie godziny w formacie HH:MM, np. 06:00.');
+      return;
+    }
+    const minutes=value=>Number(value.slice(0,2))*60+Number(value.slice(3,5));
+    const duration=(start,end)=>(minutes(end)-minutes(start)+1440)%1440;
+    if([['s1','e1'],['s2','e2']].some(([start,end])=>duration(next[start],next[end])<60||duration(next[start],next[end])>16*60)){
+      Alert.alert('Nieprawidłowy przedział','Każda zmiana musi trwać od 1 do 16 godzin.');
+      return;
+    }
+    setWeekConfigs(prev=>({...prev,[wkKey]:{
+      ...(prev[wkKey]||{}),
+      hours:currentWeekHours,
+      times:next,
+      rotation:prev[wkKey]?.rotation||rotation,
+      warehouse:prev[wkKey]?.warehouse||currentWeekWarehouse
+    }}));
+    setWeekTimesDraft(next);
+    Alert.alert('Zapisano','Godziny obu zmian zostały zastosowane do całego tygodnia. Obsada i blokady pozostały bez zmian.');
   };
 
   // Zmiana magazynu tygodnia nie ingeruje w obsadę ani blokady zmian.
@@ -1514,22 +1586,22 @@ export default function App() {
       if (!forcedOff) slots.push({di,si,offOriginalPerson:s.offOriginalPerson || s.recoverPerson || null});
     }));
 
-    const counts={P:0,M:0,L:0};
+    const counts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     result.forEach((d,di)=>d.shifts.forEach((s,si)=>{ if(s.person) counts[s.person]++; }));
 
     // Targets must describe the intended clean week, not the current mutable state.
     // Otherwise a locked/historical recovery shift becomes part of the next target
     // and the same recover debt gets added again on every regeneration.
     const baseWeek=generateWeek(currentWeekConfig.rotation || rotation,currentWeekWarehouse);
-    const baseTargetCounts={P:0,M:0,L:0};
+    const baseTargetCounts=Object.fromEntries(PERSON_KEYS.map(key=>[key,0]));
     baseWeek.forEach(d=>d.shifts.forEach(s=>{if(s.person) baseTargetCounts[s.person]++;}));
 
-    const targets={P:null,M:null,L:null};
+    const targets=Object.fromEntries(PERSON_KEYS.map(key=>[key,null]));
     conditions.filter(c=>c.type==='count').forEach(c=>{if(c.person) targets[c.person]=Number(c.value)||0;});
     // Recovery debt is an independent business ledger. The generator is strictly
     // read-only: it may consume the balance when calculating targets, but never
     // creates, settles, clears or edits ledger entries.
-    const recoveryBalancesSnapshot={P:0,M:0,L:0,...recoveryBalances};
+    const recoveryBalancesSnapshot={...Object.fromEntries(PERSON_KEYS.map(key=>[key,0])),...recoveryBalances};
     PERSON_KEYS.forEach(p=>{
       const baseTarget=targets[p]===null?baseTargetCounts[p]:targets[p];
       const recoveryTarget=Math.max(0,Number(recoveryBalancesSnapshot[p])||0);
