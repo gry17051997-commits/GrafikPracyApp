@@ -10,7 +10,7 @@ on:
       - ".github/workflows/build-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-apk:
@@ -19,7 +19,7 @@ jobs:
     env:
       EXPO_NO_DOCTOR: "1"
       CI: "1"
-      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_API_URL: "https://grafik-pracy-api-fra.onrender.com"
       EXPO_PUBLIC_MAPTILER_KEY: ${{ secrets.EXPO_PUBLIC_MAPTILER_KEY }}
 
     defaults:
@@ -45,6 +45,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Read app version
+        id: app_version
+        run: echo "value=$(node -p 'require("./app.json").expo.version')" >> "$GITHUB_OUTPUT"
 
       - name: Verify central API URL
         run: |
@@ -78,5 +82,17 @@ jobs:
           path: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish APK as latest GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.app_version.outputs.value }}
+          name: Grafik Pracy v${{ steps.app_version.outputs.value }}
+          body: "Oficjalna wersja APK aplikacji Grafik Pracy. Pobierz plik APK i zatwierdź instalację na Androidzie."
+          files: GrafikPracy_Final/android/app/build/outputs/apk/release/app-release.apk
+          make_latest: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 # Trigger fresh APK build after synchronization retry update.

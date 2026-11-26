@@ -18,6 +18,7 @@ import {
   Vibration
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import appConfig from './app.json';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import * as Notifications from 'expo-notifications';
@@ -111,6 +112,46 @@ function generateWeek(rotation='P', warehouse='PNT B') {
   return w;
 }
 
+
+const APP_VERSION = appConfig.expo.version;
+const APP_UPDATE_CHECK_KEY = 'grafik-pracy-app-update-check-v1';
+const APP_UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000;
+
+function isNewerAppVersion(remote, current) {
+  const parse = value => String(value || '').replace(/^v/i, '').split('.').map(part => Number.parseInt(part, 10) || 0);
+  const a = parse(remote);
+  const b = parse(current);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const av = a[i] || 0;
+    const bv = b[i] || 0;
+    if (av > bv) return true;
+    if (av < bv) return false;
+  }
+  return false;
+}
+
+function AppUpdateBanner({update, onDismiss}) {
+  if (!update) return null;
+  return (
+    <View style={{marginHorizontal:12,marginTop:8,marginBottom:8,padding:12,borderRadius:12,backgroundColor:'#24364b',borderWidth:1,borderColor:'#4f8cff'}}>
+      <Text style={{color:'#fff',fontWeight:'800',fontSize:14}}>Dostępna aktualizacja v{update.version}</Text>
+      <Text style={{color:'#d5e2f2',fontSize:12,marginTop:4}}>Pobierz APK. Po pobraniu otwórz plik i zatwierdź instalację w Androidzie.</Text>
+      <View style={{flexDirection:'row',alignItems:'center',marginTop:10}}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          style={{backgroundColor:'#4f8cff',paddingVertical:9,paddingHorizontal:14,borderRadius:8,marginRight:8}}
+          onPress={() => Linking.openURL(update.url).catch(() => Alert.alert('Aktualizacja','Nie udało się otworzyć pobierania APK.'))}
+        >
+          <Text style={{color:'#fff',fontWeight:'800'}}>POBIERZ APK</Text>
+        </TouchableOpacity>
+        <TouchableOpacity accessibilityRole="button" style={{padding:9}} onPress={onDismiss}>
+          <Text style={{color:'#cbd5e1',fontWeight:'700'}}>Później</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function ChatComposer({busy,onSend}) {
   const [text,setText]=useState('');
   const submit=async()=>{
@@ -153,6 +194,35 @@ function contrastText(hex) {
 export default function App() {
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
+  const [appUpdate,setAppUpdate] = useState(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+    let cancelled = false;
+    const checkForAppUpdate = async () => {
+      try {
+        const lastCheck = Number(await AsyncStorage.getItem(APP_UPDATE_CHECK_KEY) || 0);
+        if (lastCheck && Date.now() - lastCheck < APP_UPDATE_CHECK_INTERVAL) return;
+        const response = await fetch('https://api.github.com/repos/gry17051997-commits/GrafikPracyApp/releases/latest', {
+          headers: {Accept:'application/vnd.github+json'}
+        });
+        if (!response.ok) return;
+        const release = await response.json();
+        const version = String(release.tag_name || '').replace(/^v/i, '');
+        const apk = (release.assets || []).find(asset => /\.apk$/i.test(asset.name || ''));
+        if (!version || !apk || !apk.browser_download_url) return;
+        await AsyncStorage.setItem(APP_UPDATE_CHECK_KEY, String(Date.now()));
+        if (!cancelled && isNewerAppVersion(version, APP_VERSION)) {
+          setAppUpdate({version, url:apk.browser_download_url});
+        }
+      } catch (error) {
+        // Brak internetu lub chwilowa niedostępność GitHub nie blokuje aplikacji.
+      }
+    };
+    checkForAppUpdate();
+    return () => { cancelled = true; };
+  }, []);
+
   const [hours,setHours] = useState(10);
   const [rotation,setRotation] = useState('P');
   const [warehouse,setWarehouse] = useState('PNT B');
@@ -1378,14 +1448,34 @@ export default function App() {
   };
 
   const changeHours = h => {
-    if (readOnly) return;
+    if (readOnly || h === currentWeekHours) return;
     setWeekConfigs(prev=>({...prev,[wkKey]:{
       ...(prev[wkKey]||{}),
       hours:h,
       times:DEFAULT_TIMES[h],
       rotation:prev[wkKey]?.rotation||rotation,
-      warehouse:prev[wkKey]?.warehouse||warehouse
+      warehouse:prev[wkKey]?.warehouse||currentWeekWarehouse
     }}));
+  };
+
+  // Zmiana magazynu tygodnia nie ingeruje w obsadę ani blokady zmian.
+  const changeWeekWarehouse = nextWarehouse => {
+    if (readOnly || !WAREHOUSES.includes(nextWarehouse) || nextWarehouse === currentWeekWarehouse) return;
+    setWeekConfigs(prev=>({...prev,[wkKey]:{
+      ...(prev[wkKey]||{}),
+      hours:currentWeekHours,
+      times:currentWeekTimes,
+      rotation:currentWeekConfig.rotation||rotation,
+      warehouse:nextWarehouse
+    }}));
+    setWeeks(prev=>{
+      const next=cloneWeek(prev[wkKey] || currentWeek);
+      next.forEach(day=>{
+        day.warehouse=nextWarehouse;
+        day.shifts=(day.shifts||[]).map(shift=>({...shift,warehouse:nextWarehouse}));
+      });
+      return {...prev,[wkKey]:next};
+    });
   };
 
   const dayHasPassed = dayIndex => {
@@ -2116,7 +2206,7 @@ export default function App() {
       {currentWeek.map((d,i)=>{
         const date=addDays(weekStart,i);
         const items=d.shifts.filter(s=>s.person && (sharePerson==='all'||s.person===sharePerson));
-        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(times,s.shift)} · {s.warehouse||d.warehouse||warehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
+        return <View key={d.dayIndex} style={S.listExportRow}><Text style={S.listExportDay}>{DAYS[i]} · {shortDate(date)}</Text>{items.length?items.map(s=><Text key={s.id} style={S.listExportItem}>{PEOPLE[s.person].name} · {shiftTime(currentWeekTimes,s.shift)} · {s.warehouse||d.warehouse||currentWeekWarehouse}</Text>):<Text style={S.listExportItem}>WOLNE</Text>}</View>;
       })}
     </View>
   );
@@ -2178,9 +2268,10 @@ export default function App() {
   const schedule = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
+      <Text style={S.section}>Godziny pracy w całym tygodniu</Text>
       <View style={S.row}>
         {[10,12].map(h=>
-          <TouchableOpacity key={h} style={[S.btn,hours===h&&S.active]} onPress={()=>changeHours(h)}>
+          <TouchableOpacity key={h} style={[S.btn,currentWeekHours===h&&S.active]} onPress={()=>changeHours(h)}>
             <Text style={S.btnText}>{h} H</Text>
           </TouchableOpacity>
         )}
@@ -2188,6 +2279,11 @@ export default function App() {
           <Text style={S.btnText}>⚡ GENERUJ</Text>
         </TouchableOpacity>
       </View>
+
+      <Text style={S.section}>Magazyn całego tygodnia</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+        {WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,currentWeekWarehouse===w&&S.active]} onPress={()=>changeWeekWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
+      </ScrollView>
 
       <View style={S.row}>
         <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
@@ -2232,7 +2328,7 @@ export default function App() {
                   <View style={S.between}>
                     <View>
                       <Text style={S.shiftTitle}>Zmiana {s.shift}</Text>
-                      <Text style={S.time}>{shiftTime(times,s.shift)}</Text>
+                      <Text style={S.time}>{shiftTime(currentWeekTimes,s.shift)}</Text>
                     </View>
                     <Text style={S.lockText}>{s.locked?'🔒':' '}</Text>
                   </View>
@@ -2402,7 +2498,7 @@ export default function App() {
                 <Text style={[S.dot,{color:personColor(summaryViewPerson)}]}>●</Text>
               </View>
               <Text style={S.stat}>{item.date} · {item.shifts.length} {item.shifts.length === 1 ? 'zmiana' : 'zmiany'}</Text>
-              {item.shifts.map(s => <Text key={s.id} style={S.stat}>Zmiana {s.shift}: <Text style={S.white}>{shiftTime(times,s.shift)}</Text> · {s.warehouse || warehouse}</Text>)}
+              {item.shifts.map(s => <Text key={s.id} style={S.stat}>Zmiana {s.shift}: <Text style={S.white}>{shiftTime(currentWeekTimes,s.shift)}</Text> · {s.warehouse || currentWeekWarehouse}</Text>)}
             </View>
           )) : (
             <View style={S.employee}><Text style={S.stat}>Brak dni pracujących w tym tygodniu.</Text></View>
@@ -3118,6 +3214,7 @@ const settings = (
         <View style={S.scrim}><SafeAreaView style={S.container}><View style={S.loading}>
           <View style={S.modal}>
             <Text style={S.modalTitle}>GRAFIK PRACY ☁️</Text>
+            <AppUpdateBanner update={appUpdate} onDismiss={()=>setAppUpdate(null)}/>
             <Text style={S.helpLine}>Zaloguj się, aby korzystać ze wspólnego grafiku.</Text>
             <TextInput value={authEmail} onChangeText={setAuthEmail} autoCapitalize="none" keyboardType="email-address" placeholder="E-mail" placeholderTextColor="#777" style={S.input}/>
             <TextInput value={authPassword} onChangeText={setAuthPassword} secureTextEntry placeholder="Hasło" placeholderTextColor="#777" style={[S.input,{marginTop:8}]}/>
@@ -3150,6 +3247,7 @@ const settings = (
     <ImageBackground source={require('./icon-512.png')} resizeMode="cover" style={S.background}>
       <View style={S.scrim}>
         <SafeAreaView style={S.container}>
+          <AppUpdateBanner update={appUpdate} onDismiss={()=>setAppUpdate(null)}/>
           {cloudUpdated && <View pointerEvents="none" style={S.cloudBannerOverlay}><View style={S.cloudBanner}><Text style={S.cloudBannerText}>☁️ Grafik został zaktualizowany</Text></View></View>}
           {!!localStorageError && <View style={S.cloudBanner}><Text style={S.cloudBannerText}>⚠️ {localStorageError}</Text></View>}
           {CENTRAL_API_ENABLED && cloudUser && <View style={S.cloudStatus}>
