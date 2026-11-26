@@ -19,7 +19,7 @@ jobs:
     env:
       EXPO_NO_DOCTOR: "1"
       CI: "1"
-      EXPO_PUBLIC_API_URL: ${{ secrets.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_API_URL: "https://grafik-pracy-api-fra.onrender.com"
       EXPO_PUBLIC_MAPTILER_KEY: ${{ secrets.EXPO_PUBLIC_MAPTILER_KEY }}
 
     defaults:
