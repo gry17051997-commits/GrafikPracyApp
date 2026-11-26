@@ -3093,7 +3093,7 @@ const settings = (
   );
 
   const colorModal = (
-    <Modal visible={!!colorPerson} transparent animationType="slide" onRequestClose={()=>setColorPerson(null)}>setColorPerson(null)}>
+    <Modal visible={!!colorPerson} transparent animationType="slide" onRequestClose={()=>setColorPerson(null)}>
       <View style={S.overlay}>
         <View style={[S.modal,{maxHeight:'86%'}]}>
           <Text style={S.modalTitle}>Kolor: {colorPerson ? PEOPLE[colorPerson].name : ''}</Text>
