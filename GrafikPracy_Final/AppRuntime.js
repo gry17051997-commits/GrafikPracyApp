@@ -499,7 +499,10 @@ export default function App() {
           setPin(data.pin || '');
           setPinEnabled(!!data.pinEnabled);
           setDark(data.dark !== false);
-          setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+           const savedPeople=data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {};
+           setCustomPeople(savedPeople);
+           const savedPersonKeys=Object.keys({...DEFAULT_PEOPLE,...savedPeople});
+           setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
           const savedConditions = Array.isArray(data.conditions) ? data.conditions : [];
           const hasSundayL1 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
           const hasSundayL2 = savedConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -508,8 +511,8 @@ export default function App() {
             ...(hasSundayL2 ? [] : [DEFAULT_BUSINESS_CONDITIONS[1]]),
             ...savedConditions
           ]);
-          setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
-          setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+          setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances,savedPersonKeys));
+           setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger,savedPersonKeys));
           setProposals(data.proposals || []);
           setMyPerson(data.myPerson || 'P');
           setVehicleRegistration(data.vehicleRegistration || '');
@@ -535,7 +538,7 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const data = {hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
+    const data = {hours,rotation,warehouse,weeks,weekConfigs,customPeople,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,vehicleRegistration,reportGroupLink,reportsEnabled,warehouseGeo,reportHistory,recoveryBalances,recoveryLedger,cloudPending:cloudDirtyRef.current,cloudBaseUpdatedAt:cloudUpdatedAtRef.current,times:{
       10: DEFAULT_TIMES[10],
       12: DEFAULT_TIMES[12],
       [hours]: times
@@ -547,7 +550,7 @@ export default function App() {
         console.error('Nie udało się zapisać lokalnego grafiku:', error);
         setLocalStorageError('Nie udało się zapisać grafiku na tym urządzeniu.');
       });
-  },[ready,hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
+  },[ready,hours,rotation,warehouse,weeks,weekConfigs,customPeople,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,times,personColors,vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,myPerson,conditions,proposals,warehouseGeo,recoveryBalances,recoveryLedger]);
 
   const normalizeVehicleAssignment = value => String(value || '').trim().toUpperCase();
 
@@ -728,10 +731,11 @@ export default function App() {
                 autoGenerateWeeks:!!data.autoGenerateWeeks,
                 allow24h:!!data.allow24h,
                 times:data.times || DEFAULT_TIMES,
-                personColors:data.personColors || {P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},
-                conditions:data.conditions || [],
-                recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances),
-                recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger),
+                personColors:data.personColors || {P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},
+                 customPeople:data.customPeople || {},
+                 conditions:data.conditions || [],
+                 recoveryBalances:normalizeRecoveryBalances(data.recoveryBalances,Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})})),
+                 recoveryLedger:normalizeRecoveryLedger(data.recoveryLedger,Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})})),
                 migratedFromLegacyAt:serverTimestamp(),
                 migratedBy:cloudUser.uid
               }, {merge:true});
@@ -820,9 +824,11 @@ export default function App() {
       if (typeof data.autoGenerateWeeks === 'boolean') setAutoGenerateWeeks(data.autoGenerateWeeks);
       if (typeof data.allow24h === 'boolean') setAllow24h(data.allow24h);
       if (data.personColors) setPersonColors(data.personColors);
+      if (data.customPeople && typeof data.customPeople==='object') setCustomPeople(data.customPeople);
+      const remotePersonKeys=Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})});
       if (data.conditions) setConditions(data.conditions);
-      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances));
-      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger));
+      if (data.recoveryBalances) setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances,remotePersonKeys));
+      if (data.recoveryLedger) setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger,remotePersonKeys));
       if (data.times) setTimes(data.times[data.hours || hours] || DEFAULT_TIMES[data.hours || hours]);
       settingsHydratedRef.current = true;
       setCloudSettingsReady(true);
@@ -893,7 +899,7 @@ export default function App() {
     }
     cloudSettingsDirtyRef.current = true;
     cloudSettingsRevisionRef.current += 1;
-  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsSnapshotTick,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
 
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser || cloudRole !== 'admin' || !ready
@@ -905,7 +911,7 @@ export default function App() {
       const settings = {
         hours,rotation,warehouse,autoGenerateWeeks,allow24h,
         times:{10:DEFAULT_TIMES[10],12:DEFAULT_TIMES[12],[hours]:times},
-        personColors,
+        personColors,customPeople,
         conditions,recoveryBalances,recoveryLedger,
         updatedAt:serverTimestamp(),
         updatedBy:cloudUser.uid
@@ -936,7 +942,7 @@ export default function App() {
         cloudSettingsSaveTimerRef.current = null;
       }
     };
-  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,conditions,recoveryBalances,recoveryLedger]);
+  },[ready,cloudSettingsReady,cloudSettingsRetryTick,cloudUser,cloudRole,hours,rotation,warehouse,autoGenerateWeeks,allow24h,times,personColors,customPeople,conditions,recoveryBalances,recoveryLedger]);
   useEffect(() => {
     if (!CENTRAL_API_ENABLED || !db || !cloudUser) return;
     const q = cloudRole === 'admin'
