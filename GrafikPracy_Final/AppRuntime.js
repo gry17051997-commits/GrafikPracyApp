@@ -2116,7 +2116,8 @@ export default function App() {
         setWarehouse('PNT B');
         setTimes(DEFAULT_TIMES[10]);
         setDark(true);
-        setPersonColors({P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color});
+        setCustomPeople({});
+         setPersonColors({P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color});
         setConditions([...DEFAULT_BUSINESS_CONDITIONS]);
         setProposals([]);
         setMyPerson('P');
@@ -2140,7 +2141,7 @@ export default function App() {
     version:5,
     exportedAt:new Date().toISOString(),
     hours,rotation,warehouse,weeks,weekConfigs,autoGenerateWeeks,allow24h,pin,pinEnabled,dark,
-    times,personColors,conditions,proposals,myPerson,
+    times,personColors,customPeople,conditions,proposals,myPerson,
     vehicleRegistration,reportGroupLink,reportsEnabled,reportHistory,warehouseGeo,
     recoveryBalances,recoveryLedger,chatMessages
   });
@@ -2173,17 +2174,19 @@ export default function App() {
           && ['s1','e1','s2','e2'].every(field => typeof config.times[field] === 'string' && /^\d{2}:\d{2}$/.test(config.times[field]))
         ))
       ));
+      const validCustomPeople = value => value === undefined || (value && typeof value === 'object' && !Array.isArray(value) && Object.entries(value).every(([key,person]) => /^(?:P|M|L|E_[a-z0-9]+)$/.test(key) && person && typeof person.name === 'string' && person.name.trim().length>=2 && person.name.trim().length<=60));
+      const backupPersonKeys = Object.keys({...DEFAULT_PEOPLE,...(data.customPeople||{})});
       const validBalances = value => value && typeof value === 'object'
-        && PERSON_KEYS.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
+        && backupPersonKeys.every(key => Number.isFinite(Number(value[key] ?? 0)) && Number(value[key] ?? 0) >= 0);
       const validLedger = value => Array.isArray(value) && value.length <= 500
         && value.every(entry => entry && typeof entry === 'object'
-          && PERSON_KEYS.includes(entry.person)
+          && backupPersonKeys.includes(entry.person)
           && Number.isFinite(Number(entry.delta))
           && Number(entry.delta) !== 0
           && typeof entry.reason === 'string'
           && String(entry.id || '').length > 0);
       if (!data || data.app !== 'Grafik Pracy' || Number(data.version) !== 5) throw new Error('bad-version');
-      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
+      if (!validHours(data.hours) || !validRotation(data.rotation) || !isValidScheduleWeekMap(data.weeks) || !validWeekConfigs(data.weekConfigs || {}) || !validCustomPeople(data.customPeople) || !isValidScheduleConditions(data.conditions || []) || !validBalances(data.recoveryBalances || {}) || !validLedger(data.recoveryLedger || [])) {
         throw new Error('bad-schema');
       }
       setHours(data.hours);
@@ -2196,7 +2199,8 @@ export default function App() {
       setPin(data.pin || '');
       setPinEnabled(!!data.pinEnabled);
       setDark(data.dark !== false);
-      setPersonColors({...{P:PEOPLE.P.color,M:PEOPLE.M.color,L:PEOPLE.L.color},...(data.personColors || {})});
+      setCustomPeople(data.customPeople && typeof data.customPeople==='object' ? data.customPeople : {});
+      setPersonColors({...{P:DEFAULT_PEOPLE.P.color,M:DEFAULT_PEOPLE.M.color,L:DEFAULT_PEOPLE.L.color},...(data.personColors || {})});
       const restoredConditions = Array.isArray(data.conditions) ? data.conditions : [];
       const hasSundayL1 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===1);
       const hasSundayL2 = restoredConditions.some(c=>c.type==='must' && c.person==='L' && Number(c.dayIndex)===6 && Number(c.shift)===2);
@@ -2212,8 +2216,8 @@ export default function App() {
       setReportsEnabled(data.reportsEnabled !== false);
       setReportHistory(Array.isArray(data.reportHistory) ? data.reportHistory : []);
       setWarehouseGeo(data.warehouseGeo || {});
-      setRecoveryBalances({...{P:0,M:0,L:0},...(data.recoveryBalances || {})});
-      setRecoveryLedger(Array.isArray(data.recoveryLedger) ? data.recoveryLedger : []);
+      setRecoveryBalances(normalizeRecoveryBalances(data.recoveryBalances,backupPersonKeys));
+      setRecoveryLedger(normalizeRecoveryLedger(data.recoveryLedger,backupPersonKeys));
       setChatMessages(Array.isArray(data.chatMessages) ? data.chatMessages : []);
       setTimes(data.times?.[data.hours || 10] || DEFAULT_TIMES[data.hours || 10]);
       setBackupModal(false);
@@ -2346,6 +2350,23 @@ export default function App() {
   const schedule = (
     <ScrollView style={S.content} contentContainerStyle={{paddingBottom:130}}>
       {header}
+      <Text style={S.section}>Przedziały godzinowe całego tygodnia</Text>
+      <Text style={S.helpLine}>Zmień godziny obu zmian dla wszystkich 7 dni. Nie wymaga to ponownego generowania grafiku i nie zmienia obsady.</Text>
+      <View style={S.timeBox}>
+        {[
+          {label:'I zmiana',start:'s1',end:'e1'},
+          {label:'II zmiana',start:'s2',end:'e2'}
+        ].map(item=><View key={item.label} style={S.timeRow}>
+          <Text style={S.white}>{item.label}</Text>
+          <TextInput value={weekTimesDraft[item.start]} onChangeText={value=>setWeekTimesDraft(prev=>({...prev,[item.start]:value.replace(/[^0-9:]/g,'').slice(0,5)}))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="06:00" placeholderTextColor="#777" style={[S.input,{flex:1}]}/>
+          <Text style={S.sep}>→</Text>
+          <TextInput value={weekTimesDraft[item.end]} onChangeText={value=>setWeekTimesDraft(prev=>({...prev,[item.end]:value.replace(/[^0-9:]/g,'').slice(0,5)}))} keyboardType="numbers-and-punctuation" maxLength={5} placeholder="16:00" placeholderTextColor="#777" style={[S.input,{flex:1}]}/>
+        </View>)}
+      </View>
+      <TouchableOpacity disabled={readOnly} style={[S.generateFull,readOnly&&{opacity:0.45}]} onPress={changeWeekTimes}>
+        <Text style={S.btnText}>ZAPISZ GODZINY CAŁEGO TYGODNIA</Text>
+      </TouchableOpacity>
+
       <Text style={S.section}>Godziny pracy w całym tygodniu</Text>
       <View style={S.row}>
         {[10,12].map(h=>
@@ -2764,6 +2785,19 @@ const settings = (
         </View>)}
       </>}
 
+      {(cloudRole==='admin' || !CENTRAL_API_ENABLED) && <>
+        <Text style={S.section}>👥 Pracownicy wpisywani do grafiku</Text>
+        <Text style={S.helpLine}>Edytuj nazwiska obecnych osób oraz dodawaj i usuwaj dodatkowych pracowników. Pracownik użyty w grafiku lub rozliczeniach nie może zostać usunięty.</Text>
+        {PERSON_KEYS.map(key=><View key={key} style={S.option}>
+          <View style={{flex:1}}>
+            <Text style={S.optionText}>{PEOPLE[key].name}</Text>
+            <Text style={S.muted}>{key.startsWith('E_')?'Dodatkowy pracownik':'Pracownik bazowy'}</Text>
+          </View>
+          <TouchableOpacity style={S.btn} onPress={()=>openEmployeeEditor(key)}><Text style={S.btnText}>EDYTUJ</Text></TouchableOpacity>
+          {key.startsWith('E_')&&<TouchableOpacity style={[S.btn,{marginLeft:6}]} onPress={()=>deleteEmployee(key)}><Text style={S.btnText}>USUŃ</Text></TouchableOpacity>}
+        </View>)}
+        <TouchableOpacity style={S.generateFull} onPress={()=>openEmployeeEditor(null)}><Text style={S.btnText}>➕ DODAJ PRACOWNIKA</Text></TouchableOpacity>
+      </>}
       <Text style={S.section}>Kolory pracowników</Text>
       <Text style={S.helpLine}>Wybierz kolor, którym pracownik będzie oznaczany w grafiku, tabeli oraz udostępnianym JPG/PDF.</Text>
       {PERSON_KEYS.map(k => (
@@ -3046,8 +3080,20 @@ const settings = (
     </Modal>
   );
 
+  const employeeDialog = (
+    <Modal visible={!!employeeEditor} transparent animationType="slide" onRequestClose={()=>setEmployeeEditor(null)}>
+      <View style={S.overlay}><View style={S.modal}>
+        <Text style={S.modalTitle}>{employeeEditor==='new'?'Dodaj pracownika':'Edytuj pracownika'}</Text>
+        <Text style={S.section}>Imię i nazwisko</Text>
+        <TextInput value={employeeNameDraft} onChangeText={setEmployeeNameDraft} autoCapitalize="words" placeholder="Np. Jan Kowalski" placeholderTextColor="#777" style={S.input} maxLength={60}/>
+        <TouchableOpacity style={S.generateFull} onPress={saveEmployee}><Text style={S.btnText}>ZAPISZ</Text></TouchableOpacity>
+        <TouchableOpacity style={S.closeBtn} onPress={()=>{setEmployeeEditor(null);setEmployeeNameDraft('');}}><Text style={S.btnText}>ANULUJ</Text></TouchableOpacity>
+      </View></View>
+    </Modal>
+  );
+
   const colorModal = (
-    <Modal visible={!!colorPerson} transparent animationType="slide" onRequestClose={()=>setColorPerson(null)}>
+    <Modal visible={!!colorPerson} transparent animationType="slide" onRequestClose={()=>setColorPerson(null)}>setColorPerson(null)}>
       <View style={S.overlay}>
         <View style={[S.modal,{maxHeight:'86%'}]}>
           <Text style={S.modalTitle}>Kolor: {colorPerson ? PEOPLE[colorPerson].name : ''}</Text>
@@ -3344,6 +3390,7 @@ const settings = (
           </View>}
           {tab==='grafik' ? schedule : tab==='teraz' ? <NowDashboard weeks={weeks} rotation={rotation} warehouse={warehouse} times={times} personColors={personColors} weekConfigs={weekConfigs} cloudUser={cloudUser} vehicleRegistration={vehicleRegistration}/> : tab==='auto' ? <LiveLocationDashboard vehicleRegistration={vehicleRegistration} warehouseGeo={warehouseGeo} reportHistory={reportHistory} onApplySuggestion={applyLocationSuggestion} cloudUser={cloudUser}/> : tab==='summary' ? summary : tab==='chat' ? chat : cloudRole==='locator' ? locatorSettings : settings}
           {editModal}
+          {employeeDialog}
           {colorModal}
           {helpModal}
           {exportModalDialog}
