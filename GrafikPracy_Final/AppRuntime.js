@@ -199,6 +199,35 @@ export default function App() {
   const [ready,setReady] = useState(false);
   const [tab,setTab] = useState('grafik');
   const [appUpdate,setAppUpdate] = useState(null);
+  const [updateCheckBusy,setUpdateCheckBusy] = useState(false);
+  const [updateCheckMessage,setUpdateCheckMessage] = useState('');
+  const checkForAppUpdateNow = async () => {
+    if (Platform.OS !== 'android') return;
+    setUpdateCheckBusy(true);
+    setUpdateCheckMessage('');
+    try {
+      const response=await fetch('https://api.github.com/repos/gry17051997-commits/GrafikPracyApp/releases/latest',{
+        headers:{Accept:'application/vnd.github+json'}
+      });
+      if(!response.ok) throw new Error('GitHub HTTP '+response.status);
+      const release=await response.json();
+      const version=String(release.tag_name||'').replace(/^v/i,'');
+      const apk=(release.assets||[]).find(asset=>/\.apk$/i.test(asset.name||''));
+      if(!version||!apk?.browser_download_url) throw new Error('Brak pliku APK w najnowszym wydaniu.');
+      await AsyncStorage.setItem(APP_UPDATE_CHECK_KEY,String(Date.now()));
+      if(isNewerAppVersion(version,APP_VERSION)){
+        setAppUpdate({version,url:apk.browser_download_url});
+        setUpdateCheckMessage('Znaleziono aktualizację v'+version+'.');
+      }else{
+        setAppUpdate(null);
+        setUpdateCheckMessage('Masz najnowszą wersję aplikacji ('+APP_VERSION+').');
+      }
+    }catch(error){
+      setUpdateCheckMessage('Nie udało się sprawdzić aktualizacji. Spróbuj ponownie za chwilę.');
+    }finally{
+      setUpdateCheckBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
@@ -2814,6 +2843,15 @@ const settings = (
         <Text style={S.section}>Wspólny grafik online</Text>
         <View style={S.option}><Text style={S.optionText}>☁️ Status</Text><Text style={S.muted}>{cloudRole==='admin'?'Administrator':'Tylko odczyt'}</Text></View>
         <TouchableOpacity style={S.option} onPress={cloudLogout}><Text style={S.optionText}>🚪 Wyloguj</Text><Text style={S.muted}>{cloudUser.email}</Text></TouchableOpacity>
+      </>}
+
+      {Platform.OS==='android' && <>
+        <Text style={S.section}>Aktualizacje aplikacji</Text>
+        <TouchableOpacity disabled={updateCheckBusy} style={[S.option,updateCheckBusy&&{opacity:0.55}]} onPress={checkForAppUpdateNow}>
+          <Text style={S.optionText}>🔄 Sprawdź aktualizacje teraz</Text>
+          <Text style={S.muted}>{updateCheckBusy?'Sprawdzanie…':'v'+APP_VERSION}</Text>
+        </TouchableOpacity>
+        {!!updateCheckMessage && <Text style={S.helpLine}>{updateCheckMessage}</Text>}
       </>}
 
       <Text style={S.section}>Bezpieczeństwo i dane</Text>
