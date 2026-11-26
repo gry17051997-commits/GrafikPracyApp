@@ -87,6 +87,42 @@ test('backup validation rejects unsafe or contradictory generator condition shap
   assert.equal(isValidScheduleConditions([{type:'unknown',person:'P'}]), false);
 });
 
+
+test('additional employees are accepted in schedules and generator conditions', () => {
+  const week = Array.from({length:7},(_,dayIndex)=>({
+    dayIndex,
+    shifts:[
+      {person:dayIndex===0?'E_jan123':null},
+      {person:null}
+    ]
+  }));
+  assert.equal(isValidScheduleWeekMap({'2026-11-23':week}),true);
+  assert.equal(isValidScheduleConditions([
+    {type:'count',person:'E_jan123',value:4},
+    {type:'must',person:'E_jan123',dayIndex:0,shift:1}
+  ]),true);
+  assert.equal(isValidScheduleWeekMap({'2026-11-23':[
+    {...week[0],shifts:[{person:'not-a-person-key'},{person:null}]},
+    ...week.slice(1)
+  ]}),false);
+});
+
+test('weekly time editor updates only the selected week configuration without regenerating shifts', async () => {
+  const fs = await import('node:fs/promises');
+  const app = await fs.readFile(new URL('../AppRuntime.js', import.meta.url), 'utf8');
+  const start = app.indexOf('const changeWeekTimes = () => {');
+  const end = app.indexOf('// Zmiana magazynu tygodnia', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = app.slice(start, end);
+  assert.match(handler, /setWeekConfigs\(prev=>/);
+  assert.match(handler, /times:next/);
+  assert.doesNotMatch(handler, /regenerate\(/);
+  assert.match(app, /Paweł Błoński/);
+  assert.match(app, /Mateusz Liber/);
+  assert.match(app, /Łukasz Kołodziej/);
+  assert.match(app, /DODAJ PRACOWNIKA/);
+});
+
 test('invalid week identifiers are rejected before persistence', () => {
   assert.throws(
     () => buildWeekDocument('main', [], {}),
