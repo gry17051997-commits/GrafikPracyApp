@@ -1,3 +1,7 @@
+function isValidPersonKey(value) {
+  return ['P', 'M', 'L'].includes(value) || /^E_[a-z0-9]+$/.test(String(value || ''));
+}
+
 function canAssignPersonToDay(dayShifts, person, allow24h) {
   if (allow24h) return true;
   return !(Array.isArray(dayShifts) && dayShifts.some(shift => shift?.person === person));
@@ -43,7 +47,7 @@ function isValidScheduleWeekMap(value) {
       && day.shifts.every((shift, shiftIndex) => (
         shift
         && typeof shift === 'object'
-        && (shift.person == null || ['P', 'M', 'L'].includes(shift.person))
+        && (shift.person == null || isValidPersonKey(shift.person))
         && (shift.shift === undefined || shift.shift === shiftIndex + 1)
         && (shift.manual === undefined || typeof shift.manual === 'boolean')
         && (shift.locked === undefined || typeof shift.locked === 'boolean')
@@ -64,7 +68,7 @@ function isValidScheduleConditions(value) {
   return value.every(condition => {
     if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return false;
     if (!['count', 'must', 'off', 'forbid', 'prefer'].includes(condition.type)) return false;
-    if (!['P', 'M', 'L'].includes(condition.person) && !(condition.type === 'off' && condition.person == null)) return false;
+    if (!isValidPersonKey(condition.person) && !(condition.type === 'off' && condition.person == null)) return false;
     if (condition.type === 'count') {
       const count = Number(condition.value);
       return Number.isInteger(count) && count >= 0 && count <= 14;
