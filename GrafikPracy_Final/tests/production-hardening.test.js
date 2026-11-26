@@ -504,11 +504,11 @@ test('cloud update banner is an absolute overlay and cannot shift the active das
 
 test('schedule list view and text sharing are wired into the weekly schedule', () => {
   const app = fs.readFileSync(new URL('../AppRuntime.js', import.meta.url), 'utf8');
-  assert.match(app, /const scheduleListView = \\(/);
-  assert.match(app, /viewMode==='list' \\? scheduleListView/);
-  assert.match(app, /setViewMode\\('list'\\)/);
-  assert.match(app, /const exportTextList = async \\(\\) =>/);
-  assert.match(app, /Share\\.share\\(\\{title:'Grafik pracy',message:lines\\.join\\(/);
-  assert.match(app, /listExport\\(true,sharePerson\\)/);
-  assert.match(app, /personFilter==='all'\\|\\|s\\.person===personFilter/);
+  assert.ok(app.includes('const scheduleListView = ('));
+  assert.ok(app.includes("viewMode==='list' ? scheduleListView"));
+  assert.ok(app.includes("setViewMode('list')"));
+  assert.ok(app.includes('const exportTextList = async () =>'));
+  assert.ok(app.includes("Share.share({title:'Grafik pracy',message:lines.join('\\n')})"));
+  assert.ok(app.includes('listExport(true,sharePerson)'));
+  assert.ok(app.includes("personFilter==='all'||s.person===personFilter"));
 });
