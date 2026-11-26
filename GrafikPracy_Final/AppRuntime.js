@@ -1378,14 +1378,34 @@ export default function App() {
   };
 
   const changeHours = h => {
-    if (readOnly) return;
+    if (readOnly || h === currentWeekHours) return;
     setWeekConfigs(prev=>({...prev,[wkKey]:{
       ...(prev[wkKey]||{}),
       hours:h,
       times:DEFAULT_TIMES[h],
       rotation:prev[wkKey]?.rotation||rotation,
-      warehouse:prev[wkKey]?.warehouse||warehouse
+      warehouse:prev[wkKey]?.warehouse||currentWeekWarehouse
     }}));
+  };
+
+  // Zmiana magazynu tygodnia nie ingeruje w obsadę ani blokady zmian.
+  const changeWeekWarehouse = nextWarehouse => {
+    if (readOnly || !WAREHOUSES.includes(nextWarehouse) || nextWarehouse === currentWeekWarehouse) return;
+    setWeekConfigs(prev=>({...prev,[wkKey]:{
+      ...(prev[wkKey]||{}),
+      hours:currentWeekHours,
+      times:currentWeekTimes,
+      rotation:currentWeekConfig.rotation||rotation,
+      warehouse:nextWarehouse
+    }}));
+    setWeeks(prev=>{
+      const next=cloneWeek(prev[wkKey] || currentWeek);
+      next.forEach(day=>{
+        day.warehouse=nextWarehouse;
+        day.shifts=(day.shifts||[]).map(shift=>({...shift,warehouse:nextWarehouse}));
+      });
+      return {...prev,[wkKey]:next};
+    });
   };
 
   const dayHasPassed = dayIndex => {
@@ -2180,7 +2200,7 @@ export default function App() {
       {header}
       <View style={S.row}>
         {[10,12].map(h=>
-          <TouchableOpacity key={h} style={[S.btn,hours===h&&S.active]} onPress={()=>changeHours(h)}>
+          <TouchableOpacity key={h} style={[S.btn,currentWeekHours===h&&S.active]} onPress={()=>changeHours(h)}>
             <Text style={S.btnText}>{h} H</Text>
           </TouchableOpacity>
         )}
@@ -2188,6 +2208,11 @@ export default function App() {
           <Text style={S.btnText}>⚡ GENERUJ</Text>
         </TouchableOpacity>
       </View>
+
+      <Text style={S.section}>Magazyn całego tygodnia</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom:10}}>
+        {WAREHOUSES.map(w=><TouchableOpacity key={w} style={[S.chip,currentWeekWarehouse===w&&S.active]} onPress={()=>changeWeekWarehouse(w)}><Text style={S.btnText}>{w}</Text></TouchableOpacity>)}
+      </ScrollView>
 
       <View style={S.row}>
         <TouchableOpacity style={[S.btn,viewMode==='table'&&S.active]} onPress={()=>setViewMode('table')}><Text style={S.btnText}>▦ TABELA</Text></TouchableOpacity>
@@ -2232,7 +2257,7 @@ export default function App() {
                   <View style={S.between}>
                     <View>
                       <Text style={S.shiftTitle}>Zmiana {s.shift}</Text>
-                      <Text style={S.time}>{shiftTime(times,s.shift)}</Text>
+                      <Text style={S.time}>{shiftTime(currentWeekTimes,s.shift)}</Text>
                     </View>
                     <Text style={S.lockText}>{s.locked?'🔒':' '}</Text>
                   </View>
